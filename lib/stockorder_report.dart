@@ -59,9 +59,34 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   String _headerSubtitle = '';
   
   bool _isConsolidatedExpanded = false;
+  bool _isReportView = false;
+  
+  String _selectedDepartmentFilter = 'ALL';
+  Set<String> _availableDepartments = {'ALL'};
 
   // Map to track local edits: OrderID_ItemID -> Controller
   final Map<String, TextEditingController> _controllers = {};
+  
+  // Track recently updated items to delay sorting move
+  final Set<String> _recentlyUpdatedIds = {};
+  
+  void _markUpdated(String productId) {
+      if (_recentlyUpdatedIds.contains(productId)) return; // Already tracking
+      
+      setState(() {
+         _recentlyUpdatedIds.add(productId);
+      });
+      
+      // Wait 5 seconds then remove and refresh sorting
+      Future.delayed(const Duration(seconds: 5), () {
+          if (mounted) {
+              setState(() {
+                  _recentlyUpdatedIds.remove(productId);
+                  _processStockOrders();
+              });
+          }
+      });
+  }
 
   @override
   void initState() {
@@ -178,6 +203,19 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   List<Map<String, dynamic>> _availableBranches = [];
+  Future<void> _handleFullRefresh() async {
+    setState(() {
+       final now = DateTime.now();
+       fromDate = now;
+       toDate = now;
+       selectedBranchId = widget.initialBranchId ?? 'ALL';
+       _selectedCategoryFilter = 'ALL';
+       _selectedDepartmentFilter = 'ALL';
+       _loading = true; // Show loader
+    });
+    await _fetchStockOrders();
+  }
+
 
   Future<void> _fetchStockOrders() async {
     if (fromDate == null) return;
@@ -254,6 +292,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
       _visibleStockOrders = filteredOrders;
       Set<String> uniqueCategories = {}; // Init Set
+      Set<String> uniqueDepartments = {'ALL'}; // Init Set for Footer
 
       for (var order in filteredOrders) {
           final orderId = order['id'] ?? order['_id'];
@@ -327,18 +366,26 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               }
               
               // Metadata
-              final meta = _getItemMetadata(product); 
-              pName = meta['name']!;
-              final dept = meta['department']!;
-              final cat = meta['category']!;
-              
-              // 1. Collect Categories
-              uniqueCategories.add(cat);
-              
-              // 2. Filter by Selected Category
-              if (_selectedCategoryFilter != 'ALL' && cat != _selectedCategoryFilter) {
-                 continue;
-              }
+            final meta = _getItemMetadata(product); 
+            pName = meta['name']!;
+            final dept = meta['department']!;
+            final cat = meta['category']!;
+            
+            // 1. Collect Departments (from all items in branch/date)
+            uniqueDepartments.add(dept);
+            
+            // 2. Filter by Selected Department (Footer)
+            if (_selectedDepartmentFilter != 'ALL' && dept != _selectedDepartmentFilter) {
+               continue;
+            }
+
+            // 3. Collect Categories (only from items in selected department)
+            uniqueCategories.add(cat);
+            
+            // 4. Filter by Selected Category
+            if (_selectedCategoryFilter != 'ALL' && cat != _selectedCategoryFilter) {
+               continue;
+            }
 
               final reqQty = ((item['requiredQty'] as num?) ?? 0).toDouble();
               final sentQty = ((item['sendingQty'] as num?) ?? 0).toDouble();
@@ -440,49 +487,20 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
              aDone = ((a['pickedQty'] as num?) ?? 0) > 0;
              bDone = ((b['pickedQty'] as num?) ?? 0) > 0;
           }
+          
+          // Delay sorting move for recently updated items
+          final aId = (a['productId'] as String?) ?? '';
+          final bId = (b['productId'] as String?) ?? '';
+          
+          if (_recentlyUpdatedIds.contains(aId)) {
+             aDone = false;
+          }
+          if (_recentlyUpdatedIds.contains(bId)) {
+             bDone = false;
+          }
 
-          if (isSupervisor) {
-             // Supervisor Priority:
-             // 1. Pending (Sent > 0, Conf == 0) -> Priority 0
-             // 2. Zero (Sent == 0) -> Priority 1
-             // 3. Approved (Sent > 0, Conf > 0) -> Priority 2 [Requested: Show After Zero]
-             
-             int getScore(Map<String, dynamic> item) {
-                final sent = ((item['sendingQty'] as num?) ?? 0).toDouble();
-                final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
-                
-                if (sent > 0 && conf == 0) return 0; // Pending
-                if (sent == 0) return 1; // Zero
-                return 2; // Approved
-             }
-             
-             final aScore = getScore(a);
-             final bScore = getScore(b);
-             
-             if (aScore != bScore) return aScore - bScore;
-
-          } else if (isDriver) {
-             // Driver Priority:
-             // 1. Pending (Conf > 0, Pick == 0) -> Priority 0
-             // 2. Zero (Conf == 0) -> Priority 1
-             // 3. Picked (Conf > 0, Pick > 0)  -> Priority 2 [Requested: Show After Zero]
-             
-             int getScore(Map<String, dynamic> item) {
-                final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
-                final pick = ((item['pickedQty'] as num?) ?? 0).toDouble();
-                
-                if (conf > 0 && pick == 0) return 0; // Pending
-                if (conf == 0) return 1; // Zero
-                return 2; // Picked
-             }
-
-             final aScore = getScore(a);
-             final bScore = getScore(b);
-
-             if (aScore != bScore) return aScore - bScore;
-             
-          } else if (aDone != bDone) {
-             return aDone ? 1 : -1; // Others: Done Last (Simple)
+          if (aDone != bDone) {
+             return aDone ? 1 : -1; // Done Items LAST
           }
           
           return (a['productName'] ?? '').compareTo(b['productName'] ?? '');
@@ -500,25 +518,44 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        // Map is safer since we might insert headers.
        
        Map<String, Map<String, double>> categoryTotals = {}; 
-       // Key: CategoryName, Value: {req, sent, conf, pick}
+       Map<String, Map<String, double>> departmentTotals = {};
+       // Key: CategoryName/DeptName, Value: {req, sent, conf, pick}
        
        for (var item in rawList) {
           final cat = item['categoryName'] as String;
+          final dept = item['departmentName'] as String;
+
+          // Category Totals
           if (!categoryTotals.containsKey(cat)) {
              categoryTotals[cat] = {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
           }
-          final totals = categoryTotals[cat]!;
-          totals['req'] = (totals['req']!) + ((item['requiredQty'] as num).toDouble());
-          totals['sent'] = (totals['sent']!) + ((item['sendingQty'] as num).toDouble());
-          totals['conf'] = (totals['conf']!) + ((item['confirmedQty'] as num).toDouble());
-          totals['pick'] = (totals['pick']!) + ((item['pickedQty'] as num).toDouble());
+          final cTotals = categoryTotals[cat]!;
+          cTotals['req'] = (cTotals['req']!) + ((item['requiredQty'] as num).toDouble());
+          cTotals['sent'] = (cTotals['sent']!) + ((item['sendingQty'] as num).toDouble());
+          cTotals['conf'] = (cTotals['conf']!) + ((item['confirmedQty'] as num).toDouble());
+          cTotals['pick'] = (cTotals['pick']!) + ((item['pickedQty'] as num).toDouble());
+
+          // Department Totals
+          if (!departmentTotals.containsKey(dept)) {
+             departmentTotals[dept] = {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
+          }
+          final dTotals = departmentTotals[dept]!;
+          dTotals['req'] = (dTotals['req']!) + ((item['requiredQty'] as num).toDouble());
+          dTotals['sent'] = (dTotals['sent']!) + ((item['sendingQty'] as num).toDouble());
+          dTotals['conf'] = (dTotals['conf']!) + ((item['confirmedQty'] as num).toDouble());
+          dTotals['pick'] = (dTotals['pick']!) + ((item['pickedQty'] as num).toDouble());
        }
 
        for (var item in rawList) {
           final dept = item['departmentName'] as String;
           final cat = item['categoryName'] as String;
           if (dept != lastDept && widget.categoryId == null) {
-              _consolidatedItems.add({'type': 'header_dept', 'title': dept});
+              final dTotals = departmentTotals[dept] ?? {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
+              _consolidatedItems.add({
+                  'type': 'header_dept', 
+                  'title': dept,
+                  'totals': dTotals
+              });
               lastDept = dept;
               lastCat = null; 
           }
@@ -537,6 +574,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        }
 
       _headerSubtitle = '${_consolidatedItems.where((i) => i['type'] == 'item').length} Products     Req Amt: ${totalReqAmt.toInt()}     Snt Qty: ${_formatQty(totalSent)}';
+      _availableDepartments = uniqueDepartments; // Update Footer Options
       _combinedOrder = null; 
   }
 
@@ -782,6 +820,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   // currently re-using existing logic is fine but we need to handle the display.
 
   Future<void> _saveConsolidatedConfirm(Map<String, dynamic> entry) async {
+      _markUpdated(entry['productId']);
       final originalItems = entry['originalItems'] as List;
       double newTotalConfirmed = 0;
       
@@ -869,6 +908,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   Future<void> _saveManualConsolidatedConfirm(Map<String, dynamic> entry, double newVal) async {
+       _markUpdated(entry['productId']);
       final originalItems = entry['originalItems'] as List;
       double remainingToAllocate = newVal;
       
@@ -966,6 +1006,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   Future<void> _saveManualConsolidatedPick(Map<String, dynamic> entry, double val) async {
+       _markUpdated(entry['productId']);
       double newVal = val;
       if (newVal < 0) newVal = 0;
       
@@ -1009,6 +1050,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   Future<void> _saveConsolidatedPick(Map<String, dynamic> entry) async {
+      _markUpdated(entry['productId']);
       final originalItems = entry['originalItems'] as List;
       double newTotalPicked = 0;
       
@@ -1081,7 +1123,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           child: InkWell(
             onTap: _pickDateRange,
             child: Container(
-              height: 48,
+              height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               alignment: Alignment.centerLeft,
               decoration: BoxDecoration(
@@ -1111,7 +1153,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         Expanded(
           flex: 3,
           child: Container(
-            height: 48,
+            height: 36,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
                border: Border.all(color: Colors.grey.shade400),
@@ -1150,7 +1192,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
      }
 
      return SizedBox(
-        height: 50,
+        height: 40,
         child: ListView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1295,9 +1337,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                child: Column(
                  crossAxisAlignment: CrossAxisAlignment.start,
                  children: [
-                   Text(
-                     (item['title'] ?? '').toString().toUpperCase(),
-                     style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black87),
+                   Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                          Text(
+                            (item['title'] ?? '').toString().toUpperCase(),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black87),
+                          ),
+                          _buildTotalsText(item['totals']),
+                      ],
                    ),
                    const Divider(color: Colors.black54, thickness: 2, height: 8),
                  ],
@@ -1308,42 +1356,23 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           flushGroup();
           isUnderCategory = true; // Start category section
           
-          final title = (item['title'] ?? '').toString();
-          
-          // Generate Display String based on Role
-          String displayText = title;
-          final totals = item['totals'] as Map<String, dynamic>?;
-          
-          if (totals != null) {
-             if (isChef) {
-                displayText = '$title (ORD: ${_formatQty(totals['req'] ?? 0)} - SNT: ${_formatQty(totals['sent'] ?? 0)} )';
-             } else if (isSupervisor) {
-                displayText = '$title (SNT: ${_formatQty(totals['sent'] ?? 0)} - CON: ${_formatQty(totals['conf'] ?? 0)} )';
-             } else if (_userRole == 'driver') {
-                displayText = '$title (CON: ${_formatQty(totals['conf'] ?? 0)} - PIC: ${_formatQty(totals['pick'] ?? 0)} )';
-             } else {
-                 // Default (maybe Factory?)
-                 displayText = '$title (ORD: ${_formatQty(totals['req'] ?? 0)} - SNT: ${_formatQty(totals['sent'] ?? 0)} )';
-             }
-          }
-          
           slivers.add(SliverToBoxAdapter(
              child: Container(
-               color: Colors.yellow.shade100.withOpacity(0.5), // Mild Yellow Background for Header Area
-               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-               child: Container(
-                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                 decoration: BoxDecoration(
-                   color: _getCategoryColor(title),
-                   borderRadius: BorderRadius.circular(6),
-                 ),
-                 child: Text(
-                   displayText.toUpperCase(),
-                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.black),
-                 ),
+               color: const Color(0xFFEFEBE9), // Standard Report Header Color
+               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+               child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                      Text(
+                        (item['title'] ?? '').toString(),
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                      _buildTotalsText(item['totals']),
+                  ],
                ),
              ),
           ));
+          
        } else if (item['type'] == 'item') {
           currentGroup.add(item);
        }
@@ -2644,6 +2673,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   textInputAction: TextInputAction.done,
                   onTapOutside: (event) {
                      final doubleVal = double.tryParse(controller.text) ?? 0;
+                     _markUpdated(entry['productId']);
                      _saveStockOrder(entry, doubleVal);
                      setState(() {
                        entry['isTyping'] = false; 
@@ -2652,6 +2682,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   },
                   onSubmitted: (val) {
                      final doubleVal = double.tryParse(val) ?? 0;
+                     _markUpdated(entry['productId']);
                      _saveStockOrder(entry, doubleVal);
                      setState(() {
                        entry['isTyping'] = false; 
@@ -2995,12 +3026,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     Widget mainContent = Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.all(8.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
                    _buildDateSelector(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               _buildCategoryChips(),
             ],
           ),
@@ -3011,7 +3042,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               : stockOrders.isEmpty
                   ? const Center(child: Text('No stock orders found'))
                 : (isChef || isSupervisor || _userRole == 'driver')
-                    ? CustomScrollView(
+                    ? _isReportView 
+                        ? _buildReportView()
+                        : CustomScrollView(
                                slivers: [
                                   ..._buildGridSlivers(),
                                   // Removed Consolidated Header from bottom as requested
@@ -3038,12 +3071,71 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           const SizedBox(width: 10),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _fetchStockOrders,
+            onPressed: _handleFullRefresh,
           ),
+           if (isChef || isSupervisor || isDriver)
+            IconButton(
+              icon: Icon(_isReportView ? Icons.grid_view : Icons.table_chart),
+              onPressed: () {
+                setState(() {
+                  _isReportView = !_isReportView;
+                });
+              },
+            ),
         ],
       ),
       body: mainContent, 
+      bottomNavigationBar: _buildDepartmentFooter(),
     );
+  }
+  
+  Widget _buildDepartmentFooter() {
+     if (_availableDepartments.isEmpty || _availableDepartments.length <= 1) return const SizedBox.shrink();
+     
+     final sortedDepts = _availableDepartments.toList()..sort();
+     // Ensure ALL is first
+     if (sortedDepts.contains('ALL')) {
+        sortedDepts.remove('ALL');
+        sortedDepts.insert(0, 'ALL');
+     }
+
+     return Container(
+        height: 60,
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        color: Colors.black, // Dark Footer
+        child: ListView.separated(
+           scrollDirection: Axis.horizontal,
+           itemCount: sortedDepts.length,
+           separatorBuilder: (context, index) => const SizedBox(width: 8),
+           itemBuilder: (context, index) {
+              final dept = sortedDepts[index];
+              final isSelected = _selectedDepartmentFilter == dept;
+              return ChoiceChip(
+                 label: Text(dept),
+                 selected: isSelected,
+                 onSelected: (selected) {
+                    if (selected) {
+                       setState(() {
+                          _selectedDepartmentFilter = dept;
+                          _selectedCategoryFilter = 'ALL'; // Reset category on department change
+                          _processStockOrders();
+                       });
+                    }
+                 },
+                 selectedColor: Colors.white,
+                 labelStyle: TextStyle(
+                    color: isSelected ? Colors.black : Colors.white,
+                    fontWeight: FontWeight.bold
+                 ),
+                 backgroundColor: Colors.grey.shade900,
+                 shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: Colors.transparent),
+                 ),
+              );
+           },
+        ),
+     );
   }
   bool _matchesCategory(dynamic item) {
      if (widget.categoryId == null) return true;
@@ -3056,5 +3148,225 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
      else if (catObj is String) cId = catObj;
      
      return cId == widget.categoryId;
+  }
+
+  Widget _buildReportView() {
+     return ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: _consolidatedItems.length,
+        separatorBuilder: (context, index) {
+            final type = _consolidatedItems[index]['type'];
+            if (type == 'header_dept' || type == 'header_cat') return const SizedBox.shrink();
+            return const Divider(height: 1);
+        },
+        itemBuilder: (context, index) {
+           final item = _consolidatedItems[index]; // Map<String, dynamic>
+           final type = item['type'];
+           
+           if (type == 'header_dept') {
+              return Padding(
+                padding: const EdgeInsets.only(top: 24, bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          (item['title'] ?? '').toString().toUpperCase(),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+                        ),
+                        _buildTotalsText(item['totals']),
+                      ],
+                    ),
+                    const Divider(color: Colors.blueGrey, thickness: 2),
+                  ],
+                ),
+              );
+           } else if (type == 'header_cat') {
+              return Container(
+                 margin: const EdgeInsets.only(top: 12, bottom: 4),
+                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                 color: Colors.grey.shade200,
+                 child: Row(
+                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                   children: [
+                     Text(
+                        (item['title'] ?? '').toString(),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                     ),
+                     _buildTotalsText(item['totals']),
+                   ],
+                 ),
+              );
+           }
+           
+           return _buildReportItem(item);
+        },
+     );
+  }
+
+  Widget _buildTotalsText(dynamic totalsRaw) {
+      if (totalsRaw == null) return const SizedBox.shrink();
+      final totals = totalsRaw as Map<String, dynamic>;
+      
+      String p1Label = '', p1Val = '';
+      String p2Label = '', p2Val = '';
+      String diffVal = '';
+      
+      if (isChef) {
+         final req = (totals['req'] ?? 0) as double;
+         final sent = (totals['sent'] ?? 0) as double;
+         p1Label = 'Ord:'; p1Val = _formatQty(req);
+         p2Label = 'Snt:'; p2Val = _formatQty(sent);
+         diffVal = _formatQty(req - sent);
+         
+      } else if (isSupervisor) {
+         final sent = (totals['sent'] ?? 0) as double;
+         final conf = (totals['conf'] ?? 0) as double;
+         p1Label = 'Snt:'; p1Val = _formatQty(sent);
+         p2Label = 'Con:'; p2Val = _formatQty(conf);
+         diffVal = _formatQty(sent - conf);
+         
+      } else if (isDriver) {
+         final conf = (totals['conf'] ?? 0) as double;
+         final pick = (totals['pick'] ?? 0) as double;
+         p1Label = 'Con:'; p1Val = _formatQty(conf);
+         p2Label = 'Pic:'; p2Val = _formatQty(pick);
+         diffVal = _formatQty(conf - pick);
+      }
+      
+      return RichText(
+         text: TextSpan(
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blueGrey[800]),
+            children: [
+               TextSpan(text: '$p1Label $p1Val   '),
+               TextSpan(text: '$p2Label $p2Val   '),
+               TextSpan(
+                  text: 'Dif: $diffVal',
+                  style: const TextStyle(color: Colors.red), // Red Color for Dif
+               ),
+            ],
+         ),
+      );
+  }
+
+  Widget _buildReportItem(Map<String, dynamic> item) {
+      if (item['type'] != 'item') return const SizedBox.shrink();
+      
+      final pName = item['productName'] ?? 'Unknown';
+      final price = item['price'];
+      final unit = item['unit'];
+      String priceStr = '';
+      if (price != null) {
+         priceStr = '${_formatQty(price)} $unit';
+      }
+
+    // Determine Status
+    final statuses = (item['statuses'] as Set?) ?? {};
+    String statusStr = '';
+    if (statuses.contains('picked')) {
+        statusStr = ' - picked';
+    } else if (statuses.contains('received')) { 
+        statusStr = ' - received';
+    } else if (statuses.contains('confirmed')) {
+        statusStr = ' - confirmed';
+    } else if (statuses.contains('sending')) {
+        statusStr = ' - sending';
+    } else {
+        statusStr = ' - ordered';
+    }
+
+      // Columns based on Role
+      Widget col1 = const SizedBox.shrink();
+      Widget col2 = const SizedBox.shrink();
+      
+      if (isChef) {
+         // Ordered | Sending
+         final ord = ((item['requiredQty'] as num?) ?? 0).toDouble();
+         final sent = ((item['sendingQty'] as num?) ?? 0).toDouble();
+         
+         col1 = _buildReportCol('Ordered', ord, Colors.red);
+         col2 = _buildReportCol('Sending', sent, Colors.green);
+      } else if (isSupervisor) {
+         // Sent | Confirmed
+         final sent = ((item['sendingQty'] as num?) ?? 0).toDouble();
+         final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+         
+         col1 = _buildReportCol('Sent', sent, Colors.red);
+         col2 = _buildReportCol('Confirmed', conf, Colors.green);
+      } else if (isDriver) {
+         // Confirmed | Picked
+         final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+         final pick = ((item['pickedQty'] as num?) ?? 0).toDouble();
+         
+         col1 = _buildReportCol('Confirmed', conf, Colors.red);
+         col2 = _buildReportCol('Picked', pick, Colors.green);
+      }
+
+      // Determine Approval Status for Background Color
+    bool isApproved = false;
+    if (isChef) {
+       final sent = ((item['sendingQty'] as num?) ?? 0).toDouble();
+       isApproved = sent > 0;
+    } else if (isSupervisor) {
+       final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+       isApproved = conf > 0;
+    } else if (isDriver) {
+       final pick = ((item['pickedQty'] as num?) ?? 0).toDouble();
+       isApproved = pick > 0;
+    }
+
+    final bgColor = isApproved ? Colors.green.shade50 : Colors.red.shade50;
+
+    return Container(
+      color: bgColor,
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4),
+      margin: const EdgeInsets.only(bottom: 1), // Separation
+      child: Row(
+         children: [
+            Expanded(
+               flex: 4,
+               child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                     Text(pName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                     if (priceStr.isNotEmpty)
+                       Text(
+                           '$priceStr $statusStr'.trim(), 
+                           style: TextStyle(color: Colors.grey[600], fontSize: 12)
+                       ),
+                  ],
+               ),
+            ),
+            Expanded(
+               flex: 2,
+               child: col1,
+            ),
+            Expanded(
+               flex: 2,
+               child: col2,
+            ),
+         ],
+      ),
+    );
+  }
+
+  Widget _buildReportCol(String label, double val, Color color) {
+     return Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+           Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+           const SizedBox(height: 2),
+           Text(
+              _formatQty(val), 
+              style: TextStyle(
+                 fontWeight: FontWeight.bold, 
+                 fontSize: 16, 
+                 color: val > 0 ? color : Colors.grey.shade400
+              ),
+            ),
+        ],
+     );
   }
 }
