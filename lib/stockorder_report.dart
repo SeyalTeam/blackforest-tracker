@@ -415,7 +415,19 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               grp['requiredQty'] = (grp['requiredQty'] as double) + reqQty;
               grp['sendingQty'] = (grp['sendingQty'] as double) + sentQty;
               grp['confirmedQty'] = (grp['confirmedQty'] as double) + ((item['confirmedQty'] as num?) ?? 0).toDouble(); 
-              grp['pickedQty'] = (grp['pickedQty'] as double) + ((item['pickedQty'] as num?) ?? 0).toDouble(); // Aggregate Picked
+              grp['confirmedQty'] = (grp['confirmedQty'] as double) + ((item['confirmedQty'] as num?) ?? 0).toDouble(); 
+              grp['pickedQty'] = (grp['pickedQty'] as double) + ((item['pickedQty'] as num?) ?? 0).toDouble();
+              
+              if (!grp.containsKey('receivedQty')) grp['receivedQty'] = 0.0;
+              
+              if (item['status'] == 'received') {
+                 // Logic: If status is received, we count the picked qty as received (or confirmed if picked is 0, etc.)
+                 final p = ((item['pickedQty'] as num?) ?? 0).toDouble();
+                 final c = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+                 final s = ((item['sendingQty'] as num?) ?? 0).toDouble();
+                 final val = p > 0 ? p : (c > 0 ? c : s);
+                 grp['receivedQty'] = (grp['receivedQty'] as double) + val;
+              }
 
               (grp['statuses'] as Set).add(status);
               if (((item['confirmedQty'] as num?) ?? 0) > 0) {
@@ -1386,6 +1398,134 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     return slivers;
   }
 
+  Widget _buildFactoryConsolidatedView() {
+      // Filter out headers for clean data iteration if needed, OR verify _consolidatedItems structure.
+      // _consolidatedItems contains: header_dept, header_cat, item.
+      // We want to render a single long card with this structure.
+
+      return SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                 // Top Header
+                 Padding(
+                   padding: const EdgeInsets.all(16),
+                   child: Column(
+                     crossAxisAlignment: CrossAxisAlignment.start,
+                     children: [
+                        const Text('ALL BRANCHES CONSOLIDATED', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        const SizedBox(height: 4),
+                        Text('Delivery: $_headerDeliveryStr', style: TextStyle(color: Colors.blue[700], fontSize: 14, fontWeight: FontWeight.bold)),
+                        Text('Created: $_headerCreatedStr', style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+                     ],
+                   ),
+                 ),
+                 const Divider(height: 1),
+                 
+                 // Table Header
+                 Container(
+                     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                     color: const Color(0xFFEFEBE9),
+                     child: Row(
+                        children: [
+                          const Expanded(flex: 3, child: Text('Product Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                          const Expanded(flex: 1, child: Center(child: Text('Ord', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                          const Expanded(flex: 1, child: Center(child: Text('Snt', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                          const Expanded(flex: 1, child: Center(child: Text('Con', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                          const Expanded(flex: 1, child: Center(child: Text('Pic', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                          const Expanded(flex: 1, child: Center(child: Text('Rec', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                        ],
+                     ),
+                 ),
+                 
+                 // Content
+                 ..._consolidatedItems.map((entry) {
+                     if (entry['type'] == 'header_dept') {
+                        return Container(
+                          width: double.infinity,
+                          color: const Color(0xFFA1887F),
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                          child: Text(
+                             (entry['title'] as String).toUpperCase(),
+                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                             textAlign: TextAlign.center,
+                          ),
+                        );
+                     } else if (entry['type'] == 'header_cat') {
+                        return Container(
+                          width: double.infinity,
+                          color: Colors.grey.shade200,
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+                          child: Text(
+                             (entry['title'] as String).toUpperCase(),
+                             style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                             textAlign: TextAlign.center,
+                          ),
+                        );
+                     } else if (entry['type'] == 'item') {
+                         final req = ((entry['requiredQty'] as num?) ?? 0).toDouble();
+                         final sent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+                         final conf = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
+                         final picked = ((entry['pickedQty'] as num?) ?? 0).toDouble();
+                         final rec = ((entry['receivedQty'] as num?) ?? 0).toDouble();
+                         final price = ((entry['price'] as num?) ?? 0).toDouble();
+                         final unit = entry['unit'] ?? '';
+                         
+                         return Container(
+                           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                           decoration: BoxDecoration(
+                               color: rec > 0 ? Colors.green.shade50 : Colors.red.shade50,
+                               border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+                           ),
+                           child: Row(
+                             children: [
+                                Expanded(
+                                  flex: 3, 
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(entry['productName'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                                      Text('${_formatQty(price)} $unit', style: TextStyle(fontSize: 10, color: Colors.grey[600], fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(flex: 1, child: Center(child: Text(_formatQty(req), style: const TextStyle(fontSize: 12)))),
+                                Expanded(flex: 1, child: Center(child: Text(_formatQty(sent), style: const TextStyle(fontSize: 12, color: Colors.blue)))),
+                                Expanded(flex: 1, child: Center(child: Text(_formatQty(conf), style: const TextStyle(fontSize: 12, color: Colors.orange)))),
+                                Expanded(flex: 1, child: Center(child: Text(_formatQty(picked), style: const TextStyle(fontSize: 12, color: Colors.purple)))),
+                                Expanded(flex: 1, child: Center(child: Text(rec > 0 ? _formatQty(rec) : '-', style: const TextStyle(fontSize: 12, color: Colors.teal, fontWeight: FontWeight.bold)))),
+                             ],
+                           ),
+                         );
+                     }
+                     return const SizedBox.shrink();
+                 }),
+                 
+                 const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
+      );
+  }
+
+  Widget _buildSummaryColumn(String label, double value, Color color) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text(_formatQty(value), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStockOrderCard(Map<String, dynamic> order) {
     final orderId = (order['id'] ?? order['_id'])?.toString() ?? 'unknown';
     final invoiceNumber = order['invoiceNumber'] ?? 'No Invoice';
@@ -1408,7 +1548,119 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final deliveryStr = deliveryDate != null ? dateFmt.format(deliveryDate.add(const Duration(hours: 5, minutes: 30))) : '';
 
     final isFactory = _userRole == 'factory' || _userRole == 'chef';
+    final isStrictFactory = _userRole == 'factory';
     final isSupervisor = _userRole == 'supervisor';
+
+    if (isStrictFactory) {
+       return Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+               // Header
+               Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(invoiceNumber, style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+                    _buildStatusChip(status),
+                  ],
+               ),
+               const SizedBox(height: 4),
+               Text(branchName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+               const SizedBox(height: 4),
+               Row(
+                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                 children: [
+                   Text('Delivery: $deliveryStr', style: TextStyle(color: Colors.blue[700], fontSize: 14, fontWeight: FontWeight.bold)),
+                   Text(createdStr, style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+                 ],
+               ),
+               
+               const Divider(height: 16),
+               
+               // Table Header
+               Container(
+                 padding: const EdgeInsets.symmetric(vertical: 8),
+                 color: const Color(0xFFEFEBE9), 
+                 child: Row(
+                    children: [
+                      const Expanded(flex: 3, child: Text('Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                      const Expanded(flex: 1, child: Center(child: Text('Ord', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)))),
+                      const Expanded(flex: 1, child: Center(child: Text('Snt', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)))),
+                      const Expanded(flex: 1, child: Center(child: Text('Con', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)))),
+                      const Expanded(flex: 1, child: Center(child: Text('Pic', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)))),
+                      const Expanded(flex: 1, child: Center(child: Text('Rec', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)))),
+                    ],
+                 ),
+               ),
+               
+               // Items List
+               ...filteredItems.map((item) {
+                   final product = item['product'];
+                   final pName = (product is Map ? product['name'] : 'Unknown') ?? 'Unknown';
+                   final req = ((item['requiredQty'] as num?) ?? 0).toDouble();
+                   final sent = ((item['sendingQty'] as num?) ?? 0).toDouble();
+                   final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+                   final picked = ((item['pickedQty'] as num?) ?? 0).toDouble();
+                   final itemStatus = (item['status'] as String?)?.toLowerCase() ?? 'pending';
+                   
+                   double received = 0;
+                   if (itemStatus == 'received') {
+                       received = picked > 0 ? picked : (conf > 0 ? conf : sent);
+                   }
+
+                   // Price/Unit Logic
+                   double price = 0.0;
+                   String unit = '';
+                   if (product is Map) {
+                       if (product['defaultPriceDetails'] is Map) {
+                           final details = product['defaultPriceDetails'];
+                           price = ((details['price'] ?? 0) as num).toDouble();
+                           final qty = ((details['quantity'] ?? 0) as num).toDouble();
+                           final u = details['unit'] ?? '';
+                           unit = '${_formatQty(qty)}$u'; 
+                       } else {
+                           price = ((product['price'] ?? 0) as num).toDouble();
+                           unit = product['unit'] ?? '';
+                       }
+                   }
+
+                   return Container(
+                     padding: const EdgeInsets.symmetric(vertical: 8),
+                     decoration: BoxDecoration(
+                         color: received > 0 ? Colors.green.shade50 : Colors.red.shade50,
+                         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                     ),
+                     child: Row(
+                       children: [
+                          Expanded(
+                            flex: 3, 
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(pName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                Text('${_formatQty(price)} $unit', style: TextStyle(fontSize: 10, color: Colors.grey[600], fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                          Expanded(flex: 1, child: Center(child: Text(_formatQty(req), style: const TextStyle(fontSize: 12)))),
+                          Expanded(flex: 1, child: Center(child: Text(_formatQty(sent), style: const TextStyle(fontSize: 12, color: Colors.blue)))),
+                          Expanded(flex: 1, child: Center(child: Text(_formatQty(conf), style: const TextStyle(fontSize: 12, color: Colors.orange)))),
+                          Expanded(flex: 1, child: Center(child: Text(_formatQty(picked), style: const TextStyle(fontSize: 12, color: Colors.purple)))),
+                          Expanded(flex: 1, child: Center(child: Text(received > 0 ? _formatQty(received) : '-', style: const TextStyle(fontSize: 12, color: Colors.teal, fontWeight: FontWeight.bold)))),
+                       ],
+                     ),
+                   );
+               }),
+            ],
+          ),
+        ),
+       );
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -3019,7 +3271,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     // Check if user is factory for consolidated view
     // Check if user is factory or supervisor for consolidated view
     final isFactory = _userRole == 'factory' || _userRole == 'supervisor';
-    final isSupervisor = _userRole == 'supervisor';
+  final isStrictFactory = _userRole == 'factory';
+  final isSupervisor = _userRole == 'supervisor';
     // Chef View
     final isChef = _userRole == 'chef';
 
@@ -3041,10 +3294,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               ? const Center(child: CircularProgressIndicator())
               : stockOrders.isEmpty
                   ? const Center(child: Text('No stock orders found'))
-                : (isChef || isSupervisor || _userRole == 'driver')
-                    ? _isReportView 
-                        ? _buildReportView()
-                        : CustomScrollView(
+              : (isStrictFactory && selectedBranchId == 'ALL')
+                  ? _buildFactoryConsolidatedView()
+                  : (isChef || isSupervisor || _userRole == 'driver')
+                  ? _isReportView 
+                      ? _buildReportView()
+                      : CustomScrollView(
                                slivers: [
                                   ..._buildGridSlivers(),
                                   // Removed Consolidated Header from bottom as requested
