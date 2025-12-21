@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'home.dart';
@@ -16,26 +17,118 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _branchController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
-  String? _currentIp;
+  String? _privateIp;
+  bool _isIpAuthorized = true; // Default to true until check completes
+  List<String> _dynamicAllowedRanges = [];
+
+  static const List<String> _allowedIpRanges = [
+    '157.51.21.130-157.51.21.250',
+    '157.51.32.24-157.51.32.78',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _fetchIp();
+    _initializeAuth();
   }
 
-  Future<void> _fetchIp() async {
+  Future<void> _initializeAuth() async {
+    await _fetchDynamicRanges();
+    await _fetchIp();
+  }
+
+  Future<void> _fetchDynamicRanges() async {
     try {
-      final response = await http.get(Uri.parse('https://api.ipify.org?format=json'));
-      if (response.statusCode == 200) {
-        if (mounted) {
-          setState(() {
-            _currentIp = jsonDecode(response.body)['ip'];
-          });
+      final res = await http.get(Uri.parse('https://admin.theblackforestcakes.com/api/branches?limit=1000'));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final docs = data['docs'] as List?;
+        if (docs != null) {
+          final ranges = docs
+              .map((d) => d['ipAddress']?.toString().trim() ?? '')
+              .where((ip) => ip.isNotEmpty)
+              .toList();
+          if (mounted) {
+            setState(() {
+              _dynamicAllowedRanges = ranges;
+            });
+          }
         }
       }
     } catch (e) {
-      debugPrint('Failed to fetch IP: $e');
+      debugPrint('Failed to fetch dynamic ranges: $e');
+    }
+  }
+
+  int _ipToLong(String ip) {
+    try {
+      List<int> parts = ip.split('.').map(int.parse).toList();
+      return (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  bool _checkIpInRange(String ip, String range) {
+    if (!range.contains('-')) return ip == range.trim();
+    
+    List<String> parts = range.split('-').map((e) => e.trim()).toList();
+    if (parts.length != 2) return false;
+
+    int ipLong = _ipToLong(ip);
+    int startLong = _ipToLong(parts[0]);
+    int endLong = _ipToLong(parts[1]);
+
+    if (ipLong == 0 || startLong == 0 || endLong == 0) return false;
+
+    return ipLong >= startLong && ipLong <= endLong;
+  }
+
+  bool _isPrivateIpAuthorized(String? private) {
+    final allRanges = [..._allowedIpRanges, ..._dynamicAllowedRanges];
+    for (final range in allRanges) {
+      if (private != null && _checkIpInRange(private, range)) return true;
+    }
+    return false;
+  }
+
+  Future<void> _fetchIp() async {
+    String? private;
+
+    try {
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      
+      if (interfaces.isNotEmpty) {
+        // Find the best local IP (prioritize common LAN ranges)
+        for (var interface in interfaces) {
+          for (var addr in interface.addresses) {
+            final ip = addr.address;
+            // Prioritize standard private ranges
+            if (ip.startsWith('192.168.') || 
+                ip.startsWith('10.') || 
+                ip.startsWith('172.16.') ||
+                ip.startsWith('192.0.')) {
+              private = ip;
+              break;
+            }
+            // Fallback to any non-loopback IPv4
+            private ??= ip;
+          }
+          if (private != null) break;
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch Private IP: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _privateIp = private;
+        _isIpAuthorized = _isPrivateIpAuthorized(private);
+      });
     }
   }
 
@@ -44,6 +137,20 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _isLoading = true;
       });
+      
+      // Ensure Private IP is fetched before proceeding
+      if (_privateIp == null) {
+        await _fetchIp();
+        if (_privateIp == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Working on network identification... Please try again in 2 seconds.')),
+            );
+            setState(() => _isLoading = false);
+            return;
+          }
+        }
+      }
 
       try {
         // Attempt Real Login
@@ -52,12 +159,16 @@ class _LoginPageState extends State<LoginPage> {
         
         final res = await http.post(
           Uri.parse('https://admin.theblackforestcakes.com/api/users/login'),
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            'x-private-ip': _privateIp ?? '', // Critical header for server-side validation
+          },
           body: jsonEncode({
             'email': _branchController.text.trim().contains('@') 
                 ? _branchController.text.trim() 
                 : '${_branchController.text.trim()}@bf.com',
             'password': _passwordController.text,
+            'privateIp': _privateIp, // Send private IP for server-side validation
           }),
         );
 
@@ -210,36 +321,89 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                   ),
                 ),
-                if (_currentIp != null) ...[
+                if (_privateIp != null) ...[
                   const SizedBox(height: 24),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[200]!),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.wifi, size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Current IP: $_currentIp',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[700],
-                            fontFamily: 'monospace',
-                          ),
+                        _buildIpRow(
+                          Icons.lan, 
+                          'Private IP', 
+                          _privateIp!,
+                          isAuthorized: _isIpAuthorized,
                         ),
                       ],
                     ),
                   ),
+                  if (!_isIpAuthorized)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(
+                        'Unauthorized Network',
+                        style: TextStyle(
+                          color: Colors.red[700],
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                 ],
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildIpRow(IconData icon, String label, String value, {bool? isAuthorized}) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Colors.grey[600]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[500],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: (isAuthorized != null && isAuthorized)
+                      ? Colors.green[700] 
+                      : (isAuthorized != null && !isAuthorized)
+                          ? Colors.red[700]
+                          : Colors.grey[800],
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (isAuthorized != null)
+          Icon(
+            isAuthorized ? Icons.check_circle : Icons.error,
+            size: 16,
+            color: isAuthorized ? Colors.green : Colors.red,
+          ),
+      ],
     );
   }
 }
