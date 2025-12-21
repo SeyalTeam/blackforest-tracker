@@ -85,4 +85,23 @@ class ApiService {
       rethrow;
     }
   }
+
+  Future<List<dynamic>> fetchBranches() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/branches?limit=1000'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load branches');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }

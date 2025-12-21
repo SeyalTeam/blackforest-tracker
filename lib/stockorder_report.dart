@@ -17,6 +17,7 @@ class StockOrderReportPage extends StatefulWidget {
   final String? categoryName;
   final String? departmentId;
   final String? departmentName;
+  final bool onlyTodayOrdered;
 
   const StockOrderReportPage({
     super.key,
@@ -27,6 +28,7 @@ class StockOrderReportPage extends StatefulWidget {
     this.categoryName,
     this.departmentId,
     this.departmentName,
+    this.onlyTodayOrdered = false,
   });
 
   @override
@@ -36,6 +38,7 @@ class StockOrderReportPage extends StatefulWidget {
 class _StockOrderReportPageState extends State<StockOrderReportPage> {
   bool _loading = true;
   bool _loadingBranches = true;
+  bool _isSaving = false;
   DateTime? fromDate;
   DateTime? toDate;
   List<Map<String, String>> branches = [];
@@ -52,7 +55,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   bool get isDriver => _userRole == 'driver';
   bool get isFactory => _userRole == 'factory';
   // Consolidated View Cache
-  List<Map<String, dynamic>> _consolidatedItems = [];
+  List<Map<String, dynamic>> _consolidatedItems = []; // Deprecated - replaced by specific lists
+  List<Map<String, dynamic>> _consolidatedItemsGrid = [];
+  List<Map<String, dynamic>> _consolidatedItemsReport = [];
   String _headerBranchCodes = '';
   String _headerDeliveryStr = '';
   String _headerCreatedStr = '';
@@ -63,6 +68,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   
   String _selectedDepartmentFilter = 'ALL';
   Set<String> _availableDepartments = {'ALL'};
+  String _statusFilter = 'ALL';
 
   // Map to track local edits: OrderID_ItemID -> Controller
   final Map<String, TextEditingController> _controllers = {};
@@ -92,8 +98,14 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   void initState() {
     super.initState();
     final now = DateTime.now();
-    fromDate = widget.initialFromDate ?? now;
-    toDate = widget.initialToDate ?? now;
+    if (widget.onlyTodayOrdered) {
+       fromDate = now;
+       toDate = now;
+    } else {
+       fromDate = widget.initialFromDate ?? now;
+       toDate = widget.initialToDate ?? now;
+    }
+    
     if (widget.initialBranchId != null) {
       selectedBranchId = widget.initialBranchId!;
     }
@@ -180,7 +192,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   // Helper
   String _formatQty(num val) {
     if (val % 1 == 0) return val.toInt().toString();
-    return val.toString();
+    return val.toStringAsFixed(2);
   }
 
   Future<void> _fetchCategories() async {
@@ -211,6 +223,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        selectedBranchId = widget.initialBranchId ?? 'ALL';
        _selectedCategoryFilter = 'ALL';
        _selectedDepartmentFilter = 'ALL';
+       _statusFilter = 'ALL'; // Reset status filter on refresh
        _loading = true; // Show loader
     });
     await _fetchStockOrders();
@@ -282,13 +295,33 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       DateTime? maxCreatedDate;
 
       // Filter orders by Branch Selection
-      final filteredOrders = selectedBranchId == 'ALL' 
-          ? stockOrders 
-          : stockOrders.where((o) {
-              final b = o['branch'];
-              final bid = b is Map ? (b['id'] ?? b['_id']) : null;
-              return bid == selectedBranchId;
-            }).toList();
+      final filteredOrders = stockOrders.where((o) {
+          final b = o['branch'];
+          final bid = b is Map ? (b['id'] ?? b['_id']) : null;
+          
+          bool matchesBranch = selectedBranchId == 'ALL' || bid == selectedBranchId;
+          
+          // Determine if it's a same-day order (Ordered Today & Delivery Today)
+          bool isSameDayOrder = false;
+          final now = DateTime.now();
+          // Convert to local time before comparing day/month/year
+          final cDate = DateTime.tryParse(o['createdAt'] ?? '')?.toLocal();
+          final dDate = DateTime.tryParse(o['deliveryDate'] ?? '')?.toLocal();
+          
+          if (cDate != null && dDate != null) {
+            bool isOrderedToday = cDate.year == now.year && cDate.month == now.month && cDate.day == now.day;
+            bool isDeliveryToday = dDate.year == now.year && dDate.month == now.month && dDate.day == now.day;
+            isSameDayOrder = isOrderedToday && isDeliveryToday;
+          }
+
+          if (widget.onlyTodayOrdered) {
+            // Branch Mode: Only show same-day orders
+            return matchesBranch && isSameDayOrder;
+          } else {
+            // Stock Mode: Exclude same-day orders
+            return matchesBranch && !isSameDayOrder;
+          }
+      }).toList();
 
       _visibleStockOrders = filteredOrders;
       Set<String> uniqueCategories = {}; // Init Set
@@ -415,7 +448,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               grp['requiredQty'] = (grp['requiredQty'] as double) + reqQty;
               grp['sendingQty'] = (grp['sendingQty'] as double) + sentQty;
               grp['confirmedQty'] = (grp['confirmedQty'] as double) + ((item['confirmedQty'] as num?) ?? 0).toDouble(); 
-              grp['confirmedQty'] = (grp['confirmedQty'] as double) + ((item['confirmedQty'] as num?) ?? 0).toDouble(); 
               grp['pickedQty'] = (grp['pickedQty'] as double) + ((item['pickedQty'] as num?) ?? 0).toDouble();
               
               if (!grp.containsKey('receivedQty')) grp['receivedQty'] = 0.0;
@@ -477,7 +509,46 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       _headerBranchCodes = branchCodes.join(', ');
       
       // Flatten groups to list and Sort
-      final rawList = productGroups.values.toList().cast<Map<String, dynamic>>();
+      List<Map<String, dynamic>> rawList = productGroups.values.toList().cast<Map<String, dynamic>>();
+      
+      // Apply Status Filter (APPROVED / NOT APPROVED)
+      if (_statusFilter != 'ALL') {
+          rawList = rawList.where((item) {
+             bool isApproved = false;
+             // Logic same as sort logic for "Done" items
+             if (isChef) {
+                isApproved = ((item['sendingQty'] as num?) ?? 0) > 0;
+             } else if (isSupervisor) {
+                isApproved = ((item['confirmedQty'] as num?) ?? 0) > 0;
+             } else if (isDriver) {
+                isApproved = ((item['pickedQty'] as num?) ?? 0) > 0;
+             } else {
+                // Determine logic for Factory or others - defaulting to Chef logic (Sending > 0) or just ignore
+                // Let's assume sending > 0 for now as generic "Action Taken"
+                 isApproved = ((item['sendingQty'] as num?) ?? 0) > 0;
+             }
+             
+             if (_statusFilter == 'APPROVED') {
+                 return isApproved;
+             } else {
+                 return !isApproved;
+             }
+          }).toList();
+      }
+
+      // 1. Grid List (Alphabetical Only)
+      List<Map<String, dynamic>> gridList = List.from(rawList);
+      gridList.sort((a, b) {
+         int cmp = (a['departmentName'] ?? '').compareTo(b['departmentName'] ?? '');
+         if (cmp != 0) return cmp;
+         
+         cmp = (a['categoryName'] ?? '').compareTo(b['categoryName'] ?? '');
+         if (cmp != 0) return cmp;
+
+         return (a['productName'] ?? '').compareTo(b['productName'] ?? '');
+      });
+
+      // 2. Report List (Status Sorting - "Done" items to bottom)
       rawList.sort((a, b) {
          int cmp = (a['departmentName'] ?? '').compareTo(b['departmentName'] ?? '');
          if (cmp != 0) return cmp;
@@ -518,22 +589,46 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           return (a['productName'] ?? '').compareTo(b['productName'] ?? '');
       });
 
-      // Insert Headers
-      _consolidatedItems = []; // Re-populate
-       String? lastDept;
-       String? lastCat;
-       int stripeIdx = 0;
-       
-       // 2a. Pre-calculate Category Totals
-       // We need another pass or efficient way to sum up items per category
-       // Since list is sorted by Dept -> Category -> Name, we can do it on the fly or pre-calc map.
-       // Map is safer since we might insert headers.
-       
+      // Helper to Insert Headers
+      List<Map<String, dynamic>> buildWithHeaders(List<Map<String, dynamic>> sourceList) {
+           List<Map<String, dynamic>> result = [];
+           String? lastDept;
+           String? lastCat;
+           
+           // Pre-calculate totals for this specific list order might differ? 
+           // Technically totals should NOT differ based on sort order, but let's recalculate 
+           // or reuse the Totals Map if we trust it covers all items. 
+           // We already calculated `departmentTotals` and `categoryTotals` from `rawList` (before sort split? No, before this block).
+           // Wait, I need to check where `categoryTotals` wsa calculated. 
+           // It was calculated from `rawList` BEFORE this block in my previous view.
+           // Ah, wait. I am replacing lines 509-616.
+           // The calculation loop was at lines 564-587, which is INSIDE the replacement block in my previous view?
+           // Let me check the file content again carefully.
+           
+           // In previous `view_file` (Step 173):
+           // 509: rawList.sort...
+           // ...
+           // 560: Map<String, Map<String, double>> categoryTotals = {}; 
+           // ...
+           // 589: for (var item in rawList) { ... insert headers ... }
+           
+           // So I need to include the Totals calculation in my replacement content or before it. 
+           // Since I'm replacing the sort block, I should probably keep the totals logic 
+           // adaptable or run it once since content is same, just order differs.
+           
+           // Let's include the Totals calculation logic inside `buildWithHeaders` or calculate once and pass it.
+           // Calculating once is better.
+           // But `buildWithHeaders` needs the `categoryTotals` map.
+           
+           return result;
+      }
+      
+      // Define Totals Calculation (re-implementing loop from replaced block)
        Map<String, Map<String, double>> categoryTotals = {}; 
        Map<String, Map<String, double>> departmentTotals = {};
        // Key: CategoryName/DeptName, Value: {req, sent, conf, pick}
        
-       for (var item in rawList) {
+       for (var item in rawList) { // Content is same for gridList
           final cat = item['categoryName'] as String;
           final dept = item['departmentName'] as String;
 
@@ -558,32 +653,44 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           dTotals['pick'] = (dTotals['pick']!) + ((item['pickedQty'] as num).toDouble());
        }
 
-       for (var item in rawList) {
-          final dept = item['departmentName'] as String;
-          final cat = item['categoryName'] as String;
-          if (dept != lastDept && widget.categoryId == null) {
-              final dTotals = departmentTotals[dept] ?? {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
-              _consolidatedItems.add({
-                  'type': 'header_dept', 
-                  'title': dept,
-                  'totals': dTotals
-              });
-              lastDept = dept;
-              lastCat = null; 
-          }
-          if (cat != lastCat && widget.categoryId == null) {
-              final totals = categoryTotals[cat] ?? {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
-              _consolidatedItems.add({
-                  'type': 'header_cat', 
-                  'title': cat,
-                  'totals': totals
-              });
-              lastCat = cat;
-          }
-          
-          item['stripeIndex'] = stripeIdx++;
-          _consolidatedItems.add(item);
-       }
+      List<Map<String, dynamic>> generateList(List<Map<String, dynamic>> source) {
+           List<Map<String, dynamic>> res = [];
+           String? lastDept;
+           String? lastCat;
+           int sIdx = 0;
+           
+           for (var item in source) {
+              final dept = item['departmentName'] as String;
+              final cat = item['categoryName'] as String;
+              
+              if (dept != lastDept && widget.categoryId == null) {
+                  final dTotals = departmentTotals[dept] ?? {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
+                  res.add({
+                      'type': 'header_dept', 
+                      'title': dept,
+                      'totals': dTotals
+                  });
+                  lastDept = dept;
+                  lastCat = null; 
+              }
+              if (cat != lastCat && widget.categoryId == null) {
+                  final totals = categoryTotals[cat] ?? {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
+                  res.add({
+                      'type': 'header_cat', 
+                      'title': cat,
+                      'totals': totals
+                  });
+                  lastCat = cat;
+              }
+              item['stripeIndex'] = sIdx++;
+              res.add(item);
+           }
+           return res;
+      }
+
+      _consolidatedItemsReport = generateList(rawList);
+      _consolidatedItemsGrid = generateList(gridList);
+      _consolidatedItems = _consolidatedItemsReport; // Default to report view logic for others
 
       _headerSubtitle = '${_consolidatedItems.where((i) => i['type'] == 'item').length} Products     Req Amt: ${totalReqAmt.toInt()}     Snt Qty: ${_formatQty(totalSent)}';
       _availableDepartments = uniqueDepartments; // Update Footer Options
@@ -643,7 +750,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     return '${orderId}_$pid';
   }
 
-  Future<void> _updateItemStatus(String orderId, Map<String, dynamic> itemToUpdate, double newSentQty) async {
+  Future<void> _updateItemStatus(String orderId, Map<String, dynamic> itemToUpdate, double newSentQty, {String? pName}) async {
     final token = await _getToken();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -651,6 +758,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     );
 
     try {
+      final nowStr = DateTime.now().toUtc().toIso8601String();
       // 1. Find the order to get full list of items
       // We need to send ALL items back to Payload CMS to update the array properly, 
       // or at least that's the safest way without a custom endpoint.
@@ -701,15 +809,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         apiItem.remove('id'); // ID of the item row itself might be needed or not? usually Payload handles array items by position or _id. 
         // If we remove _id, it might create new items. Let's keep _id if present.
         
-        if (pid == targetPid) {
           found = true;
           apiItem['sendingQty'] = newSentQty;
           apiItem['status'] = 'sending';
+          apiItem['sendingDate'] = nowStr;
           
-          // Update local reference immediately for UI responsiveness (already done in calling code via setState, but good to ensure)
+          // Update local reference immediately for UI responsiveness
           itemToUpdate['status'] = 'sending';
           itemToUpdate['sendingQty'] = newSentQty;
-        }
+          itemToUpdate['sendingDate'] = nowStr;
         
         apiItems.add(apiItem);
       }
@@ -736,8 +844,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         // Success
         if (!mounted) return;
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        String msg = 'Saved successfully';
+        if (pName != null) {
+           msg = '${_formatQty(newSentQty)} $pName Sending';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved successfully'), backgroundColor: Colors.green, duration: Duration(milliseconds: 800)),
+          SnackBar(content: Text(msg), backgroundColor: Colors.green, duration: const Duration(milliseconds: 800)),
         );
       } else {
         throw Exception('Failed to update: ${res.statusCode} ${res.body}');
@@ -752,7 +864,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
   }
 
-  Future<void> _updateConfirmQty(String orderId, Map<String, dynamic> itemToUpdate, double qty) async {
+  Future<void> _updateConfirmQty(String orderId, Map<String, dynamic> itemToUpdate, double qty, {String? pName}) async {
     final token = await _getToken();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -760,6 +872,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     );
 
     try {
+      final nowStr = DateTime.now().toUtc().toIso8601String();
       final orderIndex = stockOrders.indexWhere((o) => (o['id'] ?? o['_id']) == orderId);
       if (orderIndex == -1) return;
       final order = stockOrders[orderIndex];
@@ -790,10 +903,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         if (pid == targetPid) {
           found = true;
           apiItem['confirmedQty'] = qty;
-          apiItem['status'] = itemToUpdate['status']; // Update status in API payload
-          // Also update local reference just in case
+          apiItem['status'] = itemToUpdate['status'] ?? 'confirmed'; 
+          apiItem['confirmedDate'] = nowStr;
+          
           itemToUpdate['confirmedQty'] = qty;
-          // itemToUpdate['status'] is already set by caller before calling this
+          itemToUpdate['confirmedDate'] = nowStr;
         }
         apiItems.add(apiItem);
       }
@@ -813,8 +927,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       if (res.statusCode == 200) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        String msg = 'Confirmed successfully';
+        if (pName != null) {
+           msg = '${_formatQty(qty)} $pName Confirmed';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Confirmed successfully'), backgroundColor: Colors.green, duration: Duration(milliseconds: 800)),
+          SnackBar(content: Text(msg), backgroundColor: Colors.green, duration: const Duration(milliseconds: 800)),
         );
       } else {
         throw Exception('Failed to confirm: ${res.statusCode}');
@@ -832,7 +950,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   // currently re-using existing logic is fine but we need to handle the display.
 
   Future<void> _saveConsolidatedConfirm(Map<String, dynamic> entry) async {
-      _markUpdated(entry['productId']);
+      if (_isSaving) return;
+      setState(() => _isSaving = true);
+      try {
+        _markUpdated(entry['productId']);
       final originalItems = entry['originalItems'] as List;
       double newTotalConfirmed = 0;
       
@@ -846,7 +967,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          item['status'] = 'confirmed'; // Update status
          newTotalConfirmed += currentSent;
          
-         _updateConfirmQty(orderId, item, currentSent);
+         await _updateConfirmQty(orderId, item, currentSent, pName: entry['productName']);
       }
       
       setState(() {
@@ -854,13 +975,19 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          entry['statuses'] = {'confirmed'}; // Update local aggregate status
          _processStockOrders();
       });
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
   }
 
 
 
   // Update params to accept num/double
-  void _saveStockOrder(Map<String, dynamic> entry, double totalQty) {
-    double remaining = totalQty;
+  Future<void> _saveStockOrder(Map<String, dynamic> entry, double totalQty) async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+    try {
+      double remaining = totalQty;
     final originalItems = entry['originalItems'] as List;
     Set<String> newStatuses = {};
     double newTotalSent = 0;
@@ -874,7 +1001,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         item['status'] = 'sending';
         item['sendingQty'] = totalQty;
         
-        _updateItemStatus(orderId, item, totalQty);
+        await _updateItemStatus(orderId, item, totalQty, pName: entry['productName']);
         
         newStatuses.add('sending');
         newTotalSent = totalQty;
@@ -908,7 +1035,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
            newStatuses.add('sending');
            
            // API Update
-           _updateItemStatus(orderId, item, allocated);
+           await _updateItemStatus(orderId, item, allocated, pName: entry['productName']);
        }
     }
 
@@ -917,10 +1044,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        entry['statuses'] = newStatuses;
        _processStockOrders();
     });
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   Future<void> _saveManualConsolidatedConfirm(Map<String, dynamic> entry, double newVal) async {
-       _markUpdated(entry['productId']);
+       if (_isSaving) return;
+       setState(() => _isSaving = true);
+       try {
+         _markUpdated(entry['productId']);
       final originalItems = entry['originalItems'] as List;
       double remainingToAllocate = newVal;
       
@@ -945,7 +1078,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
          item['confirmedQty'] = allocated;
          item['status'] = 'confirmed'; // Update status
-         _updateConfirmQty(orderId, item, allocated);
+         await _updateConfirmQty(orderId, item, allocated, pName: entry['productName']);
       }
       
       setState(() {
@@ -956,16 +1089,27 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          }
          _processStockOrders();
       });
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
   }
 
-  Future<void> _updatePickQty(String orderId, Map<String, dynamic> itemToUpdate, double qty) async {
+  Future<void> _updatePickQty(String orderId, Map<String, dynamic> itemToUpdate, double qty, {String? pName}) async {
     final token = await _getToken();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     
     try {
+      final nowStr = DateTime.now().toUtc().toIso8601String();
       final orderIndex = stockOrders.indexWhere((o) => (o['id'] ?? o['_id']) == orderId);
       if (orderIndex == -1) return;
       final order = stockOrders[orderIndex];
+      // We will construct the payload for this order
+      // Assuming we need to send ALL items for this order or just the updated one?
+      // Usually checking the API: if we send a partial list, it might replace them?
+      // Let's assume we modify the specific item in the list and send the whole list back 
+      // OR if the backend supports partial updates on items array. 
+      // Based on previous code, we rebuild the list.
+      
       final currentItems = (order['items'] as List?) ?? [];
       
       List<Map<String, dynamic>> apiItems = [];
@@ -994,8 +1138,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           found = true;
           apiItem['pickedQty'] = qty;
           apiItem['status'] = 'picked';
+          apiItem['pickedDate'] = nowStr;
+          
           itemToUpdate['pickedQty'] = qty;
           itemToUpdate['status'] = 'picked';
+          itemToUpdate['pickedDate'] = nowStr;
         }
         apiItems.add(apiItem);
       }
@@ -1011,14 +1158,30 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         },
         body: jsonEncode({'items': apiItems}),
       );
-      // Silent success or maybe small toast?
+      // Success feedback
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      String msg = 'Picked successfully';
+      if (pName != null) {
+         msg = '${_formatQty(qty)} $pName Picked';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.green, duration: const Duration(milliseconds: 800)),
+      );
     } catch (e) {
          debugPrint('Error picking qty: $e');
+         ScaffoldMessenger.of(context).hideCurrentSnackBar();
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Error picking: $e'), backgroundColor: Colors.red),
+         );
     }
   }
 
   Future<void> _saveManualConsolidatedPick(Map<String, dynamic> entry, double val) async {
-       _markUpdated(entry['productId']);
+       if (_isSaving) return;
+       setState(() => _isSaving = true);
+       try {
+         _markUpdated(entry['productId']);
       double newVal = val;
       if (newVal < 0) newVal = 0;
       
@@ -1048,7 +1211,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          item['pickedQty'] = apply;
          item['status'] = 'picked';
          
-         _updatePickQty(orderId, item, apply);
+         await _updatePickQty(orderId, item, apply, pName: entry['productName']);
          
          remaining -= apply;
          newTotalPicked += apply;
@@ -1059,10 +1222,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          if (newTotalPicked > 0) entry['statuses'] = {'picked'};
          _processStockOrders();
       });
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
   }
 
   Future<void> _saveConsolidatedPick(Map<String, dynamic> entry) async {
-      _markUpdated(entry['productId']);
+      if (_isSaving) return;
+      setState(() => _isSaving = true);
+      try {
+        _markUpdated(entry['productId']);
       final originalItems = entry['originalItems'] as List;
       double newTotalPicked = 0;
       
@@ -1076,7 +1245,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          item['status'] = 'picked';
          newTotalPicked += currentConfirmed;
          
-         _updatePickQty(orderId, item, currentConfirmed);
+         await _updatePickQty(orderId, item, currentConfirmed, pName: entry['productName']);
       }
       
       setState(() {
@@ -1084,6 +1253,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          entry['statuses'] = {'picked'}; 
          _processStockOrders();
       });
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
   }
   // Category Filter State
   List<String> _availableCategories = ['ALL'];
@@ -1285,18 +1457,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
            // Use BoxAdapter + GridView to safely apply decoration without semantics crash
            Widget decoratedGrid = SliverToBoxAdapter(
              child: Container(
-               decoration: BoxDecoration(
-                   color: Colors.yellow.shade100.withOpacity(0.5), // Mild Yellow
-                   borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)), // Round bottom
-                   border: Border(bottom: BorderSide(color: Colors.brown.shade300, width: 2)),
-               ),
                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                child: GridView.builder(
                  shrinkWrap: true,
                  physics: const NeverScrollableScrollPhysics(),
                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                    crossAxisCount: 3,
-                   childAspectRatio: 0.65, 
+                   childAspectRatio: 0.75, 
                    crossAxisSpacing: 4, 
                    mainAxisSpacing: 4,
                  ),
@@ -1320,7 +1487,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                  sliver: SliverGrid(
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 3,
-                      childAspectRatio: 0.65, 
+                    childAspectRatio: 0.75, 
                       crossAxisSpacing: 4, 
                       mainAxisSpacing: 4,
                     ),
@@ -1339,7 +1506,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        }
     }
 
-    for (var item in _consolidatedItems) {
+    for (var item in _consolidatedItemsGrid) {
        if (item['type'] == 'header_dept') {
           flushGroup();
           isUnderCategory = false; // Reset
@@ -1352,10 +1519,14 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                    Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                          Text(
-                            (item['title'] ?? '').toString().toUpperCase(),
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black87),
+                          Expanded(
+                            child: Text(
+                              (item['title'] ?? '').toString().toUpperCase(),
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black87),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           _buildTotalsText(item['totals']),
                       ],
                    ),
@@ -1370,15 +1541,18 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           
           slivers.add(SliverToBoxAdapter(
              child: Container(
-               color: const Color(0xFFEFEBE9), // Standard Report Header Color
                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                      Text(
-                        (item['title'] ?? '').toString(),
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                      Expanded(
+                        child: Text(
+                          (item['title'] ?? '').toString(),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       _buildTotalsText(item['totals']),
                   ],
                ),
@@ -1407,7 +1581,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         child: Padding(
           padding: const EdgeInsets.all(12.0),
           child: Card(
-            elevation: 4,
+            elevation: 0,
+            color: Colors.transparent,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1430,7 +1605,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                  // Table Header
                  Container(
                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                     color: const Color(0xFFEFEBE9),
                      child: Row(
                         children: [
                           const Expanded(flex: 3, child: Text('Product Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
@@ -1444,22 +1618,20 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                  ),
                  
                  // Content
-                 ..._consolidatedItems.map((entry) {
+                 ..._consolidatedItemsReport.map((entry) {
                      if (entry['type'] == 'header_dept') {
                         return Container(
                           width: double.infinity,
-                          color: const Color(0xFFA1887F),
                           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                           child: Text(
                              (entry['title'] as String).toUpperCase(),
-                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                             style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 14),
                              textAlign: TextAlign.center,
                           ),
                         );
                      } else if (entry['type'] == 'header_cat') {
                         return Container(
                           width: double.infinity,
-                          color: Colors.grey.shade200,
                           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
                           child: Text(
                              (entry['title'] as String).toUpperCase(),
@@ -1479,7 +1651,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                          return Container(
                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                            decoration: BoxDecoration(
-                               color: rec > 0 ? Colors.green.shade50 : Colors.red.shade50,
                                border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
                            ),
                            child: Row(
@@ -1710,7 +1881,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           // Factory Header
           if (isFactory)
             Container(
-              color: const Color(0xFFEFEBE9), // Light brownish/pinkish matches image
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
               child: Row(
                 children: const [
@@ -1723,7 +1893,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           else 
             // Original Header for others
              Container(
-              color: const Color(0xFFEFEBE9), // Light brownish/pinkish
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
               child: Row(
                 children: [
@@ -1777,12 +1946,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   if (dept != lastDept) {
                     widgets.add(Container(
                       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-                      color: const Color(0xFFA1887F), // Brown 300/400 approx
                       width: double.infinity,
                       alignment: Alignment.center,
                       child: Text(
                         dept.toUpperCase(),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
                         textAlign: TextAlign.center,
                       ),
                     ));
@@ -1793,7 +1961,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   if (cat != lastCat) {
                     widgets.add(Container(
                       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-                      color: const Color(0xFFEEEEEE), // Grey 200
                       width: double.infinity,
                       alignment: Alignment.center,
                       child: Text(
@@ -1839,7 +2006,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                          item['status'] = 'sending';
                          item['sendingQty'] = currentVal;
                        });
-                       _updateItemStatus(orderId, item, currentVal);
+                       _updateItemStatus(orderId, item, currentVal, pName: productName);
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -1884,9 +2051,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                     final v = double.tryParse(val) ?? req;
                                     setState(() {
                                        item['sendingQty'] = v;
-                                       item['status'] = 'sending';
                                     });
-                                    _updateItemStatus(orderId, item, v);
                                  },
                              ),
                           ))),
@@ -1920,7 +2085,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                      // Logic: User wants to confirm "snt qty".
                                      // Actually instruction says: "show snt qty number there if we double tap the qty number need to store in Confirmed Qty"
                                      final val = sent;
-                                     _updateConfirmQty(orderId, item, val.toDouble());
+                                     _updateConfirmQty(orderId, item, val.toDouble(), pName: productName);
                                      setState(() {
                                         item['confirmedQty'] = val;
                                      });
@@ -2013,31 +2178,31 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       final isDriver = _userRole == 'driver';
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 4), // Match card margin roughly (Card takes 4 by default)
-        decoration: BoxDecoration(
-          color: Colors.brown.shade100,
-          border: const Border(
-            left: BorderSide(color: Colors.white, width: 0), // Adjust if needed
-          ),
+        decoration: const BoxDecoration(
+          // color: Colors.brown.shade100, // Removed
+          // border: const Border( // Removed
+          //   left: BorderSide(color: Colors.white, width: 0), // Adjust if needed
+          // ),
         ),
         // Hack to match Card layout: Card usually has 4 margin. We use padding/margin to align.
         // Actually, best to wrap in a Material to match Card exactly.
         child: Material(
-          color: Colors.brown.shade100,
+          color: Colors.transparent, // Changed from Colors.brown.shade100
           elevation: 0, 
           // We wrap in a container with side margins to match the Header Card's visual width
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16), // Match Header padding X
             child: Row(
               children: [
-                const Expanded(flex: 3, child: Text('Product Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                const Expanded(flex: 3, child: Text('Product Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black))),
                 if (!isSupervisor && !isDriver) 
-                   const Expanded(flex: 1, child: Center(child: Text('Req', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                   const Expanded(flex: 1, child: Center(child: Text('Req', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)))),
                 if (!isDriver)
-                    const Expanded(flex: 1, child: Center(child: Text('Snt', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                    const Expanded(flex: 1, child: Center(child: Text('Snt', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)))),
                 if (isSupervisor || isDriver)
-                   const Expanded(flex: 1, child: Center(child: Text('Con', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                   const Expanded(flex: 1, child: Center(child: Text('Con', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black)))),
                 if (isDriver)
-                   const Expanded(flex: 1, child: Center(child: Text('Pic', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)))),
+                   const Expanded(flex: 1, child: Center(child: Text('Pic', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black)))),
               ],
             ),
           ),
@@ -2050,7 +2215,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
      return Container(
        margin: const EdgeInsets.symmetric(horizontal: 4), // Card default margin
        decoration: BoxDecoration(
-         color: Colors.white,
+         // color: Colors.white, // Removed
          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))], // Simulating Card elevation
          borderRadius: isLast 
              ? const BorderRadius.vertical(bottom: Radius.circular(12)) 
@@ -2067,16 +2232,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       
       if (entry['type'] == 'header_dept') {
         return Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-          color: const Color(0xFFA1887F), // Dark Brown
-          width: double.infinity,
-          alignment: Alignment.center,
-          child: Text(
-            (entry['title'] as String).toUpperCase(),
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
-            textAlign: TextAlign.center,
-          ),
-        );
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+        width: double.infinity,
+        alignment: Alignment.center,
+        child: Text(
+          (entry['title'] as String).toUpperCase(),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+          textAlign: TextAlign.center,
+        ),
+      );
       }
             if (entry['type'] == 'header_cat') {
           final title = entry['title'] as String;
@@ -2101,7 +2265,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
           return Container(
            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-           color: _getCategoryColor(title),
            width: double.infinity,
            alignment: Alignment.center,
            child: Text(
@@ -2155,9 +2318,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
     final statuses = entry['statuses'] as Set;
     
-    // Lock if Picked (Supervisor cannot edit)
-    final pickedQty = ((entry['pickedQty'] as num?) ?? 0).toDouble();
-    final isLocked = statuses.contains('picked') || pickedQty > 0;
+    // Lock if Confirmed or Picked
+    final isLocked = statuses.contains('confirmed') || statuses.contains('picked');
     
     final key = 'supervisor_confirm_${entry['productId']}';
     if (!_controllers.containsKey(key)) {
@@ -2165,226 +2327,194 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     final controller = _controllers[key]!;
 
+    // Unified Interaction Logic
+    void onAutoAction() {
+      if (_isSaving) return;
+      if (isLocked) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Item is picked by Driver. Cannot edit.'), duration: Duration(milliseconds: 1000)),
+        );
+        return;
+      }
+      
+      double valToSave = confirmedDisplay;
+      if (entry['isTyping'] == true) {
+        valToSave = double.tryParse(controller.text) ?? confirmedDisplay;
+      }
+
+      // Compulsory Double Tap to Save
+      _saveManualConsolidatedConfirm(entry, valToSave);
+      setState(() {
+         entry['isTyping'] = false;
+      });
+    }
+
+    void onManualEdit() {
+      if (isLocked) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Item is picked by Driver. Cannot edit.'), duration: Duration(milliseconds: 1000)),
+        );
+        return;
+      }
+      setState(() {
+        entry['isTyping'] = true;
+        controller.text = _formatQty(confirmedDisplay);
+      });
+    }
+
     return Card(
-      elevation: 4,
+      elevation: 0,
+      color: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide.none,
       ),
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
+      child: Column(
         children: [
-          // Background Image
-          if (imageProvider != null)
-            Image(image: imageProvider, fit: BoxFit.cover)
-          else
-            Container(color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
-            
-
-          
-          Container(
-             decoration: BoxDecoration(
-               gradient: LinearGradient(
-                 begin: Alignment.center,
-                 end: Alignment.bottomCenter,
-                 colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
-               ),
-             ),
-          ),
-          
-          // Tap Interactions (Background)
-           Positioned.fill(
-             child: Material(
-               color: Colors.transparent,
-               child: InkWell(
-                 onTap: () {
-                    // Close keyboard if typing
-                    if (entry['isTyping'] == true) {
-                        final val = double.tryParse(controller.text) ?? confirmedDisplay;
-                        _saveManualConsolidatedConfirm(entry, val);
-                        setState(() {
-                          entry['isTyping'] = false;
-                        });
-                        FocusManager.instance.primaryFocus?.unfocus();
-                    }
-                 },
-                 onDoubleTap: () {
-                     if (isLocked) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(content: Text('Item is picked by Driver. Cannot edit.'), duration: Duration(milliseconds: 1000)),
-                        );
-                        return;
-                     }
-                     
-                     // Auto-Confirm All Sent
-                     if (confirmedRaw < sent) {
-                       _saveConsolidatedConfirm(entry); // Use existing auto-confirm
-                     }
-                 },
-                 child: Container(),
-               ),
-             ),
-           ),
-
-          // Top Left: Sending Qty
-          Positioned(
-            top: 0,
-            left: 0,
-            child: Container(
-              width: 36,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: Colors.red, 
-                borderRadius: BorderRadius.only(bottomRight: Radius.circular(12)),
-              ),
-              child: Text(
-                _formatQty(sent),
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-              ),
-            ),
-          ),
-          
-          // Top Right: Price & Unit
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                '${_formatQty(entry['price'])} ${entry['unit']}'.trim(),
-                style: const TextStyle(
-                  color: Colors.lightGreenAccent,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
+          // Top Section: Image & Badges (Flex 8)
+          Expanded(
+            flex: 8,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Image Area with Unified Gesture
+                GestureDetector(
+                  onTap: onManualEdit,
+                  onDoubleTap: onAutoAction,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (imageProvider != null)
+                        Image(image: imageProvider, fit: BoxFit.cover)
+                      else
+                        Container(child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
+                    ],
+                  ),
                 ),
-              ),
+
+                // Top Left: Sent Qty (Badges sit ON TOP of gesture detector)
+                Positioned(
+                  top: 2,
+                  left: 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _formatQty(sent),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Top Right: Price & Unit (Compact)
+                Positioned(
+                  top: 2,
+                  right: 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _formatQty(entry['price']),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Product Name Overlay
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.35),
+                    ),
+                    child: Text(
+                      productName,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          
-          // Center: Confirmed Qty (Interaction Box)
-          Builder(builder: (context) {
-             final qtyStr = _formatQty(confirmedDisplay);
-             // Dynamic width
-             final boxWidth = (qtyStr.length * 9.0) + 20.0;
-             double finalWidth = boxWidth > 34 ? boxWidth : 34;
-             
-             if (entry['isTyping'] == true) {
-                 finalWidth = 80.0;
-             }
-             
-             return Center(
-               child: entry['isTyping'] == true
-               ? Container(
-                   width: finalWidth,
-                   height: 34,
-                   alignment: Alignment.center,
-                   decoration: BoxDecoration(
-                     color: Colors.black.withOpacity(0.6),
-                     borderRadius: BorderRadius.circular(8),
-                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                     border: Border.all(color: Colors.blueAccent, width: 2),
-                   ),
-                   child: TextField(
-                      controller: controller,
-                      autofocus: true,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                      cursorColor: Colors.white,
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                        isDense: true,
-                      ),
-                      textInputAction: TextInputAction.done,
-                      onTapOutside: (event) {
-                         final doubleVal = double.tryParse(controller.text) ?? 0;
-                         _saveManualConsolidatedConfirm(entry, doubleVal);
-                         setState(() {
-                           entry['isTyping'] = false;
-                         });
-                         FocusManager.instance.primaryFocus?.unfocus();
-                      },
-                      onSubmitted: (val) {
-                         final doubleVal = double.tryParse(val) ?? 0;
-                         _saveManualConsolidatedConfirm(entry, doubleVal);
-                         setState(() {
-                           entry['isTyping'] = false;
-                         });
-                      },
-                   ),
-                 )
-               : GestureDetector(
-                   onTap: () {
-                      if (isLocked) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(content: Text('Item is picked by Driver. Cannot edit.'), duration: Duration(milliseconds: 1000)),
-                        );
-                        return;
-                      }
 
-                      setState(() {
-                         entry['isTyping'] = true;
-                         controller.text = _formatQty(confirmedDisplay);
-                      });
-                   },
-                   onDoubleTap: () {
-                        if (isLocked) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                               const SnackBar(content: Text('Item is picked by Driver. Cannot edit.'), duration: Duration(milliseconds: 1000)),
-                            );
-                            return;
-                        }
-                        
-                        // Pass through to parent double tap (Auto Confirm)
-                        if (confirmedRaw < sent) {
-                           _saveConsolidatedConfirm(entry);
-                        }
-                   },
-                   child: Container(
-                     width: finalWidth,
-                     height: 34,
-                     alignment: Alignment.center,
-                     decoration: BoxDecoration(
-                       color: Colors.black.withOpacity(0.6),
-                       borderRadius: BorderRadius.circular(8),
-                       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                       border: (confirmedRaw > 0) ? Border.all(color: Colors.blueAccent, width: 2) : null,
-                     ),
-                     child: Text(
-                       _formatQty(confirmedDisplay),
-                       style: TextStyle(
-                         color: (confirmedRaw > 0) ? Colors.blueAccent : Colors.white, 
-                         fontSize: 16, 
-                         fontWeight: FontWeight.bold
-                       ),
-                     ),
-                   ),
-               ),
-             );
-          }),
-          
-          // Bottom: Name Only
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              color: Colors.black87,
-              child: Text(
-                productName,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+          // Bottom Section: Interaction Strip (Flex 2)
+          Expanded(
+            flex: 2,
+            child: Column(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: onManualEdit,
+                    onDoubleTap: onAutoAction,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      color: statuses.contains('confirmed') ? Colors.green : Colors.black87,
+                      child: entry['isTyping'] == true
+                          ? SizedBox(
+                              height: 18,
+                              child: TextField(
+                                controller: controller,
+                                autofocus: true,
+                                keyboardType: TextInputType.number,
+                                textAlign: TextAlign.center,
+                                textAlignVertical: TextAlignVertical.center,
+                                 style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, height: 1.0),
+                                cursorColor: Colors.white,
+                                decoration: const InputDecoration(
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                  isCollapsed: true,
+                                ),
+                                textInputAction: TextInputAction.done,
+                                onTapOutside: (event) {
+                                   final doubleVal = double.tryParse(controller.text) ?? 0;
+                                   setState(() {
+                                     entry['confirmedQty'] = doubleVal;
+                                     entry['isTyping'] = false;
+                                   });
+                                   FocusManager.instance.primaryFocus?.unfocus();
+                                },
+                                onSubmitted: (val) {
+                                   final doubleVal = double.tryParse(val) ?? 0;
+                                   setState(() {
+                                     entry['confirmedQty'] = doubleVal;
+                                     entry['isTyping'] = false;
+                                   });
+                                 },
+                              ),
+                            )
+                          : Text(
+                              _formatQty(confirmedDisplay),
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -2435,8 +2565,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
   final statuses = entry['statuses'] as Set;
   
-  // Lock if Received (Driver cannot edit)
-  final isLocked = statuses.contains('received');
+  // Lock if Picked or Received
+  final isLocked = statuses.contains('picked') || statuses.contains('received');
   
   final key = 'driver_pick_${entry['productId']}';
   if (!_controllers.containsKey(key)) {
@@ -2444,225 +2574,200 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
   final controller = _controllers[key]!;
 
+  // Unified Interaction Logic
+  void onAutoAction() {
+     if (_isSaving) return;
+     if (isLocked) {
+        ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text('Item is received by Branch. Cannot edit.'), duration: Duration(milliseconds: 1000)),
+        );
+        return;
+     }
+
+    double valToSave = pickedDisplay;
+    if (entry['isTyping'] == true) {
+      valToSave = double.tryParse(controller.text) ?? pickedDisplay;
+    }
+
+    // Compulsory Double Tap to Save
+    _saveManualConsolidatedPick(entry, valToSave); 
+    setState(() {
+      entry['isTyping'] = false;
+    });
+  }
+
+  void onManualEdit() {
+     if (isLocked) {
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Item is received by Branch. Cannot edit.'), duration: Duration(milliseconds: 1000)),
+       );
+       return;
+     }
+     if (confirmedRaw == 0) {
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Nothing confirmed by Supervisor. Cannot pick.'), duration: Duration(milliseconds: 1000)),
+       );
+       return;
+     }
+     setState(() {
+       entry['isTyping'] = true;
+       final current = ((entry['pickedQty'] as num?) ?? 0).toDouble();
+       controller.text = _formatQty(current == 0 ? confirmedRaw : current);
+     });
+  }
+
   return Card(
-    elevation: 4,
+    elevation: 0,
+    color: Colors.transparent,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
       side: BorderSide.none,
     ),
     clipBehavior: Clip.antiAlias,
-    child: Stack(
-      fit: StackFit.expand,
+    child: Column(
       children: [
-        // Background Image
-        if (imageProvider != null)
-          Image(image: imageProvider, fit: BoxFit.cover)
-        else
-          Container(color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
-          
-
-        
-        Container(
-           decoration: BoxDecoration(
-             gradient: LinearGradient(
-               begin: Alignment.center,
-               end: Alignment.bottomCenter,
-               colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
-             ),
-           ),
-        ),
-        
-        // Tap Interactions (Background)
-         Positioned.fill(
-           child: Material(
-             color: Colors.transparent,
-             child: InkWell(
-               onTap: () {
-                  // Close keyboard if typing
-                  if (entry['isTyping'] == true) {
-                      final val = double.tryParse(controller.text) ?? pickedDisplay;
-                      _saveManualConsolidatedPick(entry, val);
-                      setState(() {
-                        entry['isTyping'] = false;
-                      });
-                      FocusManager.instance.primaryFocus?.unfocus();
-                  }
-               },
-               onDoubleTap: () {
-                   if (isLocked) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                         const SnackBar(content: Text('Item is received by Branch. Cannot edit.'), duration: Duration(milliseconds: 1000)),
-                      );
-                      return;
-                   }
-
-                   // Auto-Pick All Confirmed
-                   if (pickedRaw < confirmedRaw) {
-                     _saveConsolidatedPick(entry); 
-                   }
-               },
-               child: Container(),
-             ),
-           ),
-         ),
-
-        // Top Left: Confirmed Qty (Red Badge)
-        Positioned(
-          top: 0,
-          left: 0,
-          child: Container(
-            width: 36,
-            height: 28,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: Colors.red, // Red for Confirmed
-              borderRadius: BorderRadius.only(bottomRight: Radius.circular(12)),
-            ),
-            child: Text(
-              _formatQty(confirmedRaw),
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-          ),
-        ),
-
-        // Top Right: Price & Unit
-        Positioned(
-          top: 6,
-          right: 6,
-          child: Container(
-             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-             decoration: BoxDecoration(
-               color: Colors.black54,
-               borderRadius: BorderRadius.circular(4),
-             ),
-             child: Text(
-              '${_formatQty(entry['price'])} ${entry['unit']}'.trim(),
-              style: const TextStyle(
-                color: Colors.lightGreenAccent,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ),
-        
-        // Center: Picked Qty (Interaction Box)
-        Builder(builder: (context) {
-           final qtyStr = _formatQty(pickedDisplay);
-           // Dynamic width
-           final boxWidth = (qtyStr.length * 9.0) + 20.0;
-           double finalWidth = boxWidth > 34 ? boxWidth : 34; // Square default
-           
-           if (entry['isTyping'] == true) {
-               finalWidth = 80.0;
-           }
-           
-           return Center(
-             child: entry['isTyping'] == true
-             ? Container(
-                 width: finalWidth,
-                 height: 34,
-                 alignment: Alignment.center,
-                 decoration: BoxDecoration(
-                   color: Colors.black.withOpacity(0.6),
-                   borderRadius: BorderRadius.circular(8),
-                   boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                 ),
-                 child: TextField(
-                   controller: controller,
-                   autofocus: true,
-                   keyboardType: TextInputType.number,
-                   textAlign: TextAlign.center,
-                   style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                   cursorColor: Colors.white,
-                   decoration: const InputDecoration(
-                     border: InputBorder.none,
-                     contentPadding: EdgeInsets.zero,
-                     isDense: true,
-                   ),
-                   textInputAction: TextInputAction.done,
-                   onTapOutside: (event) {
-                      final intVal = double.tryParse(controller.text) ?? 0;
-                      _saveManualConsolidatedPick(entry, intVal);
-                      setState(() {
-                        entry['isTyping'] = false; 
-                      });
-                      FocusManager.instance.primaryFocus?.unfocus();
-                   },
-                   onSubmitted: (val) {
-                      final intVal = double.tryParse(val) ?? 0;
-                      _saveManualConsolidatedPick(entry, intVal);
-                      setState(() {
-                        entry['isTyping'] = false; 
-                      });
-                   },
-                 ),
-               )
-               : GestureDetector(
-                   onTap: () {
-                      if (isLocked) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(content: Text('Item is received by Branch. Cannot edit.'), duration: Duration(milliseconds: 1000)),
-                        );
-                        return;
-                      }
-
-                      // Restrict if Confirmed Qty is 0
-                      if (confirmedRaw == 0) {
-                         ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(content: Text('Nothing confirmed by Supervisor. Cannot pick.'), duration: Duration(milliseconds: 1000)),
-                        );
-                        return;
-                      }
-
-                      setState(() {
-                         entry['isTyping'] = true;
-                         final current = ((entry['pickedQty'] as num?) ?? 0).toDouble();
-                         controller.text = _formatQty(current == 0 ? confirmedRaw : current);
-                      });
-                   },
-                   child: Container(
-                     width: finalWidth,
-                     height: 34,
-                     alignment: Alignment.center,
-                     decoration: BoxDecoration(
-                       color: Colors.black.withOpacity(0.6),
-                       borderRadius: BorderRadius.circular(8),
-                       border: (pickedRaw > 0) 
-                           ? Border.all(color: Colors.green, width: 2) // Green if Picked > 0 (Done)
-                           : null,
-                       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                     ),
-                      child: Text(
-                        _formatQty((entry['pickedQty'] == 0 || entry['pickedQty'] == null) ? confirmedRaw : entry['pickedQty']),
-                        style: TextStyle(
-                          color: (confirmedRaw == 0) ? Colors.red : ((pickedRaw > 0) ? Colors.green : Colors.white), 
-                          fontSize: 14, 
-                          fontWeight: FontWeight.bold
-                        ),
-                      ),
-                   ),
-               ),
-             );
-           }),
-
-           // Bottom: Name Only
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                color: Colors.black87,
-                child: Text(
-                  productName,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                  textAlign: TextAlign.center,
-                  maxLines: 1, 
-                  overflow: TextOverflow.ellipsis,
+          // Top Section (Flex 8)
+          Expanded(
+            flex: 8,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Image Area with Unified Gesture
+                GestureDetector(
+                  onTap: onManualEdit,
+                  onDoubleTap: onAutoAction,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (imageProvider != null)
+                        Image(image: imageProvider, fit: BoxFit.cover)
+                      else
+                        Container(child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
+                    ],
+                  ),
                 ),
-              ),
+
+                // Top Left: Confirmed Qty
+                Positioned(
+                  top: 2,
+                  left: 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _formatQty(confirmedRaw),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+                    ),
+                  ),
+                ),
+
+                // Top Right: Price
+                Positioned(
+                  top: 2,
+                  right: 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _formatQty(entry['price']),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Product Name Overlay
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.35),
+                    ),
+                    child: Text(
+                      productName,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
             ),
+          ),
+          
+          // Bottom Section: Interaction Strip (Flex 2)
+          Expanded(
+            flex: 2,
+            child: Column(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: onManualEdit,
+                    onDoubleTap: onAutoAction,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      color: statuses.contains('picked') ? Colors.green : Colors.black87,
+                      child: entry['isTyping'] == true
+                          ? SizedBox(
+                              height: 18,
+                              child: TextField(
+                                 controller: controller,
+                                 autofocus: true,
+                                 keyboardType: TextInputType.number,
+                                 textAlign: TextAlign.center,
+                                 textAlignVertical: TextAlignVertical.center,
+                                 style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, height: 1.0),
+                                 cursorColor: Colors.white,
+                                 decoration: const InputDecoration(
+                                   border: InputBorder.none,
+                                   contentPadding: EdgeInsets.zero,
+                                   isCollapsed: true,
+                                 ),
+                                 textInputAction: TextInputAction.done,
+                                 onTapOutside: (event) {
+                                   final intVal = double.tryParse(controller.text) ?? 0;
+                                   setState(() {
+                                     entry['pickedQty'] = intVal;
+                                     entry['isTyping'] = false;
+                                   });
+                                   FocusManager.instance.primaryFocus?.unfocus();
+                                 },
+                                 onSubmitted: (val) {
+                                   final intVal = double.tryParse(val) ?? 0;
+                                   setState(() {
+                                     entry['pickedQty'] = intVal;
+                                     entry['isTyping'] = false;
+                                   });
+                                 },
+                              ),
+                            )
+                          : Center(
+                              child: Text(
+                                _formatQty((entry['pickedQty'] == 0 || entry['pickedQty'] == null) ? confirmedRaw : entry['pickedQty']),
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -2720,283 +2825,208 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final statuses = entry['statuses'] as Set;
     
     final confirmedQty = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
-    final isLocked = statuses.contains('confirmed') || statuses.contains('picked') || confirmedQty > 0;
+    final isLocked = statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked') || confirmedQty > 0;
+
+    // Unified Interaction Logic
+    void onAutoAction() {
+      if (isLocked) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Item is confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
+        );
+        return;
+      }
+      
+      final currentSent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+      double valToSave = (currentSent > 0) ? currentSent : req;
+      
+      if (entry['isTyping'] == true) {
+        valToSave = double.tryParse(controller.text) ?? valToSave;
+      }
+
+      // Compulsory Double Tap to Save
+      _saveStockOrder(entry, valToSave);
+      setState(() {
+        entry['isTyping'] = false;
+      });
+    }
+
+    void onManualEdit() {
+      if (isLocked) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Item is confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
+        );
+        return;
+      }
+      setState(() {
+        entry['isTyping'] = true;
+        final current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+        controller.text = _formatQty(current == 0 ? req : current);
+      });
+    }
 
     return Card(
-      elevation: 4,
+      elevation: 0,
+      color: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide.none,
       ),
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
+      child: Column(
         children: [
-          // Background Image
-          if (imageProvider != null)
-            Image(image: imageProvider, fit: BoxFit.cover)
-          else
-            Container(color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
+            // Top Section (Flex 8)
+            Expanded(
+              flex: 8,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Image Area with Unified Gesture
+                  GestureDetector(
+                    onTap: onManualEdit,
+                    onDoubleTap: onAutoAction,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (imageProvider != null)
+                          Image(image: imageProvider, fit: BoxFit.cover)
+                        else
+                          Container(child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
 
-          // Overlay Gradient (Bottom only for text)
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.center,
-                end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
-              ),
-            ),
-          ),
 
-          // Tap Interactions
-          Positioned.fill(
-             child: Material(
-               color: Colors.transparent,
-               child: InkWell(
-                 onTap: () {
-                    // Tap Background: Close Keyboard/Save if Typing
-                    if (entry['isTyping'] == true) {
-                        final currentVal = double.tryParse(controller.text) ?? ((entry['sendingQty'] as num?) ?? 0).toDouble();
-                        _saveStockOrder(entry, currentVal); // Save logic from helper
-                        setState(() {
-                           entry['isTyping'] = false;
-                        });
-                    }
-                 },
-                 onDoubleTap: () {
-                     if (isLocked) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(content: Text('Item is confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
-                        );
-                        return;
-                     } 
-                     
-                     // Prevent overwriting if already has a value (e.g. manually typed)
-                     if ((entry['sendingQty'] ?? 0) > 0) return;
-
-                     final currentVal = req; // Default to full required qty
-
-                     // Distribution Logic
-                     double remainingToDistribute = currentVal;
-                     final originalItems = entry['originalItems'] as List;
-                     double newTotalSent = 0;
-                     Set<String> newStatuses = {};
-                     
-                     // OPTIMIZATION: Single item case checks
-                     if (originalItems.length == 1) {
-                         final original = originalItems[0];
-                         final item = original['item'] as Map<String, dynamic>;
-                         final orderId = original['orderId'] as String;
-                         
-                         item['status'] = 'sending';
-                         item['sendingQty'] = currentVal;
-                         
-                         _updateItemStatus(orderId, item, currentVal);
-                         
-                         setState(() {
-                            entry['sendingQty'] = currentVal;
-                            entry['statuses'] = {'sending'};
-                            _processStockOrders();
-                         });
-                         return;
-                     }
-
-                     for (var original in originalItems) {
-                         final item = original['item'] as Map<String, dynamic>;
-                         final orderId = original['orderId'] as String;
-                         final itemReq = ((item['requiredQty'] as num?) ?? 0).toDouble();
-                         
-                         double allocated = 0;
-                         if (remainingToDistribute >= itemReq) {
-                           allocated = itemReq;
-                           remainingToDistribute -= itemReq;
-                         } else {
-                           allocated = remainingToDistribute;
-                           remainingToDistribute = 0;
-                         }
-                         
-                         item['status'] = 'sending';
-                         item['sendingQty'] = allocated;
-                         
-                         newTotalSent += allocated;
-                         newStatuses.add('sending');
-                         
-                         _updateItemStatus(orderId, item, allocated);
-                     }
-                     
-                     setState(() {
-                       entry['sendingQty'] = newTotalSent;
-                       entry['statuses'] = newStatuses;
-                       // Ensure input is closed if it was open
-                       entry['showInput'] = false;
-                     });
-                 },
-                 child: Container(),
-               ),
-             ),
-          ),
-
-          // Top Left: Ordered Qty (Just Number)
-          Positioned(
-            top: 0,
-            left: 0,
-            child: GestureDetector(
-              onTap: () {
-                 if (isLocked) return;
-
-                 // Tap to Reduce Logic
-                 double current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-                 if (current > 0) {
-                    _saveStockOrder(entry, (current - 1).clamp(0, double.infinity));
-                 }
-              },
-              child: Container(
-                width: 36,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: Colors.red, 
-                  borderRadius: BorderRadius.only(bottomRight: Radius.circular(12)),
-                ),
-                child: Text(
-                  _formatQty(req), // Just the number (Stationary)
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                ),
-              ),
-            ),
-          ),
-
-          // Top Right: Price & Unit
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                '${_formatQty(entry['price'])} ${entry['unit']}'.trim(),
-                style: const TextStyle(
-                  color: Colors.lightGreenAccent,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ),
-          
-          // Center Input/Interaction Box (Fixed/Always Visible)
-          Builder(builder: (context) {
-             final qtyStr = (entry['sendingQty'] ?? 0).toString();
-             // Dynamic width calculation: Default to Square (30x30)
-             final boxWidth = (qtyStr.length * 9.0) + 20.0;
-             double finalWidth = boxWidth > 34 ? boxWidth : 34; // Min width 34
-             
-             if (entry['isTyping'] == true) {
-                 finalWidth = 80.0; 
-             }
-             
-             return Center(
-              child: entry['isTyping'] == true
-              ? Container(
-                width: finalWidth,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                ),
-                child: TextField(
-                  controller: controller,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                  cursorColor: Colors.white,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                    isDense: true,
-                  ),
-                  textInputAction: TextInputAction.done,
-                  onTapOutside: (event) {
-                     final doubleVal = double.tryParse(controller.text) ?? 0;
-                     _markUpdated(entry['productId']);
-                     _saveStockOrder(entry, doubleVal);
-                     setState(() {
-                       entry['isTyping'] = false; 
-                     });
-                     FocusManager.instance.primaryFocus?.unfocus();
-                  },
-                  onSubmitted: (val) {
-                     final doubleVal = double.tryParse(val) ?? 0;
-                     _markUpdated(entry['productId']);
-                     _saveStockOrder(entry, doubleVal);
-                     setState(() {
-                       entry['isTyping'] = false; 
-                     });
-                  },
-                ),
-              )
-              : GestureDetector(
-                  onTap: () {
-                     if (isLocked) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(content: Text('Item is confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
-                        );
-                        return;
-                     }
-
-                     setState(() {
-                        entry['isTyping'] = true;
-                        // Pre-fill controller with Req if 0, else current
-                        final current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-                        controller.text = _formatQty(current == 0 ? req : current);
-                     });
-                  },
-                  child: Container(
-                    width: finalWidth,
-                    height: 34,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.6),
-                      borderRadius: BorderRadius.circular(8),
-                      border: (sent > 0) 
-                          ? Border.all(color: Colors.green, width: 2) 
-                          : null,
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                    ),
-                    child: Text(
-                      '${(entry['sendingQty'] == null || entry['sendingQty'] == 0) ? _formatQty(req) : _formatQty(entry['sendingQty'])}',
-                      style: TextStyle(color: (sent > 0) ? Colors.green : Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                      ],
                     ),
                   ),
-              ),
-            );
-          }),
 
-          // Bottom: Name Only (Single line, smaller font)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              color: Colors.black87,
-              child: Text(
-                productName,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12), // Increased font little
-                textAlign: TextAlign.center,
-                maxLines: 1, // Single line
-                overflow: TextOverflow.ellipsis,
+                  // Top Left: Ordered Qty
+                  Positioned(
+                    top: 2,
+                    left: 2,
+                    child: GestureDetector(
+                      onTap: () {
+                         if (isLocked) return;
+                         double current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+                             if (current > 0) {
+                                setState(() {
+                                   entry['sendingQty'] = (current - 1).clamp(0, double.infinity);
+                                });
+                             }                    },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          _formatQty(req),
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Top Right: Price
+                  Positioned(
+                    top: 2,
+                    right: 2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _formatQty(entry['price']),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Product Name Overlay
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.35),
+                      ),
+                      child: Text(
+                        productName,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          
+            
+            // Bottom Section: Interaction Strip (Flex 2)
+            Expanded(
+              flex: 2,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: onManualEdit,
+                      onDoubleTap: onAutoAction,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        alignment: Alignment.center,
+                        color: statuses.contains('sending') ? Colors.green : Colors.black87,
+                        child: entry['isTyping'] == true
+                            ? SizedBox(
+                                height: 18,
+                                child: TextField(
+                                   controller: controller,
+                                   autofocus: true,
+                                   keyboardType: TextInputType.number,
+                                   textAlign: TextAlign.center,
+                                   textAlignVertical: TextAlignVertical.center,
+                                   style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, height: 1.0),
+                                   cursorColor: Colors.white,
+                                   decoration: const InputDecoration(
+                                     border: InputBorder.none,
+                                     contentPadding: EdgeInsets.zero,
+                                     isCollapsed: true,
+                                   ),
+                                   textInputAction: TextInputAction.done,
+                                   onTapOutside: (event) {
+                                     final doubleVal = double.tryParse(controller.text) ?? 0;
+                                     setState(() {
+                                       entry['sendingQty'] = doubleVal;
+                                       entry['isTyping'] = false;
+                                     });
+                                     FocusManager.instance.primaryFocus?.unfocus();
+                                   },
+                                   onSubmitted: (val) {
+                                     final doubleVal = double.tryParse(val) ?? 0;
+                                     setState(() {
+                                       entry['sendingQty'] = doubleVal;
+                                       entry['isTyping'] = false;
+                                     });
+                                   },
+                                ),
+                              )
+                            : Text(
+                                (entry['sendingQty'] == null || entry['sendingQty'] == 0) ? _formatQty(req) : _formatQty(entry['sendingQty']),
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -3044,8 +3074,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     final statuses = entry['statuses'] as Set;
-    // Lock if Sent is 0 (Nothing to confirm)
-    final isLocked = sent == 0;
+    // Lock if Confirmed or Picked
+    final isLocked = statuses.contains('confirmed') || statuses.contains('picked');
     
     final key = 'supervisor_grid_${entry['productId']}';
     if (!_controllers.containsKey(key)) {
@@ -3053,219 +3083,197 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     final controller = _controllers[key]!;
 
+    // Unified Interaction Logic
+    void onAutoAction() {
+       if (isLocked) {
+          ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Nothing sent by Chef. Cannot confirm.'), duration: Duration(milliseconds: 1000)),
+          );
+          return;
+       }
+
+       double valToSave = confirmedDisplay;
+       if (entry['isTyping'] == true) {
+          valToSave = double.tryParse(controller.text) ?? confirmedDisplay;
+       }
+
+       // Compulsory Double Tap to Save
+       _saveManualConsolidatedConfirm(entry, valToSave); 
+       setState(() {
+         entry['isTyping'] = false;
+       });
+    }
+
+    void onManualEdit() {
+       if (isLocked) {
+          ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Nothing sent by Chef. Cannot confirm.'), duration: Duration(milliseconds: 1000)),
+          );
+          return;
+       }
+       setState(() {
+         entry['isTyping'] = true;
+         controller.text = _formatQty(confirmedDisplay);
+       });
+    }
+
     return Card(
-      elevation: 4,
+      elevation: 0,
+      color: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide.none,
       ),
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
+      child: Column(
         children: [
-          // Background Image
-          if (imageProvider != null)
-            Image(image: imageProvider, fit: BoxFit.cover)
-          else
-            Container(color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
+            // Top Section (Flex 8)
+            Expanded(
+              flex: 8,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Image Area with Unified Gesture
+                  GestureDetector(
+                    onTap: onManualEdit,
+                    onDoubleTap: onAutoAction,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (imageProvider != null)
+                          Image(image: imageProvider, fit: BoxFit.cover)
+                        else
+                          Container(child: const Icon(Icons.fastfood, size: 40, color: Colors.grey)),
 
-          Container(
-             decoration: BoxDecoration(
-               gradient: LinearGradient(
-                 begin: Alignment.center,
-                 end: Alignment.bottomCenter,
-                 colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
-               ),
-             ),
-          ),
-          
-          // Tap Interactions (Background)
-           Positioned.fill(
-             child: Material(
-               color: Colors.transparent,
-               child: InkWell(
-                 onTap: () {
-                    // Close keyboard if typing
-                    if (entry['isTyping'] == true) {
-                        final val = double.tryParse(controller.text) ?? confirmedDisplay;
-                        _saveManualConsolidatedConfirm(entry, val);
-                        setState(() {
-                          entry['isTyping'] = false;
-                        });
-                        FocusManager.instance.primaryFocus?.unfocus();
-                    }
-                 },
-                 onDoubleTap: () {
-                     if (isLocked) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(content: Text('Nothing sent by Chef. Cannot confirm.'), duration: Duration(milliseconds: 1000)),
-                        );
-                        return;
-                     }
 
-                     // Auto-Confirm All Sent
-                     if (confirmedRaw < sent) {
-                       _saveConsolidatedConfirm(entry); 
-                     }
-                 },
-                 child: Container(),
-               ),
-             ),
-           ),
+                      ],
+                    ),
+                  ),
 
-          // Top Left: Sent Qty (Red Badge - Previous Step)
-          Positioned(
-            top: 0,
-            left: 0,
-            child: Container(
-              width: 36,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: Colors.red, 
-                borderRadius: BorderRadius.only(bottomRight: Radius.circular(12)),
-              ),
-              child: Text(
-                _formatQty(sent),
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-              ),
-            ),
-          ),
+                  // Top Left: Sent Qty
+                  Positioned(
+                    top: 2,
+                    left: 2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _formatQty(sent),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+                      ),
+                    ),
+                  ),
 
-          // Top Right: Price & Unit
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                '${_formatQty(entry['price'])} ${entry['unit']}'.trim(),
-                style: const TextStyle(
-                  color: Colors.lightGreenAccent,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ),
-          
-          // Center: Confirmed Qty (Interaction Box)
-          Builder(builder: (context) {
-             final qtyStr = _formatQty(confirmedDisplay);
-             // Dynamic width
-             final boxWidth = (qtyStr.length * 9.0) + 20.0;
-             double finalWidth = boxWidth > 34 ? boxWidth : 34; // Square default
-             
-             if (entry['isTyping'] == true) {
-                 finalWidth = 80.0;
-             }
-             
-             return Center(
-               child: entry['isTyping'] == true
-               ? Container(
-                   width: finalWidth,
-                   height: 34,
-                   alignment: Alignment.center,
-                   decoration: BoxDecoration(
-                     color: Colors.black.withOpacity(0.6),
-                     borderRadius: BorderRadius.circular(8),
-                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                   ),
-                   child: TextField(
-                     controller: controller,
-                     autofocus: true,
-                     keyboardType: TextInputType.number,
-                     textAlign: TextAlign.center,
-                     style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                     cursorColor: Colors.white,
-                     decoration: const InputDecoration(
-                       border: InputBorder.none,
-                       contentPadding: EdgeInsets.zero,
-                       isDense: true,
-                     ),
-                     textInputAction: TextInputAction.done,
-                     onTapOutside: (event) {
-                        final intVal = double.tryParse(controller.text) ?? 0;
-                        _saveManualConsolidatedConfirm(entry, intVal);
-                        setState(() {
-                          entry['isTyping'] = false; 
-                        });
-                        FocusManager.instance.primaryFocus?.unfocus();
-                     },
-                     onSubmitted: (val) {
-                        final intVal = double.tryParse(val) ?? 0;
-                        _saveManualConsolidatedConfirm(entry, intVal);
-                        setState(() {
-                          entry['isTyping'] = false; 
-                        });
-                     },
-                   ),
-                 )
-                 : GestureDetector(
-                     onTap: () {
-                        if (isLocked) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                             const SnackBar(content: Text('Nothing sent by Chef. Cannot confirm.'), duration: Duration(milliseconds: 1000)),
-                          );
-                          return;
-                        }
-
-                        setState(() {
-                           entry['isTyping'] = true;
-                           controller.text = _formatQty(confirmedDisplay);
-                        });
-                     },
-                     child: Container(
-                       width: finalWidth,
-                       height: 34,
-                       alignment: Alignment.center,
-                       decoration: BoxDecoration(
-                         color: Colors.black.withOpacity(0.6),
-                         borderRadius: BorderRadius.circular(8),
-                         border: (confirmedRaw > 0) 
-                             ? Border.all(color: Colors.green, width: 2) // Green if Confirmed > 0 (Done)
-                             : null,
-                         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                       ),
-                        child: Text(
-                          _formatQty((entry['confirmedQty'] == 0 || entry['confirmedQty'] == null) ? sent : entry['confirmedQty']),
-                          style: TextStyle(
-                             color: (sent == 0) ? Colors.red : ((confirmedRaw > 0) ? Colors.green : Colors.white), 
-                             fontSize: 14, 
-                             fontWeight: FontWeight.bold
-                          ),
+                  // Top Right: Price
+                  Positioned(
+                    top: 2,
+                    right: 2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _formatQty(entry['price']),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
                         ),
-                     ),
-                 ),
-             );
-           }),
+                      ),
+                    ),
+                  ),
 
-           // Bottom: Name Only
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                color: Colors.black87,
-                child: Text(
-                  productName,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                  textAlign: TextAlign.center,
-                  maxLines: 1, 
-                  overflow: TextOverflow.ellipsis,
+                // Product Name Overlay
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.35),
+                    ),
+                    child: Text(
+                      productName,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ),
+              ],
+            ),
+          ),
+          
+          // Bottom Section: Interaction Strip (Flex 2)
+          Expanded(
+            flex: 2,
+            child: Column(
+              children: [
+                Expanded(
+                    child: GestureDetector(
+                      onTap: onManualEdit,
+                      onDoubleTap: onAutoAction,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        alignment: Alignment.center,
+                        color: statuses.contains('confirmed') ? Colors.green : Colors.black87,
+                        child: entry['isTyping'] == true
+                            ? SizedBox(
+                                height: 18,
+                                child: TextField(
+                                   controller: controller,
+                                   autofocus: true,
+                                   keyboardType: TextInputType.number,
+                                   textAlign: TextAlign.center,
+                                   textAlignVertical: TextAlignVertical.center,
+                                   style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, height: 1.0),
+                                   cursorColor: Colors.white,
+                                   decoration: const InputDecoration(
+                                     border: InputBorder.none,
+                                     contentPadding: EdgeInsets.zero,
+                                     isCollapsed: true,
+                                   ),
+                                   textInputAction: TextInputAction.done,
+                                   onTapOutside: (event) {
+                                   final doubleVal = double.tryParse(controller.text) ?? 0;
+                                   setState(() {
+                                     entry['confirmedQty'] = doubleVal;
+                                     entry['isTyping'] = false;
+                                   });
+                                   FocusManager.instance.primaryFocus?.unfocus();
+                                },
+                                   onSubmitted: (val) {
+                                   final doubleVal = double.tryParse(val) ?? 0;
+                                   setState(() {
+                                     entry['confirmedQty'] = doubleVal;
+                                     entry['isTyping'] = false;
+                                   });
+                                 },
+                                ),
+                              )
+                            : Text(
+                                _formatQty((entry['confirmedQty'] == 0 || entry['confirmedQty'] == null) ? sent : entry['confirmedQty']),
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     // Check if user is factory for consolidated view
@@ -3317,8 +3325,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     );
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Stock Orders'),
+        title: Text(widget.onlyTodayOrdered ? 'Branch Orders' : 'Stock Orders'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         actions: [
@@ -3340,10 +3349,87 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         ],
       ),
       body: mainContent, 
-      bottomNavigationBar: _buildDepartmentFooter(),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+            _buildDepartmentFooter(), // Department Footer First
+            _buildStatusFilterBar(),  // Status Filter Second (Bottom)
+        ],
+      ),
     );
   }
   
+  Widget _buildStatusFilterBar() {
+      final isAll = _statusFilter == 'ALL'; 
+      final isApproved = _statusFilter == 'APPROVED';
+      final isNotApproved = _statusFilter == 'NOT_APPROVED';
+      
+      // Fixed Backgrounds - distinct from Department Footer (Black)
+      final Color approvedBg = Colors.grey[900]!; 
+      final Color notApprovedBg = Colors.grey[900]!;
+
+      return SizedBox(
+        height: 40, // Reduced height
+        width: double.infinity,
+        child: Row(
+             children: [
+               Expanded(
+                   child: GestureDetector(
+                       onTap: () {
+                          setState(() {
+                             _statusFilter = isApproved ? 'ALL' : 'APPROVED';
+                             _processStockOrders();
+                          });
+                       },
+                       child: Container(
+                          color: approvedBg,
+                          alignment: Alignment.center,
+                          child: Text(
+                             'APPROVED', 
+                             style: TextStyle(
+                                 fontWeight: FontWeight.bold, 
+                                 fontSize: 16, 
+                                 // Active: Green, Inactive: White
+                                 // If Not Approved is active, this one is dim white
+                                 color: isApproved 
+                                    ? Colors.greenAccent 
+                                    : (isNotApproved ? Colors.white.withOpacity(0.3) : Colors.white)
+                             )
+                          ),
+                       ),
+                   ),
+               ),
+               Expanded(
+                   child: GestureDetector(
+                       onTap: () {
+                          setState(() {
+                             _statusFilter = isNotApproved ? 'ALL' : 'NOT_APPROVED';
+                             _processStockOrders();
+                          });
+                       },
+                       child: Container(
+                          color: notApprovedBg,
+                          alignment: Alignment.center,
+                          child: Text(
+                             'NOT APPROVED', 
+                             style: TextStyle(
+                                 fontWeight: FontWeight.bold, 
+                                 fontSize: 16, 
+                                 // Active: Red, Inactive: White
+                                 // If Approved is active, this one is dim white
+                                 color: isNotApproved 
+                                     ? Colors.redAccent 
+                                     : (isApproved ? Colors.white.withOpacity(0.3) : Colors.white)
+                             )
+                          ),
+                       ),
+                   ),
+               ),
+             ],
+        ),
+      );
+  }
+
   Widget _buildDepartmentFooter() {
      if (_availableDepartments.isEmpty || _availableDepartments.length <= 1) return const SizedBox.shrink();
      
@@ -3408,14 +3494,14 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   Widget _buildReportView() {
      return ListView.separated(
         padding: const EdgeInsets.all(16),
-        itemCount: _consolidatedItems.length,
+        itemCount: _consolidatedItemsReport.length,
         separatorBuilder: (context, index) {
-            final type = _consolidatedItems[index]['type'];
+            final type = _consolidatedItemsReport[index]['type'];
             if (type == 'header_dept' || type == 'header_cat') return const SizedBox.shrink();
             return const Divider(height: 1);
         },
         itemBuilder: (context, index) {
-           final item = _consolidatedItems[index]; // Map<String, dynamic>
+           final item = _consolidatedItemsReport[index]; // Map<String, dynamic>
            final type = item['type'];
            
            if (type == 'header_dept') {
@@ -3442,7 +3528,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               return Container(
                  margin: const EdgeInsets.only(top: 12, bottom: 4),
                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                 color: Colors.grey.shade200,
                  child: Row(
                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                    children: [

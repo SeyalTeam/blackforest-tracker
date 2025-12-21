@@ -16,6 +16,28 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _branchController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
+  String? _currentIp;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchIp();
+  }
+
+  Future<void> _fetchIp() async {
+    try {
+      final response = await http.get(Uri.parse('https://api.ipify.org?format=json'));
+      if (response.statusCode == 200) {
+        if (mounted) {
+          setState(() {
+            _currentIp = jsonDecode(response.body)['ip'];
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch IP: $e');
+    }
+  }
 
   void _login() async {
     if (_formKey.currentState!.validate()) {
@@ -76,10 +98,22 @@ class _LoginPageState extends State<LoginPage> {
             MaterialPageRoute(builder: (context) => const HomeScreen()),
           );
         } else {
-          // Login Failed
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Login Failed: ${res.statusCode}. Check credentials.')),
-          );
+          // Login Failed - Improved error handling
+          String errorMessage = 'Login Failed: ${res.statusCode}. Check credentials.';
+          try {
+            final errorData = jsonDecode(res.body);
+            if (errorData['errors'] != null && errorData['errors'] is List && errorData['errors'].isNotEmpty) {
+              errorMessage = errorData['errors'][0]['message'] ?? errorMessage;
+            }
+          } catch (e) {
+            debugPrint('Error parsing login failure response: $e');
+          }
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errorMessage)),
+            );
+          }
         }
       } catch (e) {
         if (mounted) {
@@ -176,6 +210,31 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                   ),
                 ),
+                if (_currentIp != null) ...[
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.wifi, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Current IP: $_currentIp',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[700],
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
