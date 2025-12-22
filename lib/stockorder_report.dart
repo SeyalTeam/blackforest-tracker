@@ -1973,6 +1973,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   // Factory Item Row
                   row = InkWell(
                     onDoubleTap: () {
+                       if (selectedBranchId == 'ALL') {
+                         ScaffoldMessenger.of(context).showSnackBar(
+                           const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+                         );
+                         return;
+                       }
                        final currentVal = double.tryParse(controller.text) ?? req;
                        setState(() {
                          item['status'] = 'sending';
@@ -2020,6 +2026,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                  decoration: const InputDecoration(border: InputBorder.none, isDense: true),
                                  onSubmitted: (val) {
+                                    if (selectedBranchId == 'ALL') {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+                                      );
+                                      return;
+                                    }
                                     final v = double.tryParse(val) ?? req;
                                     setState(() {
                                        item['sendingQty'] = v;
@@ -2052,6 +2064,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                 flex: 1,
                                 child: InkWell(
                                   onDoubleTap: () {
+                                     if (selectedBranchId == 'ALL') {
+                                       ScaffoldMessenger.of(context).showSnackBar(
+                                         const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+                                       );
+                                       return;
+                                     }
                                      final qtyToConfirm = ((item['confirmedQty'] as num?) ?? (sent > 0 ? sent : 0)).toDouble();
                                      // If already confirmed same amount, maybe allow re-confirm or just confirm. 
                                      // Logic: User wants to confirm "snt qty".
@@ -2301,6 +2319,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
     // Unified Interaction Logic
     void onAutoAction() {
+      if (selectedBranchId == 'ALL') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+        );
+        return;
+      }
       if (_isSaving) return;
       if (isLocked) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2322,6 +2346,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     void onManualEdit() {
+      if (selectedBranchId == 'ALL') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+        );
+        return;
+      }
       if (isLocked) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Item is picked by Driver. Cannot edit.'), duration: Duration(milliseconds: 1000)),
@@ -2443,7 +2473,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       alignment: Alignment.center,
-                      color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
+                      color: (entry['confirmedQty'] != null && entry['confirmedQty'] > 0) ? Colors.green : Colors.black87,
                       child: entry['isTyping'] == true
                           ? SizedBox(
                               height: 18,
@@ -2548,6 +2578,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
   // Unified Interaction Logic
   void onAutoAction() {
+     if (selectedBranchId == 'ALL') {
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+       );
+       return;
+     }
      if (_isSaving) return;
      if (isLocked) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2569,6 +2605,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   void onManualEdit() {
+     if (selectedBranchId == 'ALL') {
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+       );
+       return;
+     }
      if (isLocked) {
        ScaffoldMessenger.of(context).showSnackBar(
          const SnackBar(content: Text('Item is received by Branch. Cannot edit.'), duration: Duration(milliseconds: 1000)),
@@ -2693,7 +2735,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       alignment: Alignment.center,
-                      color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
+                      color: (entry['pickedQty'] != null && entry['pickedQty'] > 0) ? Colors.green : Colors.black87,
                       child: entry['isTyping'] == true
                           ? SizedBox(
                               height: 18,
@@ -2810,6 +2852,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
     // Unified Interaction Logic
     void onAutoAction() {
+      if (selectedBranchId == 'ALL') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+        );
+        return;
+      }
       if (isLocked) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Item is confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
@@ -2832,6 +2880,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     void onManualEdit() {
+      if (selectedBranchId == 'ALL') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+        );
+        return;
+      }
       if (isLocked) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Item is confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
@@ -2884,6 +2938,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                     left: 2,
                     child: GestureDetector(
                       onTap: () {
+                         if (selectedBranchId == 'ALL') {
+                           ScaffoldMessenger.of(context).showSnackBar(
+                             const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+                           );
+                           return;
+                         }
                          if (isLocked) return;
                          double current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
                              if (current > 0) {
@@ -2962,7 +3022,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         alignment: Alignment.center,
-                        color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
+                        color: (entry['sendingQty'] != null && entry['sendingQty'] > 0) ? Colors.green : Colors.black87,
                         child: entry['isTyping'] == true
                             ? SizedBox(
                                 height: 18,
@@ -3066,9 +3126,21 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
     // Unified Interaction Logic
     void onAutoAction() {
-       if (isLocked) {
+       if (selectedBranchId == 'ALL') {
+         ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+         );
+         return;
+       }
+       if (sent == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
              const SnackBar(content: Text('Nothing sent by Chef. Cannot confirm.'), duration: Duration(milliseconds: 1000)),
+          );
+          return;
+       }
+       if (isLocked) {
+          ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Item is already confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
           );
           return;
        }
@@ -3086,9 +3158,21 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     void onManualEdit() {
-       if (isLocked) {
+       if (selectedBranchId == 'ALL') {
+         ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text('Cannot update when ALL Branches are selected. Please select a specific branch.'), duration: Duration(milliseconds: 1500)),
+         );
+         return;
+       }
+       if (sent == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
              const SnackBar(content: Text('Nothing sent by Chef. Cannot confirm.'), duration: Duration(milliseconds: 1000)),
+          );
+          return;
+       }
+       if (isLocked) {
+          ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Item is already confirmed/picked. Cannot edit.'), duration: Duration(milliseconds: 1000)),
           );
           return;
        }
@@ -3205,43 +3289,43 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         alignment: Alignment.center,
-                        color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
+                        color: (entry['confirmedQty'] != null && entry['confirmedQty'] > 0) ? Colors.green : Colors.black87,
                         child: entry['isTyping'] == true
                             ? SizedBox(
                                 height: 18,
                                 child: TextField(
-                                   controller: controller,
-                                   autofocus: true,
-                                   keyboardType: TextInputType.number,
-                                   textAlign: TextAlign.center,
-                                   textAlignVertical: TextAlignVertical.center,
+                                  controller: controller,
+                                  autofocus: true,
+                                  keyboardType: TextInputType.number,
+                                  textAlign: TextAlign.center,
+                                  textAlignVertical: TextAlignVertical.center,
                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, height: 1.0),
-                                   cursorColor: Colors.white,
-                                   decoration: const InputDecoration(
-                                     border: InputBorder.none,
-                                     contentPadding: EdgeInsets.zero,
-                                     isCollapsed: true,
-                                   ),
-                                   textInputAction: TextInputAction.done,
-                                   onTapOutside: (event) {
-                                   final doubleVal = double.tryParse(controller.text) ?? 0;
-                                   setState(() {
-                                     entry['confirmedQty'] = doubleVal;
-                                     entry['isTyping'] = false;
-                                   });
-                                   FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                                   onSubmitted: (val) {
-                                   final doubleVal = double.tryParse(val) ?? 0;
-                                   setState(() {
-                                     entry['confirmedQty'] = doubleVal;
-                                     entry['isTyping'] = false;
-                                   });
-                                 },
+                                  cursorColor: Colors.white,
+                                  decoration: const InputDecoration(
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.zero,
+                                    isCollapsed: true,
+                                  ),
+                                  textInputAction: TextInputAction.done,
+                                  onTapOutside: (event) {
+                                     final doubleVal = double.tryParse(controller.text) ?? 0;
+                                     setState(() {
+                                       entry['confirmedQty'] = doubleVal;
+                                       entry['isTyping'] = false;
+                                     });
+                                     FocusManager.instance.primaryFocus?.unfocus();
+                                  },
+                                  onSubmitted: (val) {
+                                     final doubleVal = double.tryParse(val) ?? 0;
+                                     setState(() {
+                                       entry['confirmedQty'] = doubleVal;
+                                       entry['isTyping'] = false;
+                                     });
+                                   },
                                 ),
                               )
                             : Text(
-                                _formatQty((entry['confirmedQty'] == 0 || entry['confirmedQty'] == null) ? sent : entry['confirmedQty']),
+                                _formatQty(confirmedDisplay),
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -3625,13 +3709,22 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
          col2 = _buildReportCol('Picked', pick, Colors.green);
       }
 
-      // Determine Approval Status for Background Color
+      // Determine Approval Status for Background Color (Role-Specific)
     final sentRaw = ((item['sendingQty'] as num?) ?? 0).toDouble();
     final confRaw = ((item['confirmedQty'] as num?) ?? 0).toDouble();
     final pickRaw = ((item['pickedQty'] as num?) ?? 0).toDouble();
-    final isAnyUpdate = sentRaw > 0 || confRaw > 0 || pickRaw > 0;
+  bool isCurrentRoleUpdated = false;
+  if (isChef) {
+    isCurrentRoleUpdated = sentRaw > 0;
+  } else if (isSupervisor) {
+    isCurrentRoleUpdated = confRaw > 0;
+  } else if (isDriver) {
+    isCurrentRoleUpdated = pickRaw > 0;
+  } else {
+    isCurrentRoleUpdated = sentRaw > 0 || confRaw > 0 || pickRaw > 0;
+  }
 
-    final bgColor = isAnyUpdate ? Colors.green.shade50 : Colors.red.shade50;
+  final bgColor = isCurrentRoleUpdated ? Colors.green.shade50 : Colors.red.shade50;
 
     return Container(
       color: bgColor,
