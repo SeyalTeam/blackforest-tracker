@@ -141,6 +141,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     return storage.read(key: 'token');
   }
 
+  double _getFixedChefQty(String? branchName, String? categoryName) {
+    // Logic previously had hardcoded values (50, 15, 10) for specific branches/categories.
+    // User requested to remove them / respects dashboard nulls.
+    // Defaulting to 0 so it uses the 'requiredQty' (ordered count) instead.
+    return 0;
+  }
+
   Future<void> _fetchBranches() async {
     setState(() => _loadingBranches = true);
     try {
@@ -297,9 +304,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       // Filter orders by Branch Selection
       final filteredOrders = stockOrders.where((o) {
           final b = o['branch'];
-          final bid = b is Map ? (b['id'] ?? b['_id']) : null;
+          final bid = b is Map ? (b['id'] ?? b['_id'])?.toString() : null;
           
-          bool matchesBranch = selectedBranchId == 'ALL' || bid == selectedBranchId;
+          bool matchesBranch = selectedBranchId == 'ALL' || bid == selectedBranchId.toString();
           
           // Determine if it's a same-day order (Ordered Today & Delivery Today)
           bool isSameDayOrder = false;
@@ -494,8 +501,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               grp['price'] = price;
               grp['unit'] = unit;
               
-              totalReqAmt += (reqQty * price);
-              totalSent += sentQty;
           }
       }
       
@@ -589,56 +594,32 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           return (a['productName'] ?? '').compareTo(b['productName'] ?? '');
       });
 
-      // Helper to Insert Headers
-      List<Map<String, dynamic>> buildWithHeaders(List<Map<String, dynamic>> sourceList) {
-           List<Map<String, dynamic>> result = [];
-           String? lastDept;
-           String? lastCat;
-           
-           // Pre-calculate totals for this specific list order might differ? 
-           // Technically totals should NOT differ based on sort order, but let's recalculate 
-           // or reuse the Totals Map if we trust it covers all items. 
-           // We already calculated `departmentTotals` and `categoryTotals` from `rawList` (before sort split? No, before this block).
-           // Wait, I need to check where `categoryTotals` wsa calculated. 
-           // It was calculated from `rawList` BEFORE this block in my previous view.
-           // Ah, wait. I am replacing lines 509-616.
-           // The calculation loop was at lines 564-587, which is INSIDE the replacement block in my previous view?
-           // Let me check the file content again carefully.
-           
-           // In previous `view_file` (Step 173):
-           // 509: rawList.sort...
-           // ...
-           // 560: Map<String, Map<String, double>> categoryTotals = {}; 
-           // ...
-           // 589: for (var item in rawList) { ... insert headers ... }
-           
-           // So I need to include the Totals calculation in my replacement content or before it. 
-           // Since I'm replacing the sort block, I should probably keep the totals logic 
-           // adaptable or run it once since content is same, just order differs.
-           
-           // Let's include the Totals calculation logic inside `buildWithHeaders` or calculate once and pass it.
-           // Calculating once is better.
-           // But `buildWithHeaders` needs the `categoryTotals` map.
-           
-           return result;
-      }
       
-      // Define Totals Calculation (re-implementing loop from replaced block)
+       // Define Totals Calculation
        Map<String, Map<String, double>> categoryTotals = {}; 
        Map<String, Map<String, double>> departmentTotals = {};
-       // Key: CategoryName/DeptName, Value: {req, sent, conf, pick}
+       // Reset global totals to calculate from filtered list
+       totalReqAmt = 0;
+       totalSent = 0;
        
-       for (var item in rawList) { // Content is same for gridList
+       for (var item in rawList) { 
           final cat = item['categoryName'] as String;
           final dept = item['departmentName'] as String;
+          final price = (item['price'] as num).toDouble();
+          final req = (item['requiredQty'] as num).toDouble();
+          final sent = (item['sendingQty'] as num).toDouble();
+
+          // Global Totals (Filtered)
+          totalReqAmt += (req * price);
+          totalSent += sent;
 
           // Category Totals
           if (!categoryTotals.containsKey(cat)) {
              categoryTotals[cat] = {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
           }
           final cTotals = categoryTotals[cat]!;
-          cTotals['req'] = (cTotals['req']!) + ((item['requiredQty'] as num).toDouble());
-          cTotals['sent'] = (cTotals['sent']!) + ((item['sendingQty'] as num).toDouble());
+          cTotals['req'] = (cTotals['req']!) + req;
+          cTotals['sent'] = (cTotals['sent']!) + sent;
           cTotals['conf'] = (cTotals['conf']!) + ((item['confirmedQty'] as num).toDouble());
           cTotals['pick'] = (cTotals['pick']!) + ((item['pickedQty'] as num).toDouble());
 
@@ -647,8 +628,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
              departmentTotals[dept] = {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
           }
           final dTotals = departmentTotals[dept]!;
-          dTotals['req'] = (dTotals['req']!) + ((item['requiredQty'] as num).toDouble());
-          dTotals['sent'] = (dTotals['sent']!) + ((item['sendingQty'] as num).toDouble());
+          dTotals['req'] = (dTotals['req']!) + req;
+          dTotals['sent'] = (dTotals['sent']!) + sent;
           dTotals['conf'] = (dTotals['conf']!) + ((item['confirmedQty'] as num).toDouble());
           dTotals['pick'] = (dTotals['pick']!) + ((item['pickedQty'] as num).toDouble());
        }
@@ -797,27 +778,20 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         }
 
         // Clone item for API
-        // WARNING: Payload might reject unknown fields if we just dump everything.
-        // Safer to construct specific fields or use clean clone.
-        // For now, let's try to preserve structure but ensure 'product' is ID.
         Map<String, dynamic> apiItem = Map<String, dynamic>.from(item);
         
-        // Fix Product to be ID string
-        apiItem['product'] = pid; 
-
-        // Remove expanded fields that shouldn't be sent back if they confuse the API
-        apiItem.remove('id'); // ID of the item row itself might be needed or not? usually Payload handles array items by position or _id. 
-        // If we remove _id, it might create new items. Let's keep _id if present.
-        
+        if (pid == targetPid) {
           found = true;
+          // Fix Product to be ID string for the updated item
+          apiItem['product'] = pid; 
           apiItem['sendingQty'] = newSentQty;
           apiItem['status'] = 'sending';
           apiItem['sendingDate'] = nowStr;
           
-          // Update local reference immediately for UI responsiveness
           itemToUpdate['status'] = 'sending';
           itemToUpdate['sendingQty'] = newSentQty;
           itemToUpdate['sendingDate'] = nowStr;
+        }
         
         apiItems.add(apiItem);
       }
@@ -897,11 +871,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         }
 
         Map<String, dynamic> apiItem = Map<String, dynamic>.from(item);
-        apiItem['product'] = pid; 
-        apiItem.remove('id'); 
         
         if (pid == targetPid) {
           found = true;
+          apiItem['product'] = pid; 
           apiItem['confirmedQty'] = qty;
           apiItem['status'] = itemToUpdate['status'] ?? 'confirmed'; 
           apiItem['confirmedDate'] = nowStr;
@@ -1131,11 +1104,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         }
 
         Map<String, dynamic> apiItem = Map<String, dynamic>.from(item);
-        apiItem['product'] = pid; 
-        apiItem.remove('id'); 
         
         if (pid == targetPid) {
           found = true;
+          apiItem['product'] = pid; 
           apiItem['pickedQty'] = qty;
           apiItem['status'] = 'picked';
           apiItem['pickedDate'] = nowStr;
@@ -2471,7 +2443,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       alignment: Alignment.center,
-                      color: statuses.contains('confirmed') ? Colors.green : Colors.black87,
+                      color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
                       child: entry['isTyping'] == true
                           ? SizedBox(
                               height: 18,
@@ -2721,7 +2693,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       alignment: Alignment.center,
-                      color: statuses.contains('picked') ? Colors.green : Colors.black87,
+                      color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
                       child: entry['isTyping'] == true
                           ? SizedBox(
                               height: 18,
@@ -2827,6 +2799,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final confirmedQty = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
     final isLocked = statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked') || confirmedQty > 0;
 
+    // Resolve branch name for fixed qty logic
+    String? currentBranchName;
+    if (selectedBranchId != 'ALL') {
+       final found = branches.firstWhere((b) => b['id'] == selectedBranchId, orElse: () => {});
+       if (found.isNotEmpty) currentBranchName = found['name'];
+    }
+    final fixedQty = _getFixedChefQty(currentBranchName, entry['categoryName']);
+    final suggestedVal = fixedQty > 0 ? fixedQty : req;
+
     // Unified Interaction Logic
     void onAutoAction() {
       if (isLocked) {
@@ -2837,7 +2818,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
       
       final currentSent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-      double valToSave = (currentSent > 0) ? currentSent : req;
+      double valToSave = (currentSent > 0) ? currentSent : suggestedVal;
       
       if (entry['isTyping'] == true) {
         valToSave = double.tryParse(controller.text) ?? valToSave;
@@ -2981,7 +2962,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         alignment: Alignment.center,
-                        color: statuses.contains('sending') ? Colors.green : Colors.black87,
+                        color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
                         child: entry['isTyping'] == true
                             ? SizedBox(
                                 height: 18,
@@ -3017,7 +2998,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                 ),
                               )
                             : Text(
-                                (entry['sendingQty'] == null || entry['sendingQty'] == 0) ? _formatQty(req) : _formatQty(entry['sendingQty']),
+                                (entry['sendingQty'] == null || entry['sendingQty'] == 0) ? _formatQty(suggestedVal) : _formatQty(entry['sendingQty']),
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -3224,7 +3205,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         alignment: Alignment.center,
-                        color: statuses.contains('confirmed') ? Colors.green : Colors.black87,
+                        color: (statuses.contains('sending') || statuses.contains('confirmed') || statuses.contains('picked')) ? Colors.green : Colors.black87,
                         child: entry['isTyping'] == true
                             ? SizedBox(
                                 height: 18,
@@ -3645,19 +3626,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
 
       // Determine Approval Status for Background Color
-    bool isApproved = false;
-    if (isChef) {
-       final sent = ((item['sendingQty'] as num?) ?? 0).toDouble();
-       isApproved = sent > 0;
-    } else if (isSupervisor) {
-       final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
-       isApproved = conf > 0;
-    } else if (isDriver) {
-       final pick = ((item['pickedQty'] as num?) ?? 0).toDouble();
-       isApproved = pick > 0;
-    }
+    final sentRaw = ((item['sendingQty'] as num?) ?? 0).toDouble();
+    final confRaw = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+    final pickRaw = ((item['pickedQty'] as num?) ?? 0).toDouble();
+    final isAnyUpdate = sentRaw > 0 || confRaw > 0 || pickRaw > 0;
 
-    final bgColor = isApproved ? Colors.green.shade50 : Colors.red.shade50;
+    final bgColor = isAnyUpdate ? Colors.green.shade50 : Colors.red.shade50;
 
     return Container(
       color: bgColor,
