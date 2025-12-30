@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'api_config.dart';
 import 'home.dart';
 
 class LoginPage extends StatefulWidget {
@@ -39,7 +40,10 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _fetchDynamicRanges() async {
     try {
-      final res = await http.get(Uri.parse('https://admin.theblackforestcakes.com/api/branches?limit=1000'));
+      final res = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/branches?limit=1000'),
+        headers: ApiConfig.headers,
+      );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final docs = data['docs'] as List?;
@@ -157,12 +161,14 @@ class _LoginPageState extends State<LoginPage> {
         // Assuming 'email' is the identifier. The UI says 'Branch', but payload default is email.
         // We try sending the input as email.
         
+        // Create headers map
+        final Map<String, String> headers = Map.from(ApiConfig.headers);
+        headers['Content-Type'] = 'application/json';
+        headers['x-private-ip'] = _privateIp ?? '';
+
         final res = await http.post(
-          Uri.parse('https://admin.theblackforestcakes.com/api/users/login'),
-          headers: {
-            'Content-Type': 'application/json',
-            'x-private-ip': _privateIp ?? '', // Critical header for server-side validation
-          },
+          Uri.parse('${ApiConfig.baseUrl}/users/login'),
+          headers: headers,
           body: jsonEncode({
             'email': _branchController.text.trim().contains('@') 
                 ? _branchController.text.trim() 

@@ -8,6 +8,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:share_plus/share_plus.dart';
+import 'api_config.dart';
+import 'api_service.dart';
 
 class StockOrderReportPage extends StatefulWidget {
   final String? initialBranchId;
@@ -19,6 +22,9 @@ class StockOrderReportPage extends StatefulWidget {
   final String? departmentName;
   final bool onlyTodayOrdered;
 
+  final String? initialOrderId;
+  final bool? initialIsReportView;
+
   const StockOrderReportPage({
     super.key,
     this.initialBranchId,
@@ -29,6 +35,8 @@ class StockOrderReportPage extends StatefulWidget {
     this.departmentId,
     this.departmentName,
     this.onlyTodayOrdered = false,
+    this.initialOrderId,
+    this.initialIsReportView,
   });
 
   @override
@@ -69,6 +77,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   String _selectedDepartmentFilter = 'ALL';
   Set<String> _availableDepartments = {'ALL'};
   String _statusFilter = 'ALL';
+  String? _selectedOrderId;
+  Map<String, String> _orderShortForms = {};
+  Map<String, bool> _billOpenedStatus = {};
+  Map<String, int> _billPendingItemCounts = {};
+  Map<String, bool> _orderIsLive = {};
 
   // Map to track local edits: OrderID_ItemID -> Controller
   final Map<String, TextEditingController> _controllers = {};
@@ -109,6 +122,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     if (widget.initialBranchId != null) {
       selectedBranchId = widget.initialBranchId!;
     }
+    
+    if (widget.initialOrderId != null) {
+      _selectedOrderId = widget.initialOrderId;
+    }
+    
+    if (widget.initialIsReportView != null) {
+      _isReportView = widget.initialIsReportView!;
+    }
+
     _bootstrap();
   }
 
@@ -136,37 +158,23 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     });
   }
 
-  Future<String?> _getToken() async {
-    const storage = FlutterSecureStorage();
-    return storage.read(key: 'token');
-  }
+  // Removed _getToken() as it is handled by ApiService
 
   double _getFixedChefQty(String? branchName, String? categoryName) {
-    // Logic previously had hardcoded values (50, 15, 10) for specific branches/categories.
-    // User requested to remove them / respects dashboard nulls.
-    // Defaulting to 0 so it uses the 'requiredQty' (ordered count) instead.
     return 0;
   }
 
-  Future<void> _fetchBranches() async {
+  Future<void> _fetchBranches({bool forceRefresh = false}) async {
     setState(() => _loadingBranches = true);
     try {
-      final token = await _getToken();
-      final res = await http.get(
-        Uri.parse('https://admin.theblackforestcakes.com/api/branches?limit=1000'),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
-      );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final docs = data['docs'] ?? [];
-        final list = <Map<String, String>>[]; // 'ALL' is added manually in UI
-        for (var b in docs) {
-          final id = (b['id'] ?? b['_id'])?.toString();
-          final name = (b['name'] ?? 'Unnamed Branch').toString();
-          if (id != null) list.add({'id': id, 'name': name});
-        }
-        setState(() => branches = list);
+      final docs = await ApiService.instance.fetchBranches(forceRefresh: forceRefresh);
+      final list = <Map<String, String>>[];
+      for (var b in docs) {
+        final id = (b['id'] ?? b['_id'])?.toString();
+        final name = (b['name'] ?? 'Unnamed Branch').toString();
+        if (id != null) list.add({'id': id, 'name': name});
       }
+      setState(() => branches = list);
     } catch (e) {
       debugPrint('fetchBranches error: $e');
       setState(() => branches = [
@@ -177,20 +185,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
   }
 
-  Future<void> _fetchDepartments() async {
+  Future<void> _fetchDepartments({bool forceRefresh = false}) async {
     try {
-      final token = await _getToken();
-      final res = await http.get(
-        Uri.parse('https://admin.theblackforestcakes.com/api/departments?limit=1000'),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
-      );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final docs = (data['docs'] as List?) ?? [];
-        setState(() {
-          departments = docs.cast<Map<String, dynamic>>();
-        });
-      }
+      final docs = await ApiService.instance.fetchDepartments(forceRefresh: forceRefresh);
+      setState(() {
+        departments = docs.cast<Map<String, dynamic>>();
+      });
     } catch (e) {
       debugPrint('Error fetching departments: $e');
     }
@@ -202,20 +202,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     return val.toStringAsFixed(2);
   }
 
-  Future<void> _fetchCategories() async {
+  Future<void> _fetchCategories({bool forceRefresh = false}) async {
     try {
-       final token = await _getToken();
-       final res = await http.get(
-         Uri.parse('https://admin.theblackforestcakes.com/api/categories?limit=1000'),
-         headers: token != null ? {'Authorization': 'Bearer $token'} : {},
-       );
-       if (res.statusCode == 200) {
-         final data = jsonDecode(res.body);
-         final docs = (data['docs'] as List?) ?? [];
-         setState(() {
-           categories = docs.cast<Map<String, dynamic>>();
-         });
-       }
+       final docs = await ApiService.instance.fetchCategories(forceRefresh: forceRefresh);
+       setState(() {
+         categories = docs.cast<Map<String, dynamic>>();
+       });
     } catch (e) {
       debugPrint('Error fetching categories: $e');
     }
@@ -233,53 +225,46 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        _statusFilter = 'ALL'; // Reset status filter on refresh
        _loading = true; // Show loader
     });
-    await _fetchStockOrders();
+    // Force refresh all data
+    await _fetchBranches(forceRefresh: true);
+    await _fetchDepartments(forceRefresh: true);
+    await _fetchCategories(forceRefresh: true);
+    await _fetchStockOrders(forceRefresh: true);
   }
 
 
-  Future<void> _fetchStockOrders() async {
+  Future<void> _fetchStockOrders({bool forceRefresh = false}) async {
     if (fromDate == null) return;
-    setState(() {
-       _loading = true;
-       stockOrders = []; // Clear to prevent stale data
-    });
-    // Clear old controllers on refresh
-    _controllers.clear();
+    
+    // Only show loader if we don't have data or we are forcing a refresh
+    if (forceRefresh || stockOrders.isEmpty) {
+      setState(() {
+         _loading = true;
+         // Do not clear stockOrders here if we want to keep showing old data while refreshing? 
+         // But usually refresh means we want to see new state. 
+         // Let's clear perfectly if forceRefresh, otherwise keep it.
+         if (forceRefresh) stockOrders = []; 
+      });
+      // Clear old controllers on refresh
+      _controllers.clear();
+    }
     
     try {
-      final token = await _getToken();
-      final start = DateTime(fromDate!.year, fromDate!.month, fromDate!.day);
-      final end = toDate != null
-          ? DateTime(toDate!.year, toDate!.month, toDate!.day, 23, 59, 59)
-          : DateTime(fromDate!.year, fromDate!.month, fromDate!.day, 23, 59, 59);
+      final docs = await ApiService.instance.fetchStockOrders(fromDate: fromDate!, toDate: toDate, forceRefresh: forceRefresh);
 
-      // Removed branch filter from API to get all potential branches for the chips
-      var url = 'https://admin.theblackforestcakes.com/api/stock-orders?limit=1000&depth=2'
-          '&where[deliveryDate][greater_than]=${start.toUtc().toIso8601String()}'
-          '&where[deliveryDate][less_than]=${end.toUtc().toIso8601String()}'
-          '&t=${DateTime.now().millisecondsSinceEpoch}'; // Cache buster
-
-      final res = await http.get(Uri.parse(url), 
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {});
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final docs = data['docs'] ?? [];
-
-        setState(() {
-          stockOrders = docs.cast<Map<String, dynamic>>();
-          stockOrders.sort((a, b) {
-            final dateA = DateTime.tryParse(a['createdAt'] ?? '');
-            final dateB = DateTime.tryParse(b['createdAt'] ?? '');
-            if (dateA == null && dateB == null) return 0;
-            if (dateA == null) return 1;
-            if (dateB == null) return -1;
-            return dateB.compareTo(dateA);
-          });
-          
-          _processStockOrders();
+      setState(() {
+        stockOrders = docs.cast<Map<String, dynamic>>();
+        stockOrders.sort((a, b) {
+          final dateA = DateTime.tryParse(a['createdAt'] ?? '');
+          final dateB = DateTime.tryParse(b['createdAt'] ?? '');
+          if (dateA == null && dateB == null) return 0;
+          if (dateA == null) return 1;
+          if (dateB == null) return -1;
+          return dateB.compareTo(dateA);
         });
-      }
+        
+        _processStockOrders();
+      });
     } catch (e) {
       debugPrint('fetchStockOrders error: $e');
     } finally {
@@ -301,40 +286,136 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       DateTime? maxDeliveryDate;
       DateTime? maxCreatedDate;
 
-      // Filter orders by Branch Selection
-      final filteredOrders = stockOrders.where((o) {
+      // PHASE 1: Generate Short Codes & Pre-Calculations (Using ALL Orders for Branch)
+      // This ensures indices (ETT-01, ETT-02) match the Home Screen regardless of Live/Stock visibility.
+      
+      final Map<String, List<Map<String, dynamic>>> ordersByBranch = {};
+      
+      // Filter by Branch selection only for short code generation context
+      final allBranchOrders = stockOrders.where((o) {
           final b = o['branch'];
           final bid = b is Map ? (b['id'] ?? b['_id'])?.toString() : null;
-          
-          bool matchesBranch = selectedBranchId == 'ALL' || bid == selectedBranchId.toString();
-          
-          // Determine if it's a same-day order (Ordered Today & Delivery Today)
-          bool isSameDayOrder = false;
-          final now = DateTime.now();
-          // Convert to local time before comparing day/month/year
-          final cDate = DateTime.tryParse(o['createdAt'] ?? '')?.toLocal();
-          final dDate = DateTime.tryParse(o['deliveryDate'] ?? '')?.toLocal();
-          
-          if (cDate != null && dDate != null) {
-            bool isOrderedToday = cDate.year == now.year && cDate.month == now.month && cDate.day == now.day;
-            bool isDeliveryToday = dDate.year == now.year && dDate.month == now.month && dDate.day == now.day;
-            isSameDayOrder = isOrderedToday && isDeliveryToday;
-          }
-
-          if (widget.onlyTodayOrdered) {
-            // Branch Mode: Only show same-day orders
-            return matchesBranch && isSameDayOrder;
-          } else {
-            // Stock Mode: Exclude same-day orders
-            return matchesBranch && !isSameDayOrder;
-          }
+          return selectedBranchId == 'ALL' || bid == selectedBranchId.toString();
       }).toList();
 
-      _visibleStockOrders = filteredOrders;
+      for (var o in allBranchOrders) {
+        final b = o['branch'];
+        final bName = b is Map ? (b['name'] ?? 'UNK').toString() : 'UNK';
+        ordersByBranch.putIfAbsent(bName, () => []).add(o);
+      }
+
+      _orderShortForms.clear();
+      _billOpenedStatus.clear();
+      _billPendingItemCounts.clear(); 
+      _orderIsLive.clear(); 
+
+      for (var entry in ordersByBranch.entries) {
+        final bName = entry.key;
+        final branchOrders = entry.value;
+        branchOrders.sort((a, b) {
+          final dateA = DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime(0);
+          final dateB = DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime(0);
+          return dateA.compareTo(dateB); 
+        });
+
+        final code = bName.length > 3 ? bName.substring(0, 3).toUpperCase() : bName.toUpperCase();
+        
+        // Track used codes for uniqueness within this branch group
+        final Set<String> usedCodes = {};
+
+        for (int i = 0; i < branchOrders.length; i++) {
+          final order = branchOrders[i];
+          final id = (order['id'] ?? order['_id']).toString();
+          
+          // Generate Short Code
+          String suffix = (i + 1).toString().padLeft(2, '0');
+          final invoice = (order['invoiceNumber'] ?? '').toString();
+            if (invoice.isNotEmpty && invoice.contains('-')) {
+               final internalParts = invoice.split('-');
+               final lastPart = internalParts.last;
+               if (int.tryParse(lastPart) != null) {
+                  suffix = lastPart.padLeft(2, '0');
+               }
+            }
+          
+          String finalCode = '$code-$suffix';
+          
+          // Ensure Uniqueness
+          if (usedCodes.contains(finalCode)) {
+              int counter = 2;
+              while (usedCodes.contains('${finalCode}_$counter')) {
+                 counter++;
+              }
+              finalCode = '${finalCode}_$counter';
+          }
+          usedCodes.add(finalCode);
+
+          _orderShortForms[id] = finalCode;
+
+          // Determine if "Opened"
+          final items = (order['items'] as List?) ?? [];
+          bool isOpened = items.any((item) {
+            final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
+            return s != 'ordered' && s != 'pending';
+          });
+          _billOpenedStatus[id] = isOpened;
+          
+          // Calculate Pending Items
+          int pendingItems = 0;
+          for (var item in items) {
+             bool isDone = false;
+             if (isChef) {
+                isDone = ((item['sendingQty'] as num?) ?? 0) > 0;
+             } else if (isSupervisor) {
+                isDone = ((item['confirmedQty'] as num?) ?? 0) > 0;
+             } else if (isDriver) {
+                isDone = ((item['pickedQty'] as num?) ?? 0) > 0;
+             } else {
+                 isDone = ((item['sendingQty'] as num?) ?? 0) > 0;
+             }
+             if (!isDone) pendingItems++;
+          }
+          _billPendingItemCounts[id] = pendingItems;
+          
+          // Determine if Live
+           final now = DateTime.now();
+           final cDate = DateTime.tryParse(order['createdAt'] ?? '')?.toLocal();
+           final dDate = DateTime.tryParse(order['deliveryDate'] ?? '')?.toLocal();
+           bool isSameDay = false;
+           if (cDate != null && dDate != null) {
+              bool isOrderedToday = cDate.year == now.year && cDate.month == now.month && cDate.day == now.day;
+              bool isDeliveryToday = dDate.year == now.year && dDate.month == now.month && dDate.day == now.day;
+              isSameDay = isOrderedToday && isDeliveryToday;
+           }
+           _orderIsLive[id] = isSameDay;
+        }
+      }
+
+      // PHASE 2: Apply Live/Stock Filters & Order Selection
+      final filteredOrders = allBranchOrders.where((o) {
+          // Live vs Stock Filter
+          final id = (o['id'] ?? o['_id']).toString();
+          bool isSameDayOrder = _orderIsLive[id] ?? false;
+
+          if (widget.onlyTodayOrdered) {
+            return isSameDayOrder;
+          } else {
+            return !isSameDayOrder;
+          }
+      }).where((o) {
+        // Selected Order Filter
+        if (_selectedOrderId == null || _selectedOrderId == 'ALL') return true;
+        final id = (o['id'] ?? o['_id']).toString();
+        return id == _selectedOrderId;
+      }).toList();
+      
+      final finalFilteredOrders = filteredOrders; // For compatibility with lower code
+
+      _visibleStockOrders = finalFilteredOrders;
       Set<String> uniqueCategories = {}; // Init Set
       Set<String> uniqueDepartments = {'ALL'}; // Init Set for Footer
 
-      for (var order in filteredOrders) {
+      for (var order in finalFilteredOrders) {
           final orderId = order['id'] ?? order['_id'];
           
           final branch = order['branch'];
@@ -732,7 +813,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   Future<void> _updateItemStatus(String orderId, Map<String, dynamic> itemToUpdate, double newSentQty, {String? pName}) async {
-    final token = await _getToken();
+    final token = await ApiService.storage.read(key: 'token');
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Updating...'), duration: Duration(milliseconds: 500)),
@@ -802,11 +883,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
 
       // 3. Send PATCH Request
-      final url = 'https://admin.theblackforestcakes.com/api/stock-orders/$orderId';
+      final url = '${ApiConfig.baseUrl}/stock-orders/$orderId';
       final res = await http.patch(
         Uri.parse(url),
         headers: {
-          'Content-Type': 'application/json',
+          ...ApiConfig.headers,
           if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
@@ -838,8 +919,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
   }
 
-  Future<void> _updateConfirmQty(String orderId, Map<String, dynamic> itemToUpdate, double qty, {String? pName}) async {
-    final token = await _getToken();
+  Future<void> _updateConfirmQty(String orderId, Map<String, dynamic> itemToUpdate, double qty, {String? pName, String? userId}) async {
+    final token = await ApiService.storage.read(key: 'token');
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Confirming...'), duration: Duration(milliseconds: 500)),
@@ -879,6 +960,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           apiItem['status'] = itemToUpdate['status'] ?? 'confirmed'; 
           apiItem['confirmedDate'] = nowStr;
           
+          
+          if (userId != null) {
+             apiItem['confirmedBy'] = userId; // Keep for safety
+             apiItem['confirmedUpdatedBy'] = userId; // Match JSON output
+             apiItem['user'] = userId; 
+          }
+          
           itemToUpdate['confirmedQty'] = qty;
           itemToUpdate['confirmedDate'] = nowStr;
         }
@@ -887,11 +975,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
       if (!found) return;
 
-      final url = 'https://admin.theblackforestcakes.com/api/stock-orders/$orderId';
+      final url = '${ApiConfig.baseUrl}/stock-orders/$orderId';
       final res = await http.patch(
         Uri.parse(url),
         headers: {
-          'Content-Type': 'application/json',
+          ...ApiConfig.headers,
           if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode({'items': apiItems}),
@@ -978,6 +1066,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         
         newStatuses.add('sending');
         newTotalSent = totalQty;
+        
+        // SPECIAL RULE: Ettayapuram Auto-Confirm (REMOVED)
+
     } else {
        // ... existing multi-item logic
        for (int i=0; i<originalItems.length; i++) {
@@ -1006,10 +1097,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
            item['sendingQty'] = allocated;
            newTotalSent += allocated; 
            newStatuses.add('sending');
-           
-           // API Update
-           await _updateItemStatus(orderId, item, allocated, pName: entry['productName']);
-       }
+                      // API Update
+            await _updateItemStatus(orderId, item, allocated, pName: entry['productName']);
+            
+            // SPECIAL RULE: Ettayapuram Auto-Confirm (REMOVED)
+
+        }
     }
 
     setState(() {
@@ -1067,8 +1160,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
   }
 
-  Future<void> _updatePickQty(String orderId, Map<String, dynamic> itemToUpdate, double qty, {String? pName}) async {
-    final token = await _getToken();
+  Future<void> _updatePickQty(String orderId, Map<String, dynamic> itemToUpdate, double qty, {String? pName, String? userId}) async {
+    final token = await ApiService.storage.read(key: 'token');
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     
     try {
@@ -1115,17 +1208,23 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           itemToUpdate['pickedQty'] = qty;
           itemToUpdate['status'] = 'picked';
           itemToUpdate['pickedDate'] = nowStr;
+          
+          if (userId != null) {
+             apiItem['pickedBy'] = userId; // Keep for safety
+             apiItem['pickedUpdatedBy'] = userId; // Match JSON output
+             apiItem['user'] = userId; 
+          }
         }
         apiItems.add(apiItem);
       }
 
       if (!found) return;
 
-      final url = 'https://admin.theblackforestcakes.com/api/stock-orders/$orderId';
+      final url = '${ApiConfig.baseUrl}/stock-orders/$orderId';
       await http.patch(
         Uri.parse(url),
         headers: {
-          'Content-Type': 'application/json',
+          ...ApiConfig.headers,
           if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode({'items': apiItems}),
@@ -1245,6 +1344,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       setState(() {
         fromDate = picked;
         toDate = picked;
+        _selectedOrderId = null; // NEW: Reset bill filter
       });
       await _fetchStockOrders();
     }
@@ -1327,6 +1427,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                     if (val != null) {
                         setState(() {
                            selectedBranchId = val;
+                           _selectedOrderId = null; // NEW: Reset bill filter
                            _processStockOrders();
                         });
                     }
@@ -1340,7 +1441,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       ],
     );
   }
-
 
   Widget _buildCategoryChips() {
      if (_loadingBranches && branches.isEmpty) { 
@@ -1378,6 +1478,91 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           }).toList(),
         ),
      );
+  }
+
+  Widget _buildBillScrollBar() {
+    if (_orderShortForms.isEmpty) return const SizedBox.shrink();
+
+    final orderIds = _orderShortForms.keys.toList();
+    final liveIds = orderIds.where((id) => _orderIsLive[id] == true).toList();
+    final stockIds = orderIds.where((id) => _orderIsLive[id] != true).toList();
+
+    // Sort descending (Latest First)
+    liveIds.sort((a, b) => _orderShortForms[b]!.compareTo(_orderShortForms[a]!));
+    stockIds.sort((a, b) => _orderShortForms[b]!.compareTo(_orderShortForms[a]!));
+
+    List<Widget> children = [];
+
+    // Determine relevant IDs based on mode
+    final relevantIds = widget.onlyTodayOrdered 
+        ? liveIds 
+        : stockIds;
+
+    // Helper to build chip
+    Widget buildChip(String id) {
+       final isAll = id == 'ALL';
+       
+       String label = '';
+       if (isAll) {
+          // Count pending items ONLY for relevant orders
+          int pendingCount = relevantIds.where((oid) => (_billOpenedStatus[oid] ?? false) == false).length;
+          String branchCode = 'ALL';
+          if (relevantIds.isNotEmpty) {
+             final firstShort = _orderShortForms[relevantIds.first] ?? '';
+             if (firstShort.contains('-')) branchCode = firstShort.split('-').first;
+          }
+          label = '$branchCode($pendingCount)';
+       } else {
+          final baseLabel = _orderShortForms[id]!;
+          final pendingCnt = _billPendingItemCounts[id] ?? 0;
+          label = pendingCnt > 0 ? '$baseLabel ($pendingCnt)' : baseLabel;
+       }
+
+       final isSelected = (isAll && (_selectedOrderId == null || _selectedOrderId == 'ALL')) || (_selectedOrderId == id);
+       final isOpened = !isAll && (_billOpenedStatus[id] ?? false);
+       
+       // Fixed Green for ALL, Dynamic for others
+       final chipColor = isAll ? Colors.green : (isOpened ? Colors.green : Colors.red);
+       
+       return Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: ChoiceChip(
+              label: Text(label),
+              selected: isSelected,
+              onSelected: (selected) {
+                setState(() {
+                  _selectedOrderId = isAll ? null : id;
+                  _processStockOrders();
+                });
+              },
+              showCheckmark: false,
+              backgroundColor: chipColor,
+              selectedColor: isSelected ? Colors.blue : chipColor,
+              labelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: const BorderSide(color: Colors.transparent),
+              ),
+            ),
+       );
+    }
+
+    // ALL Chip Removed as per user request (Show separate bills only)
+    // children.add(buildChip('ALL'));
+
+    // Relevant Chips Only
+    for (var id in relevantIds) children.add(buildChip(id));
+
+    // Separator and old loop Removed
+
+    return SizedBox(
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        children: children,
+      ),
+    );
   }
 
   Color _getStatusColor(String status) {
@@ -2299,7 +2484,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     
     if (imageUrl != null && !imageUrl.startsWith('http')) {
-        imageUrl = 'https://admin.theblackforestcakes.com$imageUrl';
+        imageUrl = '${ApiConfig.domain}$imageUrl';
     }
     
     if (imageUrl != null) {
@@ -2336,11 +2521,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       double valToSave = confirmedDisplay;
       if (entry['isTyping'] == true) {
         valToSave = double.tryParse(controller.text) ?? confirmedDisplay;
+      } else if (entry['val_local'] != null) {
+         valToSave = entry['val_local'];
       }
 
       // Compulsory Double Tap to Save
       _saveManualConsolidatedConfirm(entry, valToSave);
       setState(() {
+         entry['confirmedQty'] = valToSave; // COMMIT TO GREEN
+         entry['val_local'] = null;
          entry['isTyping'] = false;
       });
     }
@@ -2360,7 +2549,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
       setState(() {
         entry['isTyping'] = true;
-        controller.text = _formatQty(confirmedDisplay);
+        if (entry['val_local'] != null) {
+           controller.text = _formatQty(entry['val_local']);
+        } else {
+           controller.text = _formatQty(confirmedDisplay);
+        }
       });
     }
 
@@ -2468,7 +2661,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                 Expanded(
                   child: GestureDetector(
                     onTap: onManualEdit,
-                    onDoubleTap: onAutoAction,
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -2494,22 +2686,23 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                 onTapOutside: (event) {
                                    final doubleVal = double.tryParse(controller.text) ?? 0;
                                    setState(() {
-                                     entry['confirmedQty'] = doubleVal;
+                                     entry['val_local'] = doubleVal;
                                      entry['isTyping'] = false;
                                    });
                                    FocusManager.instance.primaryFocus?.unfocus();
                                 },
                                 onSubmitted: (val) {
+                                   FocusManager.instance.primaryFocus?.unfocus();
                                    final doubleVal = double.tryParse(val) ?? 0;
                                    setState(() {
-                                     entry['confirmedQty'] = doubleVal;
+                                     entry['val_local'] = doubleVal;
                                      entry['isTyping'] = false;
                                    });
                                  },
                               ),
                             )
                           : Text(
-                              _formatQty(confirmedDisplay),
+                              _formatQty(entry['val_local'] ?? confirmedDisplay),
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -2558,7 +2751,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
   
   if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://admin.theblackforestcakes.com$imageUrl';
+      imageUrl = '${ApiConfig.domain}$imageUrl';
   }
   
   if (imageUrl != null) {
@@ -2595,11 +2788,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     double valToSave = pickedDisplay;
     if (entry['isTyping'] == true) {
       valToSave = double.tryParse(controller.text) ?? pickedDisplay;
+    } else if (entry['val_local'] != null) {
+       valToSave = entry['val_local'];
     }
 
     // Compulsory Double Tap to Save
     _saveManualConsolidatedPick(entry, valToSave); 
     setState(() {
+      entry['pickedQty'] = valToSave; // COMMIT TO GREEN
+      entry['val_local'] = null;
       entry['isTyping'] = false;
     });
   }
@@ -2625,8 +2822,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
      }
      setState(() {
        entry['isTyping'] = true;
-       final current = ((entry['pickedQty'] as num?) ?? 0).toDouble();
-       controller.text = _formatQty(current == 0 ? confirmedRaw : current);
+       if (entry['val_local'] != null) {
+          controller.text = _formatQty(entry['val_local']);
+       } else {
+          final current = ((entry['pickedQty'] as num?) ?? 0).toDouble();
+          controller.text = _formatQty(current == 0 ? confirmedRaw : current);
+       }
      });
   }
 
@@ -2730,7 +2931,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                 Expanded(
                   child: GestureDetector(
                     onTap: onManualEdit,
-                    onDoubleTap: onAutoAction,
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -2756,7 +2956,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                  onTapOutside: (event) {
                                    final intVal = double.tryParse(controller.text) ?? 0;
                                    setState(() {
-                                     entry['pickedQty'] = intVal;
+                                     entry['val_local'] = intVal; // SAVE TO LOCAL
                                      entry['isTyping'] = false;
                                    });
                                    FocusManager.instance.primaryFocus?.unfocus();
@@ -2764,15 +2964,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                  onSubmitted: (val) {
                                    final intVal = double.tryParse(val) ?? 0;
                                    setState(() {
-                                     entry['pickedQty'] = intVal;
+                                     entry['val_local'] = intVal; // SAVE TO LOCAL
                                      entry['isTyping'] = false;
                                    });
+                                   FocusManager.instance.primaryFocus?.unfocus();
                                  },
                               ),
                             )
                           : Center(
                               child: Text(
-                                _formatQty((entry['pickedQty'] == 0 || entry['pickedQty'] == null) ? confirmedRaw : entry['pickedQty']),
+                                _formatQty(entry['val_local'] ?? ((entry['pickedQty'] == 0 || entry['pickedQty'] == null) ? confirmedRaw : entry['pickedQty'])),
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
                               ),
                             ),
@@ -2821,7 +3022,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     
     if (imageUrl != null && !imageUrl.startsWith('http')) {
-        imageUrl = 'https://admin.theblackforestcakes.com$imageUrl';
+        imageUrl = '${ApiConfig.domain}$imageUrl';
     }
     
     if (imageUrl != null) {
@@ -2870,11 +3071,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       
       if (entry['isTyping'] == true) {
         valToSave = double.tryParse(controller.text) ?? valToSave;
+      } else if (entry['val_local'] != null) {
+         valToSave = entry['val_local'];
       }
 
       // Compulsory Double Tap to Save
       _saveStockOrder(entry, valToSave);
       setState(() {
+        entry['sendingQty'] = valToSave;
+        entry['val_local'] = null;
         entry['isTyping'] = false;
       });
     }
@@ -2894,8 +3099,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
       setState(() {
         entry['isTyping'] = true;
-        final current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-        controller.text = _formatQty(current == 0 ? req : current);
+        if (entry['val_local'] != null) {
+           controller.text = _formatQty(entry['val_local']);
+        } else {
+           final current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+           controller.text = _formatQty(current == 0 ? req : current);
+        }
       });
     }
 
@@ -3017,7 +3226,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   Expanded(
                     child: GestureDetector(
                       onTap: onManualEdit,
-                      onDoubleTap: onAutoAction,
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -3043,7 +3251,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                    onTapOutside: (event) {
                                      final doubleVal = double.tryParse(controller.text) ?? 0;
                                      setState(() {
-                                       entry['sendingQty'] = doubleVal;
+                                       entry['val_local'] = doubleVal;
                                        entry['isTyping'] = false;
                                      });
                                      FocusManager.instance.primaryFocus?.unfocus();
@@ -3051,14 +3259,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                    onSubmitted: (val) {
                                      final doubleVal = double.tryParse(val) ?? 0;
                                      setState(() {
-                                       entry['sendingQty'] = doubleVal;
+                                       entry['val_local'] = doubleVal;
                                        entry['isTyping'] = false;
                                      });
+                                     FocusManager.instance.primaryFocus?.unfocus();
                                    },
                                 ),
                               )
                             : Text(
-                                (entry['sendingQty'] == null || entry['sendingQty'] == 0) ? _formatQty(suggestedVal) : _formatQty(entry['sendingQty']),
+                                (entry['val_local'] != null) ? _formatQty(entry['val_local']) : ((entry['sendingQty'] == null || entry['sendingQty'] == 0) ? _formatQty(suggestedVal) : _formatQty(entry['sendingQty'])),
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -3107,7 +3316,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     
     if (imageUrl != null && !imageUrl.startsWith('http')) {
-        imageUrl = 'https://admin.theblackforestcakes.com$imageUrl';
+        imageUrl = '${ApiConfig.domain}$imageUrl';
     }
     
     if (imageUrl != null) {
@@ -3148,11 +3357,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        double valToSave = confirmedDisplay;
        if (entry['isTyping'] == true) {
           valToSave = double.tryParse(controller.text) ?? confirmedDisplay;
+       } else if (entry['val_local'] != null) {
+          valToSave = entry['val_local'];
        }
 
        // Compulsory Double Tap to Save
        _saveManualConsolidatedConfirm(entry, valToSave); 
        setState(() {
+         entry['confirmedQty'] = valToSave;
+         entry['val_local'] = null;
          entry['isTyping'] = false;
        });
     }
@@ -3178,7 +3391,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
        }
        setState(() {
          entry['isTyping'] = true;
-         controller.text = _formatQty(confirmedDisplay);
+         if (entry['val_local'] != null) {
+            controller.text = _formatQty(entry['val_local']);
+         } else {
+            controller.text = _formatQty(confirmedDisplay);
+         }
        });
     }
 
@@ -3284,7 +3501,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                 Expanded(
                     child: GestureDetector(
                       onTap: onManualEdit,
-                      onDoubleTap: onAutoAction,
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -3310,22 +3526,23 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                   onTapOutside: (event) {
                                      final doubleVal = double.tryParse(controller.text) ?? 0;
                                      setState(() {
-                                       entry['confirmedQty'] = doubleVal;
+                                       entry['val_local'] = doubleVal;
                                        entry['isTyping'] = false;
                                      });
                                      FocusManager.instance.primaryFocus?.unfocus();
                                   },
                                   onSubmitted: (val) {
+                                     FocusManager.instance.primaryFocus?.unfocus();
                                      final doubleVal = double.tryParse(val) ?? 0;
                                      setState(() {
-                                       entry['confirmedQty'] = doubleVal;
+                                       entry['val_local'] = doubleVal;
                                        entry['isTyping'] = false;
                                      });
                                    },
                                 ),
                               )
                             : Text(
-                                _formatQty(confirmedDisplay),
+                                _formatQty(entry['val_local'] ?? confirmedDisplay),
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, height: 1.0),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -3369,7 +3586,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   ? const Center(child: Text('No stock orders found'))
               : (isStrictFactory && selectedBranchId == 'ALL')
                   ? _buildFactoryConsolidatedView()
-                  : (isChef || isSupervisor || _userRole == 'driver')
+                  : (isChef || isSupervisor || _userRole == 'driver' || isStrictFactory)
                   ? _isReportView 
                       ? _buildReportView()
                       : CustomScrollView(
@@ -3417,6 +3634,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+            _buildBillScrollBar(),
             _buildDepartmentFooter(), // Department Footer First
             _buildStatusFilterBar(),  // Status Filter Second (Bottom)
         ],

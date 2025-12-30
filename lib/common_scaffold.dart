@@ -5,11 +5,15 @@ import 'login.dart';
 class CommonScaffold extends StatelessWidget {
   final Widget body;
   final String title;
+  final List<Widget>? actions;
+  final Widget? bottomNavigationBar;
 
   const CommonScaffold({
     super.key,
     required this.body,
     required this.title,
+    this.actions,
+    this.bottomNavigationBar,
   });
 
   @override
@@ -19,6 +23,7 @@ class CommonScaffold extends StatelessWidget {
         title: Text(title),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
+        actions: actions,
       ),
       drawer: Drawer(
         child: ListView(
@@ -91,6 +96,7 @@ class CommonScaffold extends StatelessWidget {
         ),
       ),
       body: body,
+      bottomNavigationBar: bottomNavigationBar,
     );
   }
 }

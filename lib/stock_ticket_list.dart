@@ -2,23 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'common_scaffold.dart';
-import 'branch_list.dart';
-import 'stock_ticket_list.dart';
 import 'api_service.dart';
 import 'stockorder_report.dart';
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class StockTicketListScreen extends StatefulWidget {
+  const StockTicketListScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<StockTicketListScreen> createState() => _StockTicketListScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  // final ApiService _api = ApiService(); // Singleton usage
+class _StockTicketListScreenState extends State<StockTicketListScreen> {
+  // final ApiService _api = ApiService();
   final _storage = const FlutterSecureStorage();
-  int _stockCount = 0;
-  int _branchCount = 0;
   List<Map<String, dynamic>> _departments = [];
   List<Map<String, dynamic>> _branches = [];
   String _selectedDepartmentFilter = 'ALL';
@@ -37,10 +33,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initData() async {
     await _fetchUserRole();
     await _fetchDepartments();
-    // Pass forceRefresh: true on init if you want fresh data on app start, 
-    // or false to use cache if coming back from another screen. 
-    // Usually on first load we might want fresh data, or if cache is empty it fetches anyway.
-    await _fetchCounts(); 
+    // Cache Check logic same as Home
+    await _fetchCounts();
     await _fetchBranches();
   }
 
@@ -69,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fetchCounts({bool forceRefresh = false}) async {
     try {
+      // Only show global loading if we have no data or forced
       if (forceRefresh || _recentOrders.isEmpty) {
          if (mounted) setState(() => _isLoading = true);
       }
@@ -79,8 +74,6 @@ class _HomeScreenState extends State<HomeScreen> {
       
       final orders = await ApiService.instance.fetchStockOrders(fromDate: from, toDate: to, forceRefresh: forceRefresh);
       
-      int stockCount = 0;
-      int branchCount = 0;
       List<dynamic> validOrders = [];
 
       for (var o in orders) {
@@ -91,32 +84,31 @@ class _HomeScreenState extends State<HomeScreen> {
           bool isOrderedOnFilterDate = cDate.year == _selectedDate.year && cDate.month == _selectedDate.month && cDate.day == _selectedDate.day;
           bool isDeliveryOnFilterDate = dDate.year == _selectedDate.year && dDate.month == _selectedDate.month && dDate.day == _selectedDate.day;
           
-          final items = (o['items'] as List?) ?? [];
-          
+          bool isLive = isOrderedOnFilterDate && isDeliveryOnFilterDate;
+
+          // FILTER: ONLY SHOW STOCK ORDERS (Not Live)
+          if (isLive) continue;
+
           // Role-Based Visibility Logic
+          final items = (o['items'] as List?) ?? [];
           bool shouldShow = false;
           
           if (_userRole == 'chef') {
-             // Chef sees orders with ANY Pending, Ordered OR Sending items
              shouldShow = items.any((item) {
                 final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
                 return s == 'ordered' || s == 'pending' || s == 'sending';
              });
           } else if (_userRole == 'supervisor') {
-             // Supervisor sees orders with ANY Sending OR Confirmed items
              shouldShow = items.any((item) {
                 final s = (item['status'] as String?)?.toLowerCase() ?? 'sending';
                 return s == 'sending' || s == 'confirmed';
              });
           } else if (_userRole == 'driver') {
-             // Driver sees orders with ANY Confirmed OR Picked items
              shouldShow = items.any((item) {
                  final s = (item['status'] as String?)?.toLowerCase() ?? 'confirmed';
                  return s == 'confirmed' || s == 'picked';
              });
           } else {
-             // Default/Factory: Show New/Untouched Orders (Old Logic) or All?
-             // Using old logic for safety: Show if NOT opened (i.e. all pending/ordered)
               bool isOpened = items.any((item) {
                 final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
                 return s != 'ordered' && s != 'pending';
@@ -126,16 +118,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
           if (shouldShow) {
             validOrders.add(o);
-            
-            // Notification Count Logic: Only count NEW orders (Status 0)
-            int status = _getOrderStatus(o);
-            if (status == 0) { // 0 = New
-               if (isOrderedOnFilterDate && isDeliveryOnFilterDate) {
-                 branchCount++;
-               } else if (isDeliveryOnFilterDate) {
-                 stockCount++;
-               }
-            }
           }
         }
       }
@@ -177,8 +159,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (mounted) {
         setState(() {
-          _stockCount = stockCount;
-          _branchCount = branchCount;
           _recentOrders = validOrders;
           _isLoading = false;
         });
@@ -189,15 +169,14 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
+
   Future<void> _fetchDepartments() async {
     try {
       final docs = await ApiService.instance.fetchDepartments();
       if (mounted) {
         setState(() {
-           // Ensure unique departments and sorting if needed
            _departments = docs.cast<Map<String, dynamic>>();
            _departments.sort((a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''));
-           // Add ALL if not present (handled in UI usually, but good to have)
         });
       }
     } catch (e) {
@@ -225,7 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
      bool isSelected = _selectedTab == index;
      Color badgeColor = Colors.red;
      if (index == 1) {
-       badgeColor = Colors.yellow[700]!; // Darker yellow for white text contrast
+       badgeColor = Colors.yellow[700]!; 
      } else if (index == 2) {
        badgeColor = Colors.green;
      }
@@ -334,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final bId = (order['branch'] is Map ? (order['branch']['id'] ?? order['branch']['_id']) : null)?.toString() ?? '';
           if (bId != _selectedBranch) return false;
         }
-        
+
         if (_selectedDepartmentFilter != 'ALL') {
            return _doesOrderContainDepartment(order, _selectedDepartmentFilter);
         }
@@ -342,7 +321,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
 
     return CommonScaffold(
-      title: 'Home',
+      title: 'Stock Orders',
       actions: [
         IconButton(
           icon: const Icon(Icons.refresh),
@@ -445,19 +424,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 16.0,
-                    mainAxisSpacing: 16.0,
-                    children: [
-                      _buildGridItem(context, 'Stock', Icons.inventory, _stockCount),
-                      _buildGridItem(context, 'Live', Icons.store, _branchCount),
-                      _buildGridItem(context, 'Return', Icons.assignment_return, 0),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
+                  // TABS (Left Aligned)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.start,
                     children: [
@@ -469,10 +436,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
+                  
                   if (filteredOrders.isEmpty)
                      const Padding(
                        padding: EdgeInsets.symmetric(vertical: 32.0),
-                       child: Center(child: Text('No orders found.', style: TextStyle(color: Colors.grey))),
+                       child: Center(child: Text('No stock orders found.', style: TextStyle(color: Colors.grey))),
                      )
                   else
                     ...filteredOrders.map(_buildTicketItem),
@@ -504,13 +472,11 @@ class _HomeScreenState extends State<HomeScreen> {
                  return true;
               }
            } else if (deptId == 'OTHERS') {
-            // If product or category is malformed/missing, it's Others
-            return true;
-         }
+                return true;
+           }
         } else if (deptId == 'OTHERS') {
-            // If product or category is malformed/missing, it's Others
             return true;
-         }
+        }
      }
      return false;
   }
@@ -520,14 +486,14 @@ class _HomeScreenState extends State<HomeScreen> {
      
      // Clone and sort departments, ensure ALL is first
      final sortedDepts = List<Map<String, dynamic>>.from(_departments);
-      // Check if ALL exists, if not add it
-      if (!sortedDepts.any((d) => d['id'] == 'ALL')) {
-         sortedDepts.insert(0, {'id': 'ALL', 'name': 'All'});
-      }
-      // Add 'Others' option
-      if (!sortedDepts.any((d) => d['id'] == 'OTHERS')) {
+     // Check if ALL exists, if not add it
+     if (!sortedDepts.any((d) => d['id'] == 'ALL')) {
+        sortedDepts.insert(0, {'id': 'ALL', 'name': 'All'});
+     }
+     // Add 'Others' option
+     if (!sortedDepts.any((d) => d['id'] == 'OTHERS')) {
           sortedDepts.add({'id': 'OTHERS', 'name': 'Others'});
-      }
+     }
 
      return Container(
         height: 60,
@@ -603,14 +569,10 @@ class _HomeScreenState extends State<HomeScreen> {
     
     final cDate = DateTime.tryParse(order['createdAt'] ?? '')?.toLocal();
     final dDate = DateTime.tryParse(order['deliveryDate'] ?? '')?.toLocal();
-    final now = DateTime.now();
-
-    bool isLive = false;
-    if (cDate != null && dDate != null) {
-      bool isOrderedToday = cDate.year == now.year && cDate.month == now.month && cDate.day == now.day;
-      bool isDeliveryToday = dDate.year == now.year && dDate.month == now.month && dDate.day == now.day;
-      isLive = isOrderedToday && isDeliveryToday;
-    }
+    
+    // Always Stock in this view
+    // Always Stock in this view
+    // bool isLive = false; 
 
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
     final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 2);
@@ -633,10 +595,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } else if (rawStatus == 'ordered') {
        statusColor = Colors.orange;
     }
-    // Capitalize first letter for display if preferred, or keep CAPS
-    // billStatus is already CAPS.
-    if (billStatus == 'PENDING') billStatus = 'ORDERED'; // Map pending to "Ordered" for display consistency if needed, or keep PENDING. 
-    // User requested "Ordered" previously so keeping "Ordered" if pending/ordered.
+
     if (billStatus == 'PENDING') billStatus = 'ORDERED';
     
     // Determine Amounts to Display based on Role
@@ -686,7 +645,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     initialToDate: initialTo,
                     initialOrderId: orderId,
                     initialIsReportView: false, // Force Grid
-                    onlyTodayOrdered: isLive,
+                    onlyTodayOrdered: false,
                   ),
                 ),
               );
@@ -711,11 +670,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: isLive ? Colors.red : Colors.green,
+                      color: Colors.green,
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      isLive ? 'Live' : 'Stock',
+                      'Stock',
                       style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -764,75 +723,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-    );
-  }
-  Widget _buildGridItem(BuildContext context, String title, IconData icon, int count) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        SizedBox.expand(
-          child: Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: InkWell(
-              onTap: () {
-                if (title == 'Stock') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const StockTicketListScreen()),
-                  );
-                } else if (title == 'Live') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const BranchListPage()),
-                  );
-                }
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, size: 40, color: Colors.black),
-                  const SizedBox(height: 12),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        if (count > 0)
-          Positioned(
-            right: -4,
-            top: -4,
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(
-                color: Colors.red,
-                shape: BoxShape.circle,
-              ),
-              constraints: const BoxConstraints(
-                minWidth: 24,
-                minHeight: 24,
-              ),
-              child: Text(
-                '$count',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-      ],
     );
   }
 }
