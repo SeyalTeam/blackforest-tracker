@@ -44,7 +44,9 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
       if (mounted) {
         setState(() {
           _branches = branches.cast<Map<String, dynamic>>();
-          _branches.sort((a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''));
+          _branches.sort(
+            (a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''),
+          );
         });
       }
     } catch (e) {
@@ -65,15 +67,30 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
     try {
       // Only show global loading if we have no data or forced
       if (forceRefresh || _recentOrders.isEmpty) {
-         if (mounted) setState(() => _isLoading = true);
+        if (mounted) setState(() => _isLoading = true);
       }
 
       // Use _selectedDate for filtering
-      final from = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-      final to = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, 23, 59, 59);
-      
-      final orders = await ApiService.instance.fetchStockOrders(fromDate: from, toDate: to, forceRefresh: forceRefresh);
-      
+      final from = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+      );
+      final to = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        23,
+        59,
+        59,
+      );
+
+      final orders = await ApiService.instance.fetchStockOrders(
+        fromDate: from,
+        toDate: to,
+        forceRefresh: forceRefresh,
+      );
+
       List<dynamic> validOrders = [];
 
       for (var o in orders) {
@@ -81,9 +98,15 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
         final dDate = DateTime.tryParse(o['deliveryDate'] ?? '')?.toLocal();
 
         if (cDate != null && dDate != null) {
-          bool isOrderedOnFilterDate = cDate.year == _selectedDate.year && cDate.month == _selectedDate.month && cDate.day == _selectedDate.day;
-          bool isDeliveryOnFilterDate = dDate.year == _selectedDate.year && dDate.month == _selectedDate.month && dDate.day == _selectedDate.day;
-          
+          bool isOrderedOnFilterDate =
+              cDate.year == _selectedDate.year &&
+              cDate.month == _selectedDate.month &&
+              cDate.day == _selectedDate.day;
+          bool isDeliveryOnFilterDate =
+              dDate.year == _selectedDate.year &&
+              dDate.month == _selectedDate.month &&
+              dDate.day == _selectedDate.day;
+
           bool isLive = isOrderedOnFilterDate && isDeliveryOnFilterDate;
 
           // FILTER: ONLY SHOW STOCK ORDERS (Not Live)
@@ -92,28 +115,29 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
           // Role-Based Visibility Logic
           final items = (o['items'] as List?) ?? [];
           bool shouldShow = false;
-          
+
           if (_userRole == 'chef') {
-             shouldShow = items.any((item) {
-                final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
-                return s == 'ordered' || s == 'pending' || s == 'sending';
-             });
+            shouldShow = items.any((item) {
+              final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
+              return s == 'ordered' || s == 'pending' || s == 'sending';
+            });
           } else if (_userRole == 'supervisor') {
-             shouldShow = items.any((item) {
-                final s = (item['status'] as String?)?.toLowerCase() ?? 'sending';
-                return s == 'sending' || s == 'confirmed';
-             });
+            shouldShow = items.any((item) {
+              final s = (item['status'] as String?)?.toLowerCase() ?? 'sending';
+              return s == 'sending' || s == 'confirmed';
+            });
           } else if (_userRole == 'driver') {
-             shouldShow = items.any((item) {
-                 final s = (item['status'] as String?)?.toLowerCase() ?? 'confirmed';
-                 return s == 'confirmed' || s == 'picked';
-             });
+            shouldShow = items.any((item) {
+              final s =
+                  (item['status'] as String?)?.toLowerCase() ?? 'confirmed';
+              return s == 'confirmed' || s == 'picked';
+            });
           } else {
-              bool isOpened = items.any((item) {
-                final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
-                return s != 'ordered' && s != 'pending';
-              });
-              shouldShow = !isOpened;
+            bool isOpened = items.any((item) {
+              final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
+              return s != 'ordered' && s != 'pending';
+            });
+            shouldShow = !isOpened;
           }
 
           if (shouldShow) {
@@ -122,11 +146,11 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
         }
       }
 
-      
       // Generate Short Codes
       final Map<String, List<Map<String, dynamic>>> ordersByBranch = {};
       for (var o in validOrders) {
-        final bName = (o['branch'] is Map ? o['branch']['name'] : 'UNK').toString();
+        final bName = (o['branch'] is Map ? o['branch']['name'] : 'UNK')
+            .toString();
         ordersByBranch.putIfAbsent(bName, () => []).add(o);
       }
 
@@ -135,25 +159,27 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
         final branchOrders = entry.value;
         // Sort by creation time to ensure stable ordering
         branchOrders.sort((a, b) {
-           final da = DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime(0);
-           final db = DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime(0);
-           return da.compareTo(db);
+          final da = DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime(0);
+          final db = DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime(0);
+          return da.compareTo(db);
         });
 
-        final codePrefix = bName.length > 3 ? bName.substring(0, 3).toUpperCase() : bName.toUpperCase();
+        final codePrefix = bName.length > 3
+            ? bName.substring(0, 3).toUpperCase()
+            : bName.toUpperCase();
         for (int i = 0; i < branchOrders.length; i++) {
-           String suffix = (i + 1).toString().padLeft(2, '0');
-           
-           final invoice = (branchOrders[i]['invoiceNumber'] ?? '').toString();
-           if (invoice.isNotEmpty && invoice.contains('-')) {
-              final internalParts = invoice.split('-');
-              final lastPart = internalParts.last;
-              if (int.tryParse(lastPart) != null) {
-                 suffix = lastPart.padLeft(2, '0');
-              }
-           }
-           
-           branchOrders[i]['shortCode'] = '$codePrefix-$suffix';
+          String suffix = (i + 1).toString().padLeft(2, '0');
+
+          final invoice = (branchOrders[i]['invoiceNumber'] ?? '').toString();
+          if (invoice.isNotEmpty && invoice.contains('-')) {
+            final internalParts = invoice.split('-');
+            final lastPart = internalParts.last;
+            if (int.tryParse(lastPart) != null) {
+              suffix = lastPart.padLeft(2, '0');
+            }
+          }
+
+          branchOrders[i]['shortCode'] = '$codePrefix-$suffix';
         }
       }
 
@@ -175,8 +201,10 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
       final docs = await ApiService.instance.fetchDepartments();
       if (mounted) {
         setState(() {
-           _departments = docs.cast<Map<String, dynamic>>();
-           _departments.sort((a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''));
+          _departments = docs.cast<Map<String, dynamic>>();
+          _departments.sort(
+            (a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''),
+          );
         });
       }
     } catch (e) {
@@ -201,86 +229,97 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
   }
 
   Widget _buildChip(String label, int count, int index) {
-     bool isSelected = _selectedTab == index;
-     Color badgeColor = Colors.red;
-     if (index == 1) {
-       badgeColor = Colors.yellow[700]!; 
-     } else if (index == 2) {
-       badgeColor = Colors.green;
-     }
+    bool isSelected = _selectedTab == index;
+    Color badgeColor = Colors.red;
+    if (index == 1) {
+      badgeColor = Colors.yellow[700]!;
+    } else if (index == 2) {
+      badgeColor = Colors.green;
+    }
 
-     return ChoiceChip(
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label.toUpperCase()),
-            if (count > 0) ...[
-              const SizedBox(width: 4),
-              Container(
-                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                 decoration: BoxDecoration(
-                    color: badgeColor,
-                    borderRadius: BorderRadius.circular(10),
-                 ),
-                 child: Text(
-                    '$count', 
-                    style: const TextStyle(
-                      color: Colors.white, 
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold
-                    ),
-                 ),
+    return ChoiceChip(
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label.toUpperCase()),
+          if (count > 0) ...[
+            const SizedBox(width: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: badgeColor,
+                borderRadius: BorderRadius.circular(10),
               ),
-            ],
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ],
-        ),
-        labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        visualDensity: VisualDensity.compact,
-        selected: isSelected,
-        onSelected: (bool selected) {
-           if (selected) setState(() => _selectedTab = index);
-        },
-        selectedColor: Colors.black,
-        labelStyle: TextStyle(
-          color: isSelected ? Colors.white : Colors.black, 
-          fontWeight: FontWeight.bold,
-          fontSize: 14,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        showCheckmark: false,
-     );
+        ],
+      ),
+      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      selected: isSelected,
+      onSelected: (bool selected) {
+        if (selected) setState(() => _selectedTab = index);
+      },
+      selectedColor: Colors.black,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : Colors.black,
+        fontWeight: FontWeight.bold,
+        fontSize: 14,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      showCheckmark: false,
+    );
   }
 
   int _selectedTab = 0; // 0=New, 1=Working, 2=Completed
 
   int _getOrderStatus(dynamic order) {
-      final items = (order['items'] as List?) ?? [];
-      if (items.isEmpty) return 0; // New (Safe default)
-      
-      int totalItems = items.length;
-      int touchedItems = 0;
+    final items = (order['items'] as List?) ?? [];
+    if (items.isEmpty) return 0; // New (Safe default)
 
-      for (var item in items) {
-         bool isTouched = false;
-         if (_userRole == 'chef') {
-             isTouched = ((item['sendingQty'] as num?) ?? 0) > 0;
-         } else if (_userRole == 'supervisor') {
-             isTouched = ((item['confirmedQty'] as num?) ?? 0) > 0;
-         } else if (_userRole == 'driver') {
-             isTouched = ((item['pickedQty'] as num?) ?? 0) > 0;
-         }
-         
-         if (isTouched) touchedItems++;
+    int totalItems = items.length;
+    int touchedItems = 0;
+
+    for (var item in items) {
+      bool isTouched = false;
+      if (_userRole == 'chef') {
+        isTouched = ((item['sendingQty'] as num?) ?? 0) > 0;
+      } else if (_userRole == 'supervisor') {
+        isTouched = ((item['confirmedQty'] as num?) ?? 0) > 0;
+      } else if (_userRole == 'driver') {
+        isTouched = ((item['pickedQty'] as num?) ?? 0) > 0;
       }
 
-      if (touchedItems == 0) return 0; // New
-      if (touchedItems == totalItems) return 2; // Completed
-      return 1; // Working
+      if (isTouched) touchedItems++;
+    }
+
+    if (touchedItems == 0) return 0; // New
+    if (touchedItems == totalItems) return 2; // Completed
+    return 1; // Working
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_userRole == 'kitchen') {
+      return const CommonScaffold(
+        title: 'Stock Tickets',
+        body: Center(
+          child: Text(
+            'No data available',
+            style: TextStyle(color: Colors.grey, fontSize: 16),
+          ),
+        ),
+      );
+    }
     final dateStr = DateFormat('MMM dd').format(_selectedDate).toUpperCase();
 
     // Calculate Counts
@@ -289,35 +328,45 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
     int completedCount = 0;
 
     for (var order in _recentOrders) {
-       // Branch Filter Check
-       if (_selectedBranch != 'ALL') {
-          final bId = (order['branch'] is Map ? (order['branch']['id'] ?? order['branch']['_id']) : null)?.toString() ?? '';
-          if (bId != _selectedBranch) continue;
-       }
+      // Branch Filter Check
+      if (_selectedBranch != 'ALL') {
+        final bId =
+            (order['branch'] is Map
+                    ? (order['branch']['id'] ?? order['branch']['_id'])
+                    : null)
+                ?.toString() ??
+            '';
+        if (bId != _selectedBranch) continue;
+      }
 
-       final status = _getOrderStatus(order);
-       if (status == 0) {
-         newCount++;
-       } else if (status == 1) {
-         workingCount++;
-       } else if (status == 2) {
-         completedCount++;
-       }
+      final status = _getOrderStatus(order);
+      if (status == 0) {
+        newCount++;
+      } else if (status == 1) {
+        workingCount++;
+      } else if (status == 2) {
+        completedCount++;
+      }
     }
 
     // Filter Logic
     final filteredOrders = _recentOrders.where((order) {
-        if (_getOrderStatus(order) != _selectedTab) return false;
-        
-        if (_selectedBranch != 'ALL') {
-          final bId = (order['branch'] is Map ? (order['branch']['id'] ?? order['branch']['_id']) : null)?.toString() ?? '';
-          if (bId != _selectedBranch) return false;
-        }
+      if (_getOrderStatus(order) != _selectedTab) return false;
 
-        if (_selectedDepartmentFilter != 'ALL') {
-           return _doesOrderContainDepartment(order, _selectedDepartmentFilter);
-        }
-        return true;
+      if (_selectedBranch != 'ALL') {
+        final bId =
+            (order['branch'] is Map
+                    ? (order['branch']['id'] ?? order['branch']['_id'])
+                    : null)
+                ?.toString() ??
+            '';
+        if (bId != _selectedBranch) return false;
+      }
+
+      if (_selectedDepartmentFilter != 'ALL') {
+        return _doesOrderContainDepartment(order, _selectedDepartmentFilter);
+      }
+      return true;
     }).toList();
 
     return CommonScaffold(
@@ -333,8 +382,8 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
           },
         ),
       ],
-      body: _isLoading 
-          ? const Center(child: CircularProgressIndicator()) 
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: () => _fetchCounts(forceRefresh: true),
               child: ListView(
@@ -352,7 +401,9 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                             onTap: _pickDate,
                             borderRadius: BorderRadius.circular(8),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
                               height: 48,
                               alignment: Alignment.centerLeft,
                               decoration: BoxDecoration(
@@ -362,14 +413,26 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.start,
                                 children: [
-                                  const Icon(Icons.calendar_today, size: 16, color: Colors.white),
+                                  const Icon(
+                                    Icons.calendar_today,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
                                   const SizedBox(width: 8),
                                   Text(
                                     dateStr,
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                   const SizedBox(width: 2),
-                                  const Icon(Icons.arrow_drop_down, color: Colors.white, size: 18),
+                                  const Icon(
+                                    Icons.arrow_drop_down,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ],
                               ),
                             ),
@@ -384,16 +447,23 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                             height: 48,
                             alignment: Alignment.centerLeft,
                             decoration: BoxDecoration(
-                               color: Colors.black,
-                               borderRadius: BorderRadius.circular(8),
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(8),
                             ),
                             child: DropdownButtonHideUnderline(
                               child: DropdownButton<String>(
                                 value: _selectedBranch,
                                 dropdownColor: Colors.grey[900],
-                                icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                                icon: const Icon(
+                                  Icons.arrow_drop_down,
+                                  color: Colors.white,
+                                ),
                                 isExpanded: true,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                                 items: [
                                   const DropdownMenuItem(
                                     value: 'ALL',
@@ -423,7 +493,7 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                       ],
                     ),
                   ),
-                  
+
                   // TABS (Left Aligned)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.start,
@@ -436,143 +506,150 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  
+
                   if (filteredOrders.isEmpty)
-                     const Padding(
-                       padding: EdgeInsets.symmetric(vertical: 32.0),
-                       child: Center(child: Text('No stock orders found.', style: TextStyle(color: Colors.grey))),
-                     )
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32.0),
+                      child: Center(
+                        child: Text(
+                          'No stock orders found.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    )
                   else
                     ...filteredOrders.map(_buildTicketItem),
                 ],
               ),
-              ),
+            ),
       bottomNavigationBar: _buildDepartmentFooter(),
     );
   }
 
   bool _doesOrderContainDepartment(dynamic order, String deptId) {
-     final items = (order['items'] as List?) ?? [];
-     for (var item in items) {
-        final product = item['product'];
-        if (product is Map) {
-           final cat = product['category'];
-           if (cat is Map) {
-              final dept = cat['department']; // May be String ID or Map
-              String dId = '';
-              if (dept is Map) {
-                dId = dept['id'] ?? dept['_id'] ?? '';
-              } else if (dept is String) {
-                dId = dept;
-              }
-              
-              if (deptId == 'OTHERS') {
-                  if (dId.isEmpty) return true;
-              } else if (dId == deptId) {
-                 return true;
-              }
-           } else if (deptId == 'OTHERS') {
-                return true;
-           }
-        } else if (deptId == 'OTHERS') {
+    final items = (order['items'] as List?) ?? [];
+    for (var item in items) {
+      final product = item['product'];
+      if (product is Map) {
+        final cat = product['category'];
+        if (cat is Map) {
+          final dept = cat['department']; // May be String ID or Map
+          String dId = '';
+          if (dept is Map) {
+            dId = dept['id'] ?? dept['_id'] ?? '';
+          } else if (dept is String) {
+            dId = dept;
+          }
+
+          if (deptId == 'OTHERS') {
+            if (dId.isEmpty) return true;
+          } else if (dId == deptId) {
             return true;
+          }
+        } else if (deptId == 'OTHERS') {
+          return true;
         }
-     }
-     return false;
+      } else if (deptId == 'OTHERS') {
+        return true;
+      }
+    }
+    return false;
   }
 
   Widget _buildDepartmentFooter() {
-     if (_departments.isEmpty) return const SizedBox.shrink();
-     
-     // Clone and sort departments, ensure ALL is first
-     final sortedDepts = List<Map<String, dynamic>>.from(_departments);
-     // Check if ALL exists, if not add it
-     if (!sortedDepts.any((d) => d['id'] == 'ALL')) {
-        sortedDepts.insert(0, {'id': 'ALL', 'name': 'All'});
-     }
-     // Add 'Others' option
-     if (!sortedDepts.any((d) => d['id'] == 'OTHERS')) {
-          sortedDepts.add({'id': 'OTHERS', 'name': 'Others'});
-     }
+    if (_departments.isEmpty) return const SizedBox.shrink();
 
-     return Container(
-        height: 60,
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        color: Colors.black, // Dark Footer
-        child: ListView.separated(
-           scrollDirection: Axis.horizontal,
-           itemCount: sortedDepts.length,
-           separatorBuilder: (context, index) => const SizedBox(width: 8),
-           itemBuilder: (context, index) {
-              final dept = sortedDepts[index];
-              final deptId = dept['id'];
-              final isSelected = _selectedDepartmentFilter == deptId;
-              return ChoiceChip(
-                 label: Text(dept['name'] ?? ''),
-                 selected: isSelected,
-                 onSelected: (selected) {
-                    if (selected) {
-                       setState(() {
-                          _selectedDepartmentFilter = deptId;
-                       });
-                    }
-                 },
-                 selectedColor: Colors.white,
-                 labelStyle: TextStyle(
-                    color: isSelected ? Colors.black : Colors.white,
-                    fontWeight: FontWeight.bold
-                 ),
-                 backgroundColor: Colors.grey.shade900,
-                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: const BorderSide(color: Colors.transparent),
-                 ),
-                 showCheckmark: false,
-              );
-           },
-        ),
-     );
+    // Clone and sort departments, ensure ALL is first
+    final sortedDepts = List<Map<String, dynamic>>.from(_departments);
+    // Check if ALL exists, if not add it
+    if (!sortedDepts.any((d) => d['id'] == 'ALL')) {
+      sortedDepts.insert(0, {'id': 'ALL', 'name': 'All'});
+    }
+    // Add 'Others' option
+    if (!sortedDepts.any((d) => d['id'] == 'OTHERS')) {
+      sortedDepts.add({'id': 'OTHERS', 'name': 'Others'});
+    }
+
+    return Container(
+      height: 60,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      color: Colors.black, // Dark Footer
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: sortedDepts.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final dept = sortedDepts[index];
+          final deptId = dept['id'];
+          final isSelected = _selectedDepartmentFilter == deptId;
+          return ChoiceChip(
+            label: Text(dept['name'] ?? ''),
+            selected: isSelected,
+            onSelected: (selected) {
+              if (selected) {
+                setState(() {
+                  _selectedDepartmentFilter = deptId;
+                });
+              }
+            },
+            selectedColor: Colors.white,
+            labelStyle: TextStyle(
+              color: isSelected ? Colors.black : Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+            backgroundColor: Colors.grey.shade900,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: const BorderSide(color: Colors.transparent),
+            ),
+            showCheckmark: false,
+          );
+        },
+      ),
+    );
   }
 
   Widget _buildTicketItem(dynamic order) {
     // Extract Data
     final shortCode = order['shortCode'] ?? '';
     final invoiceNo = order['invoiceNumber'] ?? 'No Invoice';
-    
+
     // Calculate Amounts
     double totalOrdered = 0.0;
     double totalSending = 0.0;
     double totalConfirmed = 0.0;
     double totalPicked = 0.0;
-    
+
     final items = (order['items'] as List?) ?? [];
     for (var item in items) {
       final product = item['product'];
       double price = 0.0;
       if (product is Map) {
-         if (product['defaultPriceDetails'] != null && product['defaultPriceDetails'] is Map) {
-             price = ((product['defaultPriceDetails']['price'] ?? 0) as num).toDouble();
-         } else {
-             price = ((product['price'] ?? 0) as num).toDouble();
-         }
+        if (product['defaultPriceDetails'] != null &&
+            product['defaultPriceDetails'] is Map) {
+          price = ((product['defaultPriceDetails']['price'] ?? 0) as num)
+              .toDouble();
+        } else {
+          price = ((product['price'] ?? 0) as num).toDouble();
+        }
       }
       final reqQty = ((item['requiredQty'] as num?) ?? 0).toDouble();
       final sentQty = ((item['sendingQty'] as num?) ?? 0).toDouble();
       final confQty = ((item['confirmedQty'] as num?) ?? 0).toDouble();
       final pickQty = ((item['pickedQty'] as num?) ?? 0).toDouble();
-      
+
       totalOrdered += (price * reqQty);
       totalSending += (price * sentQty);
       totalConfirmed += (price * confQty);
       totalPicked += (price * pickQty);
     }
-    
+
     final cDate = DateTime.tryParse(order['createdAt'] ?? '')?.toLocal();
     final dDate = DateTime.tryParse(order['deliveryDate'] ?? '')?.toLocal();
-    
+
     // Always Stock in this view
     // Always Stock in this view
-    // bool isLive = false; 
+    // bool isLive = false;
 
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
     final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 2);
@@ -581,41 +658,51 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
     // Use the explicit status from the order object (managed by office team)
     String rawStatus = (order['status'] ?? 'pending').toString().toLowerCase();
     String billStatus = rawStatus.toUpperCase(); // Default to Uppercase
-    
+
     Color statusColor = Colors.orange; // Default for Ordered/Pending
-    
+
     if (rawStatus == 'confirmed') {
-       statusColor = Colors.blue;
+      statusColor = Colors.blue;
     } else if (rawStatus == 'processing') {
-       statusColor = Colors.blueAccent;
+      statusColor = Colors.blueAccent;
     } else if (rawStatus == 'completed') {
-       statusColor = Colors.green;
+      statusColor = Colors.green;
     } else if (rawStatus == 'cancelled') {
-       statusColor = Colors.red;
+      statusColor = Colors.red;
     } else if (rawStatus == 'ordered') {
-       statusColor = Colors.orange;
+      statusColor = Colors.orange;
     }
 
     if (billStatus == 'PENDING') billStatus = 'ORDERED';
-    
+
     // Determine Amounts to Display based on Role
     String label1 = 'Ord';
     double val1 = totalOrdered;
     Color color1 = Colors.blueGrey;
-    
+
     String label2 = 'Snt';
     double val2 = totalSending;
     Color color2 = Colors.green;
-    
+
     if (_userRole == 'chef') {
-       label1 = 'Ord'; val1 = totalOrdered;
-       label2 = 'Snt'; val2 = totalSending;
+      label1 = 'Ord';
+      val1 = totalOrdered;
+      label2 = 'Snt';
+      val2 = totalSending;
     } else if (_userRole == 'supervisor') {
-       label1 = 'Snt'; val1 = totalSending; color1 = Colors.red;
-       label2 = 'Con'; val2 = totalConfirmed; color2 = Colors.green;
+      label1 = 'Snt';
+      val1 = totalSending;
+      color1 = Colors.red;
+      label2 = 'Con';
+      val2 = totalConfirmed;
+      color2 = Colors.green;
     } else if (_userRole == 'driver') {
-       label1 = 'Con'; val1 = totalConfirmed; color1 = Colors.red;
-       label2 = 'Pic'; val2 = totalPicked; color2 = Colors.green;
+      label1 = 'Con';
+      val1 = totalConfirmed;
+      color1 = Colors.red;
+      label2 = 'Pic';
+      val2 = totalPicked;
+      color2 = Colors.green;
     }
 
     return Card(
@@ -625,35 +712,48 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () {
-           // Role Check
-           if (['chef', 'supervisor', 'driver', 'factory'].contains(_userRole)) {
-              final branchId = (order['branch'] is Map ? (order['branch']['id'] ?? order['branch']['_id']) : null)?.toString();
-              if (branchId == null) return;
-              
-              final orderId = (order['id'] ?? order['_id'])?.toString();
-              
-              // Use Delivery Date for Filter (as per user request)
-              DateTime initialFrom = dDate ?? DateTime.now();
-              DateTime initialTo = dDate ?? DateTime.now();
-              
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => StockOrderReportPage(
-                    initialBranchId: branchId,
-                    initialFromDate: initialFrom,
-                    initialToDate: initialTo,
-                    initialOrderId: orderId,
-                    initialIsReportView: false, // Force Grid
-                    onlyTodayOrdered: false,
-                  ),
+          // Role Check
+          if ([
+            'chef',
+            'supervisor',
+            'driver',
+            'factory',
+            'kitchen',
+          ].contains(_userRole)) {
+            final branchId =
+                (order['branch'] is Map
+                        ? (order['branch']['id'] ?? order['branch']['_id'])
+                        : null)
+                    ?.toString();
+            if (branchId == null) return;
+
+            final orderId = (order['id'] ?? order['_id'])?.toString();
+
+            // Use Delivery Date for Filter (as per user request)
+            DateTime initialFrom = dDate ?? DateTime.now();
+            DateTime initialTo = dDate ?? DateTime.now();
+
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => StockOrderReportPage(
+                  initialBranchId: branchId,
+                  initialFromDate: initialFrom,
+                  initialToDate: initialTo,
+                  initialOrderId: orderId,
+                  initialIsReportView: false, // Force Grid
+                  onlyTodayOrdered: false,
                 ),
-              );
-           } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('You are not authorized to update orders.'), duration: Duration(milliseconds: 1000)),
-              );
-           }
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('You are not authorized to update orders.'),
+                duration: Duration(milliseconds: 1000),
+              ),
+            );
+          }
         },
         child: Padding(
           padding: const EdgeInsets.all(12.0),
@@ -664,24 +764,38 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                 children: [
                   Text(
                     shortCode,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.green,
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       'Stock',
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   const Spacer(),
                   Text(
                     billStatus,
-                    style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 14),
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
                   ),
                 ],
               ),
@@ -694,13 +808,23 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (cDate != null)
-                        Text('Ord: ${dateFormat.format(cDate)}', style: const TextStyle(fontSize: 12)),
+                        Text(
+                          'Ord: ${dateFormat.format(cDate)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
                       if (dDate != null)
-                        Text('Del: ${dateFormat.format(dDate)}', style: const TextStyle(fontSize: 12)),
+                        Text(
+                          'Del: ${dateFormat.format(dDate)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
                       const SizedBox(height: 4),
                       Text(
-                          'Inv: $invoiceNo',
-                          style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold),
+                        'Inv: $invoiceNo',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -709,11 +833,19 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                     children: [
                       Text(
                         '$label1: ${currencyFormat.format(val1)}',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color1),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: color1,
+                        ),
                       ),
                       Text(
                         '$label2: ${currencyFormat.format(val2)}',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color2),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: color2,
+                        ),
                       ),
                     ],
                   ),

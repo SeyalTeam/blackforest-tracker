@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'api_config.dart';
+import 'api_service.dart';
 import 'home.dart';
 
 class LoginPage extends StatefulWidget {
@@ -41,8 +41,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _fetchDynamicRanges() async {
     try {
       final res = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/branches?limit=1000'),
-        headers: ApiConfig.headers,
+        Uri.parse('https://blackforest.vseyal.com/api/branches?limit=1000'),
       );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -75,7 +74,7 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _checkIpInRange(String ip, String range) {
     if (!range.contains('-')) return ip == range.trim();
-    
+
     List<String> parts = range.split('-').map((e) => e.trim()).toList();
     if (parts.length != 2) return false;
 
@@ -104,15 +103,15 @@ class _LoginPageState extends State<LoginPage> {
         includeLoopback: false,
         type: InternetAddressType.IPv4,
       );
-      
+
       if (interfaces.isNotEmpty) {
         // Find the best local IP (prioritize common LAN ranges)
         for (var interface in interfaces) {
           for (var addr in interface.addresses) {
             final ip = addr.address;
             // Prioritize standard private ranges
-            if (ip.startsWith('192.168.') || 
-                ip.startsWith('10.') || 
+            if (ip.startsWith('192.168.') ||
+                ip.startsWith('10.') ||
                 ip.startsWith('172.16.') ||
                 ip.startsWith('192.0.')) {
               private = ip;
@@ -141,14 +140,18 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _isLoading = true;
       });
-      
+
       // Ensure Private IP is fetched before proceeding
       if (_privateIp == null) {
         await _fetchIp();
         if (_privateIp == null) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Working on network identification... Please try again in 2 seconds.')),
+              const SnackBar(
+                content: Text(
+                  'Working on network identification... Please try again in 2 seconds.',
+                ),
+              ),
             );
             setState(() => _isLoading = false);
             return;
@@ -160,21 +163,20 @@ class _LoginPageState extends State<LoginPage> {
         // Attempt Real Login
         // Assuming 'email' is the identifier. The UI says 'Branch', but payload default is email.
         // We try sending the input as email.
-        
-        // Create headers map
-        final Map<String, String> headers = Map.from(ApiConfig.headers);
-        headers['Content-Type'] = 'application/json';
-        headers['x-private-ip'] = _privateIp ?? '';
 
         final res = await http.post(
-          Uri.parse('${ApiConfig.baseUrl}/users/login'),
-          headers: headers,
+          Uri.parse('https://blackforest.vseyal.com/api/users/login'),
+          headers: {
+            'Content-Type': 'application/json',
+            'x-private-ip': _privateIp ?? '',
+          },
           body: jsonEncode({
-            'email': _branchController.text.trim().contains('@') 
-                ? _branchController.text.trim() 
+            'email': _branchController.text.trim().contains('@')
+                ? _branchController.text.trim()
                 : '${_branchController.text.trim()}@bf.com',
             'password': _passwordController.text,
-            'privateIp': _privateIp, // Send private IP for server-side validation
+            'privateIp':
+                _privateIp, // Send private IP for server-side validation
           }),
         );
 
@@ -186,29 +188,91 @@ class _LoginPageState extends State<LoginPage> {
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           final token = data['token'];
-          final user = data['user'];
-          final userRole = user['role']?.toString().toLowerCase() ?? '';
-          final userName = user['name']?.toString() ?? '';
+          final user = data['user'] ?? {};
 
-          // defined allowed roles
-          const allowedRoles = ['factory', 'supervisor', 'driver', 'chef'];
+          setState(() => _isLoading = false);
 
-          if (!allowedRoles.contains(userRole)) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content: Text(
-                      'Access Denied: Role "$userRole" is not authorized.')),
-            );
-            setState(() => _isLoading = false);
-            return;
+          // FETCH FULL PROFILE to ensure nested fields like user.kitchen are populated
+          Map<String, dynamic> fullUser = user;
+          try {
+            final profile = await ApiService.instance.fetchUserProfile();
+            if (profile.isNotEmpty) fullUser = profile;
+          } catch (e) {
+            debugPrint('DEBUG: Failed to fetch full profile: $e');
           }
+
+          final userRole = fullUser['role']?.toString().toLowerCase() ?? '';
+          final userName = fullUser['name']?.toString() ?? '';
+          final userId = (fullUser['id'] ?? fullUser['_id'])?.toString() ?? '';
+
+          debugPrint(
+            'DEBUG: Login success. Role: $userRole, Name: $userName, ID: $userId',
+          );
 
           const storage = FlutterSecureStorage();
           await storage.write(key: 'isLoggedIn', value: 'true');
           await storage.write(key: 'token', value: token);
+          await storage.write(key: 'userId', value: userId);
           await storage.write(key: 'userRole', value: userRole);
           await storage.write(key: 'userName', value: userName);
+
+          if (userRole == 'kitchen') {
+            final branchObj = fullUser['branch'];
+            final kitchenObj = fullUser['kitchen'];
+
+            // Extract Kitchen ID and Categories
+            String kitchenId = '';
+            List<String> categories = [];
+
+            if (kitchenObj is Map) {
+              kitchenId =
+                  (kitchenObj['id'] ?? kitchenObj['_id'])?.toString() ?? '';
+              if (kitchenObj['categories'] is List) {
+                for (var c in kitchenObj['categories']) {
+                  final cId =
+                      (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                  if (cId.isNotEmpty) categories.add(cId);
+                }
+              }
+            } else if (kitchenObj is String) {
+              kitchenId = kitchenObj;
+            }
+
+            // Fallback: Check employee collection if still needed for legacy
+            if (kitchenId.isEmpty && fullUser['employee'] is Map) {
+              final emp = fullUser['employee'];
+              final empK = emp['kitchen'];
+              if (empK is Map) {
+                kitchenId = (empK['id'] ?? empK['_id'])?.toString() ?? '';
+              } else if (empK is String) {
+                kitchenId = empK;
+              }
+            }
+
+            // Branch ID extraction
+            var bId =
+                (branchObj is Map ? branchObj['id'] : branchObj)?.toString() ??
+                '';
+            // Fallback for branch in employee
+            if (bId.isEmpty && fullUser['employee'] is Map) {
+              final emp = fullUser['employee'];
+              bId =
+                  (emp['branch'] is Map ? emp['branch']['id'] : emp['branch'])
+                      ?.toString() ??
+                  '';
+            }
+
+            debugPrint(
+              'DEBUG: Extracted kitchenId: "$kitchenId", BranchId: "$bId", Categories: ${categories.length}',
+            );
+
+            await storage.write(key: 'userKitchenId', value: kitchenId);
+            await storage.write(key: 'userBranchId', value: bId);
+            await storage.write(
+              key: 'userKitchenCategoryIds',
+              value: categories.join(','),
+            );
+          }
 
           if (!mounted) return;
           Navigator.of(context).pushReplacement(
@@ -216,10 +280,13 @@ class _LoginPageState extends State<LoginPage> {
           );
         } else {
           // Login Failed - Improved error handling
-          String errorMessage = 'Login Failed: ${res.statusCode}. Check credentials.';
+          String errorMessage =
+              'Login Failed: ${res.statusCode}. Check credentials.';
           try {
             final errorData = jsonDecode(res.body);
-            if (errorData['errors'] != null && errorData['errors'] is List && errorData['errors'].isNotEmpty) {
+            if (errorData['errors'] != null &&
+                errorData['errors'] is List &&
+                errorData['errors'].isNotEmpty) {
               errorMessage = errorData['errors'][0]['message'] ?? errorMessage;
             }
           } catch (e) {
@@ -227,16 +294,16 @@ class _LoginPageState extends State<LoginPage> {
           }
 
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(errorMessage)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(errorMessage)));
           }
         }
       } catch (e) {
         if (mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error: $e')));
         }
       } finally {
         if (mounted) {
@@ -268,7 +335,7 @@ class _LoginPageState extends State<LoginPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text(
-                  'Chef 2 Driver',
+                  'Blackforest Tracker',
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -321,10 +388,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     child: _isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'Login',
-                            style: TextStyle(fontSize: 18),
-                          ),
+                        : const Text('Login', style: TextStyle(fontSize: 18)),
                   ),
                 ),
                 if (_privateIp != null) ...[
@@ -341,8 +405,8 @@ class _LoginPageState extends State<LoginPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildIpRow(
-                          Icons.lan, 
-                          'Private IP', 
+                          Icons.lan,
+                          'Private IP',
                           _privateIp!,
                           isAuthorized: _isIpAuthorized,
                         ),
@@ -370,7 +434,12 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildIpRow(IconData icon, String label, String value, {bool? isAuthorized}) {
+  Widget _buildIpRow(
+    IconData icon,
+    String label,
+    String value, {
+    bool? isAuthorized,
+  }) {
     return Row(
       children: [
         Icon(icon, size: 18, color: Colors.grey[600]),
@@ -392,10 +461,10 @@ class _LoginPageState extends State<LoginPage> {
                 style: TextStyle(
                   fontSize: 16,
                   color: (isAuthorized != null && isAuthorized)
-                      ? Colors.green[700] 
+                      ? Colors.green[700]
                       : (isAuthorized != null && !isAuthorized)
-                          ? Colors.red[700]
-                          : Colors.grey[800],
+                      ? Colors.red[700]
+                      : Colors.grey[800],
                   fontFamily: 'monospace',
                   fontWeight: FontWeight.bold,
                 ),
