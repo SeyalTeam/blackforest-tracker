@@ -5,11 +5,13 @@ import 'kitchen_footer.dart';
 
 class KitchenChatsScreen extends StatelessWidget {
   final VoidCallback onKotTap;
+  final VoidCallback onStockTap;
   final VoidCallback onReviewTap;
 
   const KitchenChatsScreen({
     super.key,
     required this.onKotTap,
+    required this.onStockTap,
     required this.onReviewTap,
   });
 
@@ -33,6 +35,9 @@ class KitchenChatsScreen extends StatelessWidget {
           switch (tab) {
             case KitchenFooterTab.kot:
               onKotTap();
+              break;
+            case KitchenFooterTab.stock:
+              onStockTap();
               break;
             case KitchenFooterTab.review:
               onReviewTap();

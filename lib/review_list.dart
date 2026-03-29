@@ -7,8 +7,15 @@ import 'kitchen_footer.dart';
 
 class ReviewListScreen extends StatefulWidget {
   final bool showKitchenFooter;
+  final VoidCallback? onKotTap;
+  final VoidCallback? onStockTap;
 
-  const ReviewListScreen({super.key, this.showKitchenFooter = false});
+  const ReviewListScreen({
+    super.key,
+    this.showKitchenFooter = false,
+    this.onKotTap,
+    this.onStockTap,
+  });
 
   @override
   State<ReviewListScreen> createState() => _ReviewListScreenState();
@@ -214,7 +221,18 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
   void _handleKitchenFooterSelection(KitchenFooterTab tab) {
     switch (tab) {
       case KitchenFooterTab.kot:
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        if (widget.onKotTap != null) {
+          widget.onKotTap!();
+        } else {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+        break;
+      case KitchenFooterTab.stock:
+        if (widget.onStockTap != null) {
+          widget.onStockTap!();
+        } else {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
         break;
       case KitchenFooterTab.review:
         break;
@@ -223,15 +241,29 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
           context,
           MaterialPageRoute(
             builder: (routeContext) => KitchenChatsScreen(
-              onKotTap: () {
-                Navigator.of(routeContext).popUntil((route) => route.isFirst);
-              },
+              onKotTap:
+                  widget.onKotTap ??
+                  () {
+                    Navigator.of(
+                      routeContext,
+                    ).popUntil((route) => route.isFirst);
+                  },
+              onStockTap:
+                  widget.onStockTap ??
+                  () {
+                    Navigator.of(
+                      routeContext,
+                    ).popUntil((route) => route.isFirst);
+                  },
               onReviewTap: () {
                 Navigator.pushReplacement(
                   routeContext,
                   MaterialPageRoute(
-                    builder: (context) =>
-                        const ReviewListScreen(showKitchenFooter: true),
+                    builder: (context) => ReviewListScreen(
+                      showKitchenFooter: true,
+                      onKotTap: widget.onKotTap,
+                      onStockTap: widget.onStockTap,
+                    ),
                   ),
                 );
               },
@@ -370,7 +402,9 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
                   decoration: BoxDecoration(
                     color: Colors.amber.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: Colors.amber.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     children: [

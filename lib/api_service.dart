@@ -304,6 +304,129 @@ class ApiService {
     }
   }
 
+  Future<List<dynamic>> fetchKitchens() async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/kitchens?limit=1000';
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load kitchens');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchProducts({List<String>? categoryIds}) async {
+    try {
+      final token = await _getToken();
+      String url = '$_baseUrl/products?limit=1000&depth=1';
+
+      if (categoryIds != null && categoryIds.isNotEmpty) {
+        for (int i = 0; i < categoryIds.length; i++) {
+          url += '&where[category][in][$i]=${categoryIds[i]}';
+        }
+      }
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load products');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchProductById(String productId) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/products/$productId?depth=0';
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        return Map<String, dynamic>.from(jsonDecode(res.body) as Map);
+      } else {
+        throw Exception('Failed to load product details');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  bool? _readIsOutOfStock(Map<String, dynamic> product) {
+    final isStock = product['isStock'];
+    if (isStock is bool) {
+      return !isStock;
+    }
+
+    final isOutOfStock = product['isOutOfStock'];
+    if (isOutOfStock is bool) {
+      return isOutOfStock;
+    }
+
+    return null;
+  }
+
+  Future<bool> updateProductStockStatus(
+    String productId,
+    bool isOutOfStock,
+  ) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/products/$productId';
+
+      final res = await http.patch(
+        Uri.parse(url),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'isStock': !isOutOfStock,
+          'isOutOfStock': isOutOfStock,
+        }),
+      );
+
+      if (res.statusCode != 200) {
+        throw Exception('Failed to update product status: ${res.body}');
+      }
+
+      final refreshedProduct = await fetchProductById(productId);
+      final savedValue = _readIsOutOfStock(refreshedProduct);
+      final savedIsStock = refreshedProduct['isStock'];
+
+      if (savedValue is! bool ||
+          savedValue != isOutOfStock ||
+          savedIsStock is! bool ||
+          savedIsStock != !isOutOfStock) {
+        throw Exception('Stock status was not saved. Please try again.');
+      }
+
+      return savedValue;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> fetchKitchenKOTs({
     required String branchId,
     required String kitchenId,
@@ -374,6 +497,37 @@ class ApiService {
       if (res.statusCode != 200) {
         throw Exception('Failed to update item status: ${res.body}');
       }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchBillingItemPreparationTime({
+    required String billingId,
+    required String itemId,
+  }) async {
+    try {
+      final token = await _getToken();
+      final url =
+          '$_baseUrl/billings/$billingId/items/preparation-time?itemId=$itemId';
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map<String, dynamic>) return data;
+        if (data is Map) return Map<String, dynamic>.from(data);
+        return null;
+      }
+
+      if (res.statusCode == 404 || res.statusCode == 204) {
+        return null;
+      }
+
+      throw Exception('Failed to load preparation time: ${res.body}');
     } catch (e) {
       rethrow;
     }

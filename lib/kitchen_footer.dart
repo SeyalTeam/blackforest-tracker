@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum KitchenFooterTab { kot, review, chats }
+enum KitchenFooterTab { kot, stock, review, chats }
 
 class KitchenFooter extends StatelessWidget {
   final KitchenFooterTab selectedTab;
@@ -36,6 +36,14 @@ class KitchenFooter extends StatelessWidget {
                 label: 'KOT',
                 isSelected: selectedTab == KitchenFooterTab.kot,
                 onTap: () => onSelected(KitchenFooterTab.kot),
+              ),
+            ),
+            Expanded(
+              child: _KitchenFooterItem(
+                icon: Icons.inventory_2_outlined,
+                label: 'Stock',
+                isSelected: selectedTab == KitchenFooterTab.stock,
+                onTap: () => onSelected(KitchenFooterTab.stock),
               ),
             ),
             Expanded(
