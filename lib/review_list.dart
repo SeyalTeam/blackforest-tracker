@@ -4,17 +4,27 @@ import 'common_scaffold.dart';
 import 'api_service.dart';
 import 'kitchen_chats_screen.dart';
 import 'kitchen_footer.dart';
+import 'stock_footer.dart';
+import 'smooth_navigation.dart';
 
 class ReviewListScreen extends StatefulWidget {
   final bool showKitchenFooter;
   final VoidCallback? onKotTap;
   final VoidCallback? onStockTap;
+  final int stockBadgeCount;
+  final int liveBadgeCount;
+  final int reviewBadgeCount;
+  final String footerMode; // 'KITCHEN' or 'STOCK'
 
   const ReviewListScreen({
     super.key,
     this.showKitchenFooter = false,
     this.onKotTap,
     this.onStockTap,
+    this.stockBadgeCount = 0,
+    this.liveBadgeCount = 0,
+    this.reviewBadgeCount = 0,
+    this.footerMode = 'KITCHEN',
   });
 
   @override
@@ -180,10 +190,20 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
           IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchReviews),
         ],
         bottomNavigationBar: widget.showKitchenFooter
-            ? KitchenFooter(
-                selectedTab: KitchenFooterTab.review,
-                onSelected: _handleKitchenFooterSelection,
-              )
+            ? (widget.footerMode == 'STOCK'
+                ? StockFooter(
+                    selectedTab: StockFooterTab.review,
+                    onSelected: _handleStockFooterSelection,
+                    stockBadgeCount: widget.stockBadgeCount,
+                    liveBadgeCount: widget.liveBadgeCount,
+                    reviewBadgeCount: widget.reviewBadgeCount,
+                  )
+                : KitchenFooter(
+                    selectedTab: KitchenFooterTab.review,
+                    onSelected: _handleKitchenFooterSelection,
+                    stockBadgeCount: widget.stockBadgeCount,
+                    reviewBadgeCount: widget.reviewBadgeCount,
+                  ))
             : null,
         body: Column(
           children: [
@@ -218,6 +238,55 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
     );
   }
 
+  void _handleStockFooterSelection(StockFooterTab tab) {
+    switch (tab) {
+      case StockFooterTab.live:
+        if (widget.onKotTap != null) {
+          widget.onKotTap!();
+        } else {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+        break;
+      case StockFooterTab.stock:
+        if (widget.onStockTap != null) {
+          widget.onStockTap!();
+        } else {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+        break;
+      case StockFooterTab.review:
+        break;
+      case StockFooterTab.chats:
+        Navigator.pushReplacement(
+          context,
+          smoothPageRoute(
+            KitchenChatsScreen(
+              onKotTap:
+                  widget.onKotTap ??
+                  () {
+                    Navigator.of(
+                      context,
+                    ).popUntil((route) => route.isFirst);
+                  },
+              onStockTap:
+                  widget.onStockTap ??
+                  () {
+                    Navigator.of(
+                      context,
+                    ).popUntil((route) => route.isFirst);
+                  },
+              onReviewTap: () {},
+              stockBadgeCount: widget.stockBadgeCount,
+              liveBadgeCount: widget.liveBadgeCount,
+              reviewBadgeCount: widget.reviewBadgeCount,
+              footerMode: 'STOCK',
+            ),
+          ),
+        );
+        break;
+    }
+  }
+
   void _handleKitchenFooterSelection(KitchenFooterTab tab) {
     switch (tab) {
       case KitchenFooterTab.kot:
@@ -239,34 +308,17 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
       case KitchenFooterTab.chats:
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (routeContext) => KitchenChatsScreen(
-              onKotTap:
-                  widget.onKotTap ??
-                  () {
-                    Navigator.of(
-                      routeContext,
-                    ).popUntil((route) => route.isFirst);
-                  },
-              onStockTap:
-                  widget.onStockTap ??
-                  () {
-                    Navigator.of(
-                      routeContext,
-                    ).popUntil((route) => route.isFirst);
-                  },
-              onReviewTap: () {
-                Navigator.pushReplacement(
-                  routeContext,
-                  MaterialPageRoute(
-                    builder: (context) => ReviewListScreen(
-                      showKitchenFooter: true,
-                      onKotTap: widget.onKotTap,
-                      onStockTap: widget.onStockTap,
-                    ),
-                  ),
-                );
-              },
+          smoothPageRoute(
+            KitchenChatsScreen(
+              onKotTap: widget.onKotTap ??
+                  () => Navigator.of(context).popUntil((r) => r.isFirst),
+              onStockTap: widget.onStockTap ??
+                  () => Navigator.of(context).popUntil((r) => r.isFirst),
+              onReviewTap: () {},
+              stockBadgeCount: widget.stockBadgeCount,
+              liveBadgeCount: widget.liveBadgeCount,
+              reviewBadgeCount: widget.reviewBadgeCount,
+              footerMode: 'KITCHEN',
             ),
           ),
         );

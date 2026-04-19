@@ -121,9 +121,10 @@ class ApiService {
     bool forceRefresh = false,
   }) async {
     final start = DateTime(fromDate.year, fromDate.month, fromDate.day);
-    final end = toDate != null
-        ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
-        : DateTime(fromDate.year, fromDate.month, fromDate.day, 23, 59, 59);
+    final end =
+        toDate != null
+            ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
+            : DateTime(fromDate.year, fromDate.month, fromDate.day, 23, 59, 59);
 
     final cacheKey = '${start.toIso8601String()}_${end.toIso8601String()}';
 
@@ -189,19 +190,17 @@ class ApiService {
       String url = '$_baseUrl/reviews?limit=100&depth=1&sort=-createdAt';
 
       if (date != null) {
-        final start = DateTime(
-          date.year,
-          date.month,
-          date.day,
-        ).toUtc().toIso8601String();
-        final end = DateTime(
-          date.year,
-          date.month,
-          date.day,
-          23,
-          59,
-          59,
-        ).toUtc().toIso8601String();
+        final start =
+            DateTime(date.year, date.month, date.day).toUtc().toIso8601String();
+        final end =
+            DateTime(
+              date.year,
+              date.month,
+              date.day,
+              23,
+              59,
+              59,
+            ).toUtc().toIso8601String();
         url +=
             '&where[createdAt][greater_than]=$start&where[createdAt][less_than]=$end';
       }
@@ -247,18 +246,19 @@ class ApiService {
 
       // 2. Find and update the specific item
       bool found = false;
-      final updatedItems = items.map((item) {
-        final currentId = item['id'] ?? item['_id'];
-        if (currentId == itemId) {
-          found = true;
-          return {
-            ...item,
-            'chefReply': replyText,
-            // 'status': 'replied' // Let backend hook handle status
-          };
-        }
-        return item;
-      }).toList();
+      final updatedItems =
+          items.map((item) {
+            final currentId = item['id'] ?? item['_id'];
+            if (currentId == itemId) {
+              found = true;
+              return {
+                ...item,
+                'chefReply': replyText,
+                // 'status': 'replied' // Let backend hook handle status
+              };
+            }
+            return item;
+          }).toList();
 
       if (!found) {
         throw Exception('Review item not found');
@@ -267,12 +267,13 @@ class ApiService {
       // 3. Patch the review with updated items array
       final patchRes = await http.patch(
         Uri.parse('$_baseUrl/reviews/$reviewId'),
-        headers: token != null
-            ? {
-                'Authorization': 'Bearer $token',
-                'Content-Type': 'application/json',
-              }
-            : {},
+        headers:
+            token != null
+                ? {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                }
+                : {},
         body: jsonEncode({'items': updatedItems}),
       );
 
@@ -427,6 +428,29 @@ class ApiService {
     }
   }
 
+  Future<void> createStockAlert({
+    required String productId,
+    required String branchId,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/stock-alerts'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'product': productId, 'branch': branchId}),
+      );
+
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw Exception('Failed to create stock alert: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> fetchKitchenKOTs({
     required String branchId,
     required String kitchenId,
@@ -441,6 +465,9 @@ class ApiService {
           '&where[branch][equals]=$branchId'
           '&where[status][in][0]=ordered'
           '&where[status][in][1]=confirmed'
+          '&where[status][in][2]=prepared'
+          '&where[status][in][3]=served'
+          '&where[status][in][4]=delivered'
           '&sort=-createdAt';
 
       if (fromDate != null) {
@@ -448,9 +475,17 @@ class ApiService {
         url +=
             '&where[createdAt][greater_than]=${start.toUtc().toIso8601String()}';
 
-        final end = toDate != null
-            ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
-            : DateTime(fromDate.year, fromDate.month, fromDate.day, 23, 59, 59);
+        final end =
+            toDate != null
+                ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
+                : DateTime(
+                  fromDate.year,
+                  fromDate.month,
+                  fromDate.day,
+                  23,
+                  59,
+                  59,
+                );
         url += '&where[createdAt][less_than]=${end.toUtc().toIso8601String()}';
       }
 
@@ -479,9 +514,38 @@ class ApiService {
   Future<void> updateBillingItemStatus({
     required String billingId,
     required String itemId,
-    required String status,
+    String? status,
+    int? preparingTime,
+    int? preparationTime,
   }) async {
     try {
+      final normalizedStatus = status?.trim();
+      if (preparingTime != null && preparingTime < 0) {
+        throw Exception('preparingTime must be a whole number >= 0');
+      }
+      if (preparationTime != null && preparationTime < 0) {
+        throw Exception('preparationTime must be a whole number >= 0');
+      }
+
+      final payload = <String, dynamic>{'itemId': itemId};
+      if (normalizedStatus != null && normalizedStatus.isNotEmpty) {
+        payload['status'] = normalizedStatus;
+        payload['kitchenStatus'] = normalizedStatus;
+      }
+      if (preparingTime != null) {
+        payload['preparingTime'] = preparingTime;
+      } else if (preparationTime != null) {
+        payload['preparationTime'] = preparationTime;
+      }
+
+      if (!payload.containsKey('status') &&
+          !payload.containsKey('preparingTime') &&
+          !payload.containsKey('preparationTime')) {
+        throw Exception(
+          'Either status or preparingTime/preparationTime must be provided',
+        );
+      }
+
       final token = await _getToken();
       final url = '$_baseUrl/billings/$billingId/items/status';
 
@@ -491,10 +555,13 @@ class ApiService {
           if (token != null) 'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({'itemId': itemId, 'status': status}),
+        body: jsonEncode(payload),
       );
 
       if (res.statusCode != 200) {
+        debugPrint(
+          'DEBUG: updateBillingItemStatus failed. Status: ${res.statusCode}, Body: ${res.body}',
+        );
         throw Exception('Failed to update item status: ${res.body}');
       }
     } catch (e) {

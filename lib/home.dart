@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -12,7 +13,10 @@ import 'notification_service.dart';
 import 'kitchen_notifications_page.dart';
 import 'kitchen_chats_screen.dart';
 import 'kitchen_footer.dart';
-import 'dart:async';
+import 'dart:convert';
+import 'module_switcher_footer.dart';
+import 'stock_footer.dart';
+import 'smooth_navigation.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,6 +26,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  static const int _kitchenPreparationTimerStartDelaySeconds = 60;
+  static const int _kitchenPreparationEditWindowSeconds = 45;
+
   // final ApiService _api = ApiService(); // Singleton usage
   final _storage = const FlutterSecureStorage();
   int _stockCount = 0;
@@ -34,6 +41,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<dynamic> _recentOrders = [];
   bool _isLoading = true;
   String _userRole = '';
+  bool _isKitchenEnabled = false;
+  bool _isStockEnabled = false;
+  String _activeModule = 'STOCK'; // Default to STOCK
+  bool _isFirstLoad = true;
   String _userBranchId = '';
   String _userKitchenId = '';
   List<String> _userKitchenCategoryIds = [];
@@ -44,7 +55,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _syncTimer;
   Timer? _kitchenClockTimer;
   bool _isKitchenSyncInProgress = false;
-  bool _hasLoadedKitchenOrdersOnce = false;
   List<Map<String, dynamic>> _kitchenNotifications = [];
   final Set<String> _readNotificationIds = {};
   final Set<String> _suppressedNotificationItemKeys = {};
@@ -53,6 +63,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Map<String, String> _kitchenItemPreparedAtByKey = {};
   final Map<String, Map<String, dynamic>> _kitchenItemPrepApiByKey = {};
   final Set<String> _kitchenPreparationFetchInFlight = {};
+  final Map<String, int> _kitchenPreparationAlertBucketByKey = {};
+  final Map<String, DateTime> _kitchenPreparationAlertSnoozeUntilByKey = {};
+  final Map<String, DateTime> _kitchenPreparationAlertLastShownAtByKey = {};
+  final Set<String> _kitchenPreparationAlertSuppressedKeys = {};
+  bool _isKitchenPreparationAlertDialogOpen = false;
+  bool _isKitchenPreparationTimeDialogOpen = false;
+  final Set<String> _kitchenPreviouslyActiveTableKeys = {};
+  final Set<String> _kitchenCompletedTableKeys = {};
+  final Map<String, DateTime> _kitchenTableSessionStartedAt = {};
   final Map<String, int> _suppressedItemCountByBucket = {};
   final _audioPlayer = AudioPlayer();
   String _userId = '';
@@ -60,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Map<String, List<dynamic>> _cachedStockProductsByCategory = {};
   final Map<String, int> _stockOutOrderByProductId = {};
   int _stockOutOrderCounter = 0;
+  final Set<String> _stockAlertingProductIds = {};
 
   @override
   void initState() {
@@ -83,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (_userRole == 'kitchen') {
+      if (_isKitchenEnabled) {
         _fetchKitchenOrders(showLoader: false);
         _syncLiveNotifications();
       }
@@ -92,12 +112,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _initData() async {
     await _fetchUserRole();
+    if (_isKitchenEnabled) {
+      await _loadKitchenRunningTableCycleState();
+    }
     await _fetchDepartments();
-    if (_userRole == 'kitchen') {
+    
+    // Initial fetch for shared footer components
+    await Future.wait([_fetchCounts(), _fetchReviewsCount()]);
+
+    // Initial fetch based on module
+    if (_activeModule == 'KITCHEN') {
       await _fetchKitchenOrders();
       await _syncLiveNotifications();
-    } else {
-      await Future.wait([_fetchCounts(), _fetchReviewsCount()]);
     }
     await _fetchBranches();
   }
@@ -123,6 +149,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final bId = await _storage.read(key: 'userBranchId');
     final kId = await _storage.read(key: 'userKitchenId');
     final catIds = await _storage.read(key: 'userKitchenCategoryIds');
+    final isKit = await _storage.read(key: 'userIsKitchen');
+    final isStk = await _storage.read(key: 'userIsStock');
     String uId =
         await _storage.read(key: 'userId') ??
         await _storage.read(key: 'user_id') ??
@@ -149,23 +177,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _userId = uId;
         _userKitchenCategoryIds =
             catIds?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
+        _isKitchenEnabled = isKit == 'true';
+        _isStockEnabled = isStk == 'true';
+        _selectedDepartmentFilter = 'ALL';
+
+        // Set default module ONLY ONCE during initial app load
+        if (_isFirstLoad) {
+          if (_isKitchenEnabled && role?.toLowerCase() == 'kitchen') {
+            _activeModule = 'KITCHEN';
+          } else if (_isStockEnabled) {
+            _activeModule = 'STOCK';
+          } else if (_isKitchenEnabled) {
+            _activeModule = 'KITCHEN';
+          }
+          _isFirstLoad = false;
+        }
       });
     }
   }
 
   void _startSyncTimer() {
     _syncTimer?.cancel();
+    
+    // 1. Sync counts and reviews for the shared footer (every 30 seconds)
+    Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _fetchCounts(forceRefresh: false);
+      _fetchReviewsCount();
+    });
+
+    // 2. Sync notifications and kitchen orders (every 10 seconds)
     _syncTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      if (_userRole == 'kitchen') {
+      if (_isKitchenEnabled) {
         if (_isKitchenSyncInProgress) return;
         _isKitchenSyncInProgress = true;
-        Future.wait([
-          _fetchKitchenOrders(showLoader: false),
-          _syncLiveNotifications(),
-        ]).whenComplete(() {
+        
+        final List<Future> futures = [_syncLiveNotifications()];
+        if (_activeModule == 'KITCHEN') {
+          futures.add(_fetchKitchenOrders(showLoader: false));
+        }
+
+        Future.wait(futures).whenComplete(() {
           _isKitchenSyncInProgress = false;
         });
-        return;
       }
     });
   }
@@ -173,16 +230,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _startKitchenClockTimer() {
     _kitchenClockTimer?.cancel();
     _kitchenClockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted || _userRole != 'kitchen') return;
-      setState(() {});
+      if (!mounted || !_isKitchenEnabled) return;
+      if (_activeModule == 'KITCHEN') {
+        setState(() {});
+      }
+      unawaited(_checkAndShowKitchenPreparationAlert());
     });
   }
 
   Future<void> _syncLiveNotifications() async {
     try {
-      if (_userRole != 'kitchen') {
+      if (!_isKitchenEnabled) {
         debugPrint(
-          'DEBUG: _syncLiveNotifications skipped - non-kitchen role: $_userRole',
+          'DEBUG: _syncLiveNotifications skipped - kitchen module not enabled',
         );
         return;
       }
@@ -370,9 +430,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isVisibleKitchenDashboardItemStatus(String? status) {
     final s = (status ?? '').toLowerCase().trim();
     if (s.isEmpty) return true;
-    // Combined dashboard keeps prepared/cancelled items visible.
+    // Combined dashboard keeps prepared/served items visible until billing.
     return s == 'ordered' ||
+        s == 'confirmed' ||
         s == 'prepared' ||
+        s == 'served' ||
+        s == 'delivered' ||
         s == 'cancelled' ||
         s == 'canceled';
   }
@@ -545,6 +608,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'preparedAt',
       'preparedDurationMinutes',
       'currentPreparationMinutes',
+      'preparingTime',
+      'preparing_time',
+      'preparationTime',
+      'preparation_time',
       'status',
     ];
 
@@ -581,6 +648,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'preparedAt': rawItem['preparedAt'],
       'preparedDurationMinutes': rawItem['preparedDurationMinutes'],
       'currentPreparationMinutes': rawItem['currentPreparationMinutes'],
+      'preparingTime': rawItem['preparingTime'],
+      'preparing_time': rawItem['preparing_time'],
+      'preparationTime': rawItem['preparationTime'],
+      'preparation_time': rawItem['preparation_time'],
       'status': rawItem['status'],
     };
   }
@@ -659,6 +730,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required String billingId,
     required String selectionKey,
     String? itemId,
+    String newStatus = 'prepared',
   }) {
     final updatedOrders = <dynamic>[];
 
@@ -696,14 +768,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final sameItemBySelection = rawSelectionKey == selectionKey;
 
         if (sameBilling && (sameItemById || sameItemBySelection)) {
-          final preparedAtIso = DateTime.now().toIso8601String();
-          itemMap['status'] = 'prepared';
-          itemMap['preparedAt'] = preparedAtIso;
-          itemMap['updatedAt'] = preparedAtIso;
-          _kitchenItemPreparedAtByKey[rawSelectionKey] = preparedAtIso;
+          // Update status based on the action taken
+          final nowIso = DateTime.now().toIso8601String();
+          itemMap['status'] = newStatus;
+
+          if (newStatus == 'prepared') {
+            itemMap['preparedAt'] = nowIso;
+            _kitchenItemPreparedAtByKey[rawSelectionKey] = nowIso;
+          }
+
+          itemMap['updatedAt'] = nowIso;
+          final existingPreparedAt = _kitchenItemPreparedAtByKey[rawSelectionKey];
+          final effectivePreparedAt = itemMap['preparedAt'] ??
+              existingPreparedAt ??
+              (newStatus == 'prepared' ? nowIso : null);
+
+          // Ensure the itemMap itself has the timestamp so UI helpers find it
+          itemMap['preparedAt'] = effectivePreparedAt;
+
           _kitchenItemPrepApiByKey[rawSelectionKey] = {
-            'status': 'prepared',
-            'preparedAt': preparedAtIso,
+            'status': newStatus,
+            'preparedAt': effectivePreparedAt,
             'orderedAt': itemMap['orderedAt'] ?? itemMap['itemStartedAt'],
             'preparedDurationMinutes': itemMap['preparedDurationMinutes'],
             'currentPreparationMinutes': null,
@@ -718,8 +803,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       updatedOrders.add(updatedGroup);
     }
 
-    _kitchenOrders = updatedOrders;
+    setState(() {
+      _kitchenOrders = updatedOrders;
+    });
+    _updateKitchenRunningTableCycleState(
+      updatedOrders.whereType<Map<String, dynamic>>().toList(),
+    );
     _selectedKitchenItemKeys.remove(selectionKey);
+    _kitchenPreparationAlertBucketByKey.remove(selectionKey);
+    _kitchenPreparationAlertSnoozeUntilByKey.remove(selectionKey);
+    _kitchenPreparationAlertLastShownAtByKey.remove(selectionKey);
+    _kitchenPreparationAlertSuppressedKeys.remove(selectionKey);
   }
 
   void _markNotificationAsRead(String id) {
@@ -727,6 +821,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _readNotificationIds.add(id);
       _kitchenNotifications.removeWhere((n) => n['id'] == id);
     });
+  }
+
+  Widget _buildKitchenStockIcon() {
+    if (!_isStockEnabled) return const SizedBox.shrink();
+    return IconButton(
+      icon: const Icon(Icons.analytics_outlined),
+      tooltip: 'Stock Orders Dashboard',
+      onPressed: () {
+        setState(() => _activeModule = 'STOCK');
+        _initData();
+      },
+    );
   }
 
   Widget _buildNotificationIcon() {
@@ -780,7 +886,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     debugPrint(
       'DEBUG: _fetchKitchenOrders called. Role: $_userRole, Branch: $_userBranchId, Kitchen: $_userKitchenId',
     );
-    if (_userBranchId.isEmpty || _userKitchenId.isEmpty) {
+    if (_userBranchId.isEmpty || (!_isKitchenEnabled && _userKitchenId.isEmpty)) {
       debugPrint('DEBUG: Branch or Kitchen ID is empty. Stopping fetch.');
       if (mounted && showLoader) setState(() => _isLoading = false);
       return;
@@ -789,7 +895,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted && showLoader) setState(() => _isLoading = true);
 
       // Fetch Kitchen categories if empty or to ensure sync
-      if (_userKitchenCategoryIds.isEmpty) {
+      if (_userKitchenCategoryIds.isEmpty && _userKitchenId.isNotEmpty) {
         debugPrint('DEBUG: Categories empty, fetching kitchen details...');
         final kitchen = await ApiService.instance.fetchKitchenDetails(
           _userKitchenId,
@@ -869,7 +975,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               );
             }
 
-            if (cId.isNotEmpty && _userKitchenCategoryIds.contains(cId)) {
+            final isAllCategoriesAllowed =
+                _userKitchenCategoryIds.isEmpty && _userKitchenId.isEmpty;
+            if (isAllCategoriesAllowed ||
+                (cId.isNotEmpty && _userKitchenCategoryIds.contains(cId))) {
               final flatItem = Map<String, dynamic>.from(item as Map);
               flatItem['billingId'] = bId;
               final selectionKey = _buildKitchenSelectionKey(
@@ -878,21 +987,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               );
               final initialFallbackStartedAt =
                   billing['createdAt'] ?? billing['updatedAt'];
-              final itemStartedAt =
-                  _parseKitchenOrderStartedAt(
-                    flatItem,
-                    allowBillingFallback: false,
-                  )?.toIso8601String() ??
-                  _kitchenItemStartedAtByKey[selectionKey] ??
-                  (_hasLoadedKitchenOrdersOnce
-                      ? DateTime.now().toIso8601String()
-                      : (initialFallbackStartedAt
-                                ?.toString()
-                                .trim()
-                                .isNotEmpty ??
-                            false)
-                      ? initialFallbackStartedAt.toString().trim()
-                      : DateTime.now().toIso8601String());
+              final fallbackStartedAtString =
+                  (initialFallbackStartedAt?.toString().trim().isNotEmpty ??
+                      false)
+                  ? initialFallbackStartedAt.toString().trim()
+                  : '';
+              final parsedStartedAt = _parseKitchenOrderStartedAt(
+                flatItem,
+                allowBillingFallback: false,
+              );
+              final existingStartedAt = _tryParseKitchenDateTime(
+                _kitchenItemStartedAtByKey[selectionKey],
+              );
+              final fallbackStartedAt = _tryParseKitchenDateTime(
+                fallbackStartedAtString,
+              );
+              DateTime? resolvedStartedAt = parsedStartedAt;
+              resolvedStartedAt ??= existingStartedAt;
+              resolvedStartedAt ??= fallbackStartedAt;
+              final itemStartedAt = resolvedStartedAt?.toIso8601String() ?? '';
               flatItem['selectionKey'] = selectionKey;
               flatItem['itemStartedAt'] = itemStartedAt;
               _kitchenItemStartedAtByKey[selectionKey] = itemStartedAt;
@@ -997,6 +1110,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       if (mounted) {
         setState(() {
+          _updateKitchenRunningTableCycleState(groupedOrders);
           _kitchenOrders = groupedOrders;
           _selectedKitchenItemKeys.retainWhere(
             validKitchenSelectionKeys.contains,
@@ -1007,7 +1121,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _kitchenItemPreparedAtByKey.removeWhere(
             (key, value) => !validKitchenSelectionKeys.contains(key),
           );
-          _hasLoadedKitchenOrdersOnce = true;
+          _kitchenPreparationAlertBucketByKey.removeWhere(
+            (key, value) => !validKitchenSelectionKeys.contains(key),
+          );
+          _kitchenPreparationAlertSnoozeUntilByKey.removeWhere(
+            (key, value) => !validKitchenSelectionKeys.contains(key),
+          );
+          _kitchenPreparationAlertLastShownAtByKey.removeWhere(
+            (key, value) => !validKitchenSelectionKeys.contains(key),
+          );
+          _kitchenPreparationAlertSuppressedKeys.removeWhere(
+            (key) => !validKitchenSelectionKeys.contains(key),
+          );
           if (showLoader) _isLoading = false;
         });
       }
@@ -1078,11 +1203,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               return s == 'ordered' || s == 'pending' || s == 'sending';
             });
           } else if (_userRole == 'supervisor') {
-            // Supervisor sees orders with ANY Sending OR Confirmed items
-            shouldShow = items.any((item) {
-              final s = (item['status'] as String?)?.toLowerCase() ?? 'sending';
-              return s == 'sending' || s == 'confirmed';
-            });
+            // Supervisor sees ALL orders for the day (Simplified for full visibility)
+            shouldShow = true;
           } else if (_userRole == 'driver') {
             // Driver sees orders with ANY Confirmed OR Picked items
             shouldShow = items.any((item) {
@@ -1090,26 +1212,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   (item['status'] as String?)?.toLowerCase() ?? 'confirmed';
               return s == 'confirmed' || s == 'picked';
             });
-          } else {
-            // Default/Factory: Show New/Untouched Orders (Old Logic) or All?
-            // Using old logic for safety: Show if NOT opened (i.e. all pending/ordered)
-            bool isOpened = items.any((item) {
-              final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
-              return s != 'ordered' && s != 'pending';
-            });
-            shouldShow = !isOpened;
           }
 
-          if (shouldShow) {
-            validOrders.add(o);
+          int status = _getOrderStatus(o);
+          if (status == 2) {
+            shouldShow = true; // Still show completed orders for the day
+          }
 
-            // Notification Count Logic: Only count NEW orders (Status 0)
-            int status = _getOrderStatus(o);
-            if (status == 0) {
-              // 0 = New
-              if (isOrderedOnFilterDate && isDeliveryOnFilterDate) {
+          bool isLive = isOrderedOnFilterDate && isDeliveryOnFilterDate;
+
+          if (shouldShow) {
+            // Only add to display list if it's a Live Order (Branch Order)
+            if (isLive) {
+              validOrders.add(o);
+            }
+
+            // Notification/Badge Count Logic:
+            if (status < 2) {
+              if (isLive) {
                 branchCount++;
-              } else if (isDeliveryOnFilterDate) {
+              } else {
                 stockCount++;
               }
             }
@@ -1308,7 +1430,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (_userRole == 'kitchen') {
+    if (_activeModule == 'KITCHEN') {
       return _buildKitchenDashboard();
     }
     final dateStr = DateFormat('MMM dd').format(_selectedDate).toUpperCase();
@@ -1361,8 +1483,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }).toList();
 
     return CommonScaffold(
-      title: 'Home',
+      title: '',
       actions: [
+        if (_isKitchenEnabled && _isStockEnabled)
+          IconButton(
+            icon: const Icon(Icons.restaurant_menu_rounded),
+            onPressed: () => _handleModuleChanged('KITCHEN'),
+            tooltip: 'Switch to Kitchen',
+          ),
         IconButton(
           icon: const Icon(Icons.refresh),
           onPressed: () {
@@ -1486,34 +1614,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 16.0,
-                    mainAxisSpacing: 16.0,
-                    children: [
-                      _buildGridItem(
-                        context,
-                        'Stock',
-                        Icons.inventory,
-                        _stockCount,
-                      ),
-                      _buildGridItem(
-                        context,
-                        'Live',
-                        Icons.store,
-                        _branchCount,
-                      ),
-                      _buildGridItem(
-                        context,
-                        'Reviews',
-                        Icons.reviews,
-                        _reviewCount,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.start,
                     children: [
@@ -1540,19 +1641,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ],
               ),
             ),
-      bottomNavigationBar: _buildDepartmentFooter(),
+      bottomNavigationBar: StockFooter(
+        selectedTab: StockFooterTab.live,
+        onSelected: _handleStockFooterSelection,
+        stockBadgeCount: _stockCount,
+        liveBadgeCount: _branchCount,
+        reviewBadgeCount: _reviewCount,
+      ),
     );
+  }
+
+  void _handleModuleChanged(String module) {
+    if (_activeModule == module) return;
+    setState(() {
+      _activeModule = module;
+      _isLoading = true;
+    });
+    _initData();
   }
 
   Widget _buildKitchenDashboard() {
     return CommonScaffold(
-      title: 'Kitchen Dashboard',
+      title: '',
       actions: [
         _buildNotificationIcon(),
-        IconButton(
-          icon: const Icon(Icons.info_outline),
-          onPressed: _showKitchenInfo,
-        ),
+        _buildKitchenStockIcon(),
         IconButton(
           icon: const Icon(Icons.refresh),
           onPressed: _fetchKitchenOrders,
@@ -1590,6 +1703,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       bottomNavigationBar: KitchenFooter(
         selectedTab: KitchenFooterTab.kot,
         onSelected: _handleKitchenFooterSelection,
+        stockBadgeCount: _stockCount,
+        liveBadgeCount: _branchCount,
+        reviewBadgeCount: _reviewCount,
       ),
     );
   }
@@ -1612,16 +1728,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildKitchenTablesPage() {
     final visibleTableGroups = <Map<String, dynamic>>[];
 
+    final targetStatus = _userRole == 'supervisor' ? 'prepared' : 'ordered';
     for (final rawGroup in _kitchenOrders) {
       if (rawGroup is! Map<String, dynamic>) continue;
       final items = (rawGroup['items'] as List?) ?? const [];
-      final hasOrdered = items.any((rawItem) {
+      final hasMatching = items.any((rawItem) {
         if (rawItem is! Map) return false;
-        final status =
+        final s =
             (rawItem['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
-        return status == 'ordered';
+        return s == targetStatus;
       });
-      if (!hasOrdered) continue;
+      if (!hasMatching) continue;
       visibleTableGroups.add(rawGroup);
     }
 
@@ -1635,15 +1752,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       int resolvePriority(Map<String, dynamic> group) {
         final items = collectItems(group);
-        final activeTimingItems = items.where((item) {
-          final status =
-              (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
-          return status == 'ordered';
-        }).toList();
-        final timingItems = activeTimingItems.isNotEmpty
-            ? activeTimingItems
-            : items;
-        final startedAt = _resolveKitchenGroupStartedAt(group, timingItems);
+        final startedAt = _resolveKitchenEffectiveGroupStartedAt(
+          group,
+          items,
+        );
         final hasPrepared = items.any((item) {
           final status =
               (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
@@ -1668,26 +1780,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       DateTime? resolveStartedAt(Map<String, dynamic> group) {
         final items = collectItems(group);
-        final activeTimingItems = items.where((item) {
-          final status =
-              (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
-          return status == 'ordered';
-        }).toList();
-        final timingItems = activeTimingItems.isNotEmpty
-            ? activeTimingItems
-            : items;
-        return _resolveKitchenGroupStartedAt(group, timingItems);
+        return _resolveKitchenEffectiveGroupStartedAt(group, items);
       }
-
-      final priorityDiff = resolvePriority(b).compareTo(resolvePriority(a));
-      if (priorityDiff != 0) return priorityDiff;
 
       final aStartedAt = resolveStartedAt(a);
       final bStartedAt = resolveStartedAt(b);
       if (aStartedAt == null && bStartedAt == null) return 0;
       if (aStartedAt == null) return 1;
       if (bStartedAt == null) return -1;
-      return aStartedAt.compareTo(bStartedAt);
+
+      // Two-grid view requirement: latest table orders first.
+      final startedAtDiff = bStartedAt.compareTo(aStartedAt);
+      if (startedAtDiff != 0) return startedAtDiff;
+
+      // If timestamps are equal, keep alert priority as secondary ordering.
+      return resolvePriority(b).compareTo(resolvePriority(a));
     });
 
     return ListView.builder(
@@ -1828,31 +1935,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   List<Map<String, dynamic>> _buildKitchenCombinedOrderCards() {
     final cards = <Map<String, dynamic>>[];
+    final targetStatus = _userRole == 'supervisor' ? 'prepared' : 'ordered';
 
     for (final rawGroup in _kitchenOrders) {
       if (rawGroup is! Map<String, dynamic>) continue;
 
-      final items = ((rawGroup['items'] as List?) ?? const [])
+      final allItems = ((rawGroup['items'] as List?) ?? const [])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList();
-      if (items.isEmpty) continue;
+      if (allItems.isEmpty) continue;
 
-      final activeTimingItems = items.where((item) {
-        final status =
-            (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
-        return status == 'ordered';
+      final matchingItems = allItems.where((item) {
+        final s = (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
+        if (_userRole == 'supervisor') {
+          // Supervisor Combined sheet: show only items ready for pickup/delivery (done by chef)
+          final isDoneByChef = s != 'ordered' && s != 'confirmed';
+          return isDoneByChef && _isVisibleKitchenDashboardItemStatus(s);
+        }
+        // Chef/Kitchen: show all active items
+        return _isVisibleKitchenDashboardItemStatus(s);
       }).toList();
-      final timingItems = activeTimingItems.isNotEmpty
-          ? activeTimingItems
-          : items;
-      final startedAt = _resolveKitchenGroupStartedAt(rawGroup, timingItems);
-      final hasPrepared = items.any((item) {
+
+      // Only show card if there are items visible for this dashboard
+      if (matchingItems.isEmpty) continue;
+
+      final startedAt = _resolveKitchenEffectiveGroupStartedAt(
+        rawGroup,
+        allItems,
+      );
+      final hasPrepared = allItems.any((item) {
         final status =
             (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
         return status == 'prepared';
       });
-      final allPrepared = items.every((item) {
+      final allPrepared = allItems.every((item) {
         final status =
             (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
         return status == 'prepared';
@@ -1863,14 +1980,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         allPrepared: allPrepared,
         forcePreparing: forcePreparing,
       );
-      final totalQty = items.fold<int>(
+      final totalQty = matchingItems.fold<int>(
         0,
         (sum, item) => sum + _resolveKitchenItemQuantity(item),
       );
 
       cards.add({
         'group': rawGroup,
-        'items': items,
+        'items': matchingItems,
         'startedAt': startedAt,
         'totalQty': totalQty,
         'alertPriority': alertMeta['priority'],
@@ -1879,17 +1996,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     cards.sort((a, b) {
-      final priorityDiff = ((b['alertPriority'] as int?) ?? 0).compareTo(
-        (a['alertPriority'] as int?) ?? 0,
-      );
-      if (priorityDiff != 0) return priorityDiff;
-
       final aStartedAt = a['startedAt'] as DateTime?;
       final bStartedAt = b['startedAt'] as DateTime?;
       if (aStartedAt == null && bStartedAt == null) return 0;
       if (aStartedAt == null) return 1;
       if (bStartedAt == null) return -1;
-      return aStartedAt.compareTo(bStartedAt);
+
+      // Combined view requirement: latest table orders first.
+      final startedAtDiff = bStartedAt.compareTo(aStartedAt);
+      if (startedAtDiff != 0) return startedAtDiff;
+
+      // If timestamps are equal, keep alert priority as secondary ordering.
+      return ((b['alertPriority'] as int?) ?? 0).compareTo(
+        (a['alertPriority'] as int?) ?? 0,
+      );
     });
 
     return cards;
@@ -1899,9 +2019,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Map<String, dynamic> group,
     List<Map<String, dynamic>> items,
   ) {
+    DateTime? startedAt = _tryParseKitchenDateTime(group['createdAt']);
+
+    for (final item in items) {
+      final itemStartedAt = _parseKitchenOrderStartedAt(
+        item,
+        fallbackStartedAt: group['createdAt'],
+      );
+
+      if (itemStartedAt == null) continue;
+      if (startedAt == null || itemStartedAt.isBefore(startedAt)) {
+        startedAt = itemStartedAt;
+      }
+    }
+
+    if (startedAt != null) return startedAt;
+
     final now = DateTime.now();
     int? maxElapsedSeconds;
-
     for (final item in items) {
       final elapsedSeconds = _resolveKitchenElapsedSeconds(
         item,
@@ -1918,21 +2053,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return now.subtract(Duration(seconds: maxElapsedSeconds));
     }
 
-    DateTime? startedAt;
+    return _tryParseKitchenDateTime(group['createdAt']);
+  }
 
-    for (final item in items) {
-      final itemStartedAt = _parseKitchenOrderStartedAt(
-        item,
-        fallbackStartedAt: group['createdAt'],
-      );
+  DateTime? _resolveKitchenEffectiveGroupStartedAt(
+    Map<String, dynamic> group,
+    List<Map<String, dynamic>> items,
+  ) {
+    final computedStartedAt = _resolveKitchenGroupStartedAt(group, items);
+    final tableKey = _resolveKitchenTableIdentityKey(group);
+    if (tableKey.isEmpty) return computedStartedAt;
 
-      if (itemStartedAt == null) continue;
-      if (startedAt == null || itemStartedAt.isBefore(startedAt)) {
-        startedAt = itemStartedAt;
-      }
-    }
-
-    return startedAt ?? _tryParseKitchenDateTime(group['createdAt']);
+    final sessionStartedAt = _kitchenTableSessionStartedAt[tableKey];
+    if (sessionStartedAt == null) return computedStartedAt;
+    if (computedStartedAt == null) return sessionStartedAt;
+    return sessionStartedAt.isBefore(computedStartedAt)
+        ? sessionStartedAt
+        : computedStartedAt;
   }
 
   Map<String, dynamic> _resolveKitchenCombinedAlertMeta(
@@ -2027,6 +2164,313 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return 'TABLE_${raw.toUpperCase().replaceAll(RegExp(r'\s+'), '_')}';
   }
 
+  String _kitchenRunningStateStorageKey(String suffix) {
+    final dateKey = DateFormat('yyyyMMdd').format(DateTime.now());
+    final branchKey = _userBranchId.trim().isEmpty
+        ? 'NA'
+        : _userBranchId.trim().toUpperCase();
+    final kitchenKey = _userKitchenId.trim().isEmpty
+        ? 'NA'
+        : _userKitchenId.trim().toUpperCase();
+    return 'kitchen_running_${branchKey}_${kitchenKey}_${dateKey}_$suffix';
+  }
+
+  Future<void> _loadKitchenRunningTableCycleState() async {
+    if (_userRole != 'kitchen') return;
+
+    try {
+      final completedRaw = await _storage.read(
+        key: _kitchenRunningStateStorageKey('completed'),
+      );
+      final sessionsRaw = await _storage.read(
+        key: _kitchenRunningStateStorageKey('sessions'),
+      );
+
+      final loadedCompleted = <String>{};
+      if (completedRaw != null && completedRaw.trim().isNotEmpty) {
+        loadedCompleted.addAll(
+          completedRaw
+              .split('|')
+              .map((key) => key.trim())
+              .where((key) => key.isNotEmpty),
+        );
+      }
+
+      final loadedSessions = <String, DateTime>{};
+      if (sessionsRaw != null && sessionsRaw.trim().isNotEmpty) {
+        final decoded = jsonDecode(sessionsRaw);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            final rawKey = entry.key?.toString().trim() ?? '';
+            if (rawKey.isEmpty) continue;
+            final parsed = _tryParseKitchenDateTime(entry.value);
+            if (parsed == null) continue;
+            loadedSessions[rawKey] = parsed;
+          }
+        }
+      }
+
+      if (!mounted) {
+        _kitchenCompletedTableKeys
+          ..clear()
+          ..addAll(loadedCompleted);
+        _kitchenTableSessionStartedAt
+          ..clear()
+          ..addAll(loadedSessions);
+        return;
+      }
+
+      setState(() {
+        _kitchenCompletedTableKeys
+          ..clear()
+          ..addAll(loadedCompleted);
+        _kitchenTableSessionStartedAt
+          ..clear()
+          ..addAll(loadedSessions);
+      });
+    } catch (e) {
+      debugPrint('DEBUG: Failed to load kitchen running-table state: $e');
+    }
+  }
+
+  Future<void> _persistKitchenRunningTableCycleState() async {
+    if (_userRole != 'kitchen') return;
+
+    try {
+      final completedValue = _kitchenCompletedTableKeys.join('|');
+      final sessionsPayload = <String, String>{};
+      _kitchenTableSessionStartedAt.forEach((key, value) {
+        sessionsPayload[key] = value.toIso8601String();
+      });
+
+      await _storage.write(
+        key: _kitchenRunningStateStorageKey('completed'),
+        value: completedValue,
+      );
+      await _storage.write(
+        key: _kitchenRunningStateStorageKey('sessions'),
+        value: jsonEncode(sessionsPayload),
+      );
+    } catch (e) {
+      debugPrint('DEBUG: Failed to persist kitchen running-table state: $e');
+    }
+  }
+
+  bool _isKitchenGroupWithOrderedItems(Map<String, dynamic> group) {
+    final items = (group['items'] as List?) ?? const [];
+    for (final rawItem in items) {
+      if (rawItem is! Map) continue;
+      final status =
+          (rawItem['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
+      if (status == 'ordered' || status == 'confirmed') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Set<String> _resolveKitchenTableIdentityKeys(Map<String, dynamic> group) {
+    final keys = <String>{};
+    final table = group['tableDetails'] ?? group['table'];
+
+    String normalizeTableNumber(dynamic value) {
+      final raw = value?.toString().trim() ?? '';
+      if (raw.isEmpty) return '';
+
+      final upperRaw = raw.toUpperCase();
+      if (upperRaw.startsWith('TABLE') ||
+          RegExp(r'^T[\s\-_]*\d+$').hasMatch(upperRaw)) {
+        final digitsOnly = upperRaw.replaceAll(RegExp(r'[^0-9]'), '');
+        final parsedFromDigits = int.tryParse(digitsOnly);
+        if (parsedFromDigits != null) return parsedFromDigits.toString();
+      }
+
+      final parsed = int.tryParse(raw);
+      if (parsed != null) return parsed.toString();
+      return upperRaw.replaceAll(RegExp(r'\s+'), '_');
+    }
+
+    void addTableNumberKey(dynamic value) {
+      final normalized = normalizeTableNumber(value);
+      if (normalized.isEmpty) return;
+      keys.add('TABLE_NO_$normalized');
+    }
+
+    void addTableIdKey(dynamic value) {
+      final raw = value?.toString().trim() ?? '';
+      if (raw.isEmpty) return;
+      keys.add('TABLE_ID_${raw.toUpperCase()}');
+    }
+
+    if (table is Map) {
+      addTableNumberKey(table['tableNumber']);
+      addTableNumberKey(table['number']);
+      addTableNumberKey(table['tableNo']);
+      addTableNumberKey(table['name']);
+
+      addTableIdKey(table['id']);
+      addTableIdKey(table['_id']);
+      addTableIdKey(table['tableId']);
+      addTableIdKey(table['tableID']);
+    } else {
+      addTableNumberKey(table);
+    }
+
+    addTableNumberKey(group['tableNumber']);
+    addTableNumberKey(group['tableNo']);
+    addTableNumberKey(group['table']);
+    addTableIdKey(group['tableId']);
+    addTableIdKey(group['tableID']);
+
+    return keys;
+  }
+
+  String _resolveKitchenTableIdentityKey(Map<String, dynamic> group) {
+    final keys = _resolveKitchenTableIdentityKeys(group);
+    if (keys.isEmpty) return '';
+
+    for (final key in keys) {
+      if (key.startsWith('TABLE_NO_')) return key;
+    }
+    return keys.first;
+  }
+
+  void _updateKitchenRunningTableCycleState(
+    List<Map<String, dynamic>> groupedOrders,
+  ) {
+    final currentActiveKeys = <String>{};
+    var hasStateMutation = false;
+
+    for (final group in groupedOrders) {
+      if (!_isKitchenGroupWithOrderedItems(group)) continue;
+      final tableKeys = _resolveKitchenTableIdentityKeys(group);
+      if (tableKeys.isEmpty) continue;
+      currentActiveKeys.addAll(tableKeys);
+
+      final groupItems = ((group['items'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      final groupStartedAt = _resolveKitchenGroupStartedAt(group, groupItems);
+      if (groupStartedAt != null) {
+        final wasPreviouslyActive = tableKeys.any(
+          _kitchenPreviouslyActiveTableKeys.contains,
+        );
+        final hasCompletedHistory = tableKeys.any(
+          _kitchenCompletedTableKeys.contains,
+        );
+        DateTime? earliestPersistedSessionStart;
+        for (final tableKey in tableKeys) {
+          final persisted = _kitchenTableSessionStartedAt[tableKey];
+          if (persisted == null) continue;
+          if (earliestPersistedSessionStart == null ||
+              persisted.isBefore(earliestPersistedSessionStart)) {
+            earliestPersistedSessionStart = persisted;
+          }
+        }
+
+        final hasStalePersistedSession =
+            !wasPreviouslyActive &&
+            earliestPersistedSessionStart != null &&
+            groupStartedAt.isAfter(
+              earliestPersistedSessionStart.add(const Duration(minutes: 45)),
+            );
+
+        // New cycle: table became active again after a previous completion.
+        // Reset session start to current cycle's first order time.
+        final shouldResetForNewCycle =
+            !wasPreviouslyActive &&
+            (hasCompletedHistory || hasStalePersistedSession);
+
+        if (shouldResetForNewCycle && !hasCompletedHistory) {
+          _kitchenCompletedTableKeys.addAll(tableKeys);
+          hasStateMutation = true;
+        }
+
+        for (final tableKey in tableKeys) {
+          final existingStartedAt = _kitchenTableSessionStartedAt[tableKey];
+          if (shouldResetForNewCycle) {
+            if (existingStartedAt == null ||
+                existingStartedAt != groupStartedAt) {
+              _kitchenTableSessionStartedAt[tableKey] = groupStartedAt;
+              hasStateMutation = true;
+            }
+            continue;
+          }
+
+          if (existingStartedAt == null ||
+              groupStartedAt.isBefore(existingStartedAt)) {
+            _kitchenTableSessionStartedAt[tableKey] = groupStartedAt;
+            hasStateMutation = true;
+          }
+        }
+      }
+    }
+
+    final completedNow = _kitchenPreviouslyActiveTableKeys.difference(
+      currentActiveKeys,
+    );
+    if (completedNow.isNotEmpty) {
+      _kitchenCompletedTableKeys.addAll(completedNow);
+      hasStateMutation = true;
+    }
+
+    final previousActiveEqualsCurrent =
+        _kitchenPreviouslyActiveTableKeys.length == currentActiveKeys.length &&
+        _kitchenPreviouslyActiveTableKeys.containsAll(currentActiveKeys);
+
+    _kitchenPreviouslyActiveTableKeys
+      ..clear()
+      ..addAll(currentActiveKeys);
+
+    if (!previousActiveEqualsCurrent) {
+      hasStateMutation = true;
+    }
+
+    if (hasStateMutation) {
+      unawaited(_persistKitchenRunningTableCycleState());
+    }
+  }
+
+  bool _shouldShowKitchenRunningTablePrefix(Map<String, dynamic> group) {
+    final tableKeys = _resolveKitchenTableIdentityKeys(group);
+    if (tableKeys.isEmpty) return false;
+    for (final key in tableKeys) {
+      if (_kitchenCompletedTableKeys.contains(key)) {
+        return true;
+      }
+    }
+
+    final groupItems = ((group['items'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    final activeOrderedItems = groupItems.where((item) {
+      final status =
+          (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
+      return status == 'ordered' || status == 'confirmed';
+    }).toList();
+    if (activeOrderedItems.isEmpty) return false;
+
+    final currentStartedAt = _resolveKitchenGroupStartedAt(
+      group,
+      activeOrderedItems,
+    );
+    if (currentStartedAt == null) return false;
+
+    for (final key in tableKeys) {
+      final sessionStartedAt = _kitchenTableSessionStartedAt[key];
+      if (sessionStartedAt == null) continue;
+      if (sessionStartedAt.isBefore(
+        currentStartedAt.subtract(const Duration(minutes: 1)),
+      )) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   String _formatKitchenKotBadgeLabel(Map<String, dynamic> group) {
     final resolvedKot = _resolveKitchenKotLabel(group).trim().toUpperCase();
     if (resolvedKot.isEmpty) return '';
@@ -2083,6 +2527,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final createdByName = (group['createdByName'] ?? '').toString().trim();
     final customerName = (group['customerName'] ?? '').toString().trim();
     final normalizedTableLabel = tableLabel.replaceAll('_', '-');
+    final showRunningPrefix = _shouldShowKitchenRunningTablePrefix(group);
+    final runningTableLabel = showRunningPrefix
+        ? 'RUNNING $normalizedTableLabel'
+        : normalizedTableLabel;
     final waiterLooksLikeLocation = _isKitchenLocationLikeName(waiterName);
     final createdByLooksLikeLocation = _isKitchenLocationLikeName(
       createdByName,
@@ -2168,7 +2616,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  normalizedTableLabel,
+                                  runningTableLabel,
                                   style: const TextStyle(
                                     color: Color(0xFFFFD54F),
                                     fontWeight: FontWeight.w900,
@@ -2367,6 +2815,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final instruction = _resolveKitchenItemInstruction(item, product);
     final quantity = _resolveKitchenItemQuantity(item);
     final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
+    final isFinalized = status == 'prepared' ||
+        status == 'delivered' ||
+        status == 'served';
     final isPrepared = status == 'prepared';
     final isCancelled = status == 'cancelled' || status == 'canceled';
     final elapsedLabel =
@@ -2389,39 +2840,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       endedAt: finalizedAt,
       includeAgoSuffix: finalizedAt == null,
     );
+    final preparedByValue = _readKitchenMapValueByAliases(item, [
+      'preparedBy',
+      'preparedByName',
+      'prepared_by',
+      'preparedByUser',
+      'preparedByStaff',
+    ]);
+    final preparedByName = _extractKitchenPersonName(preparedByValue);
+    final showPreparedBy = isFinalized;
+    final preparedByLabel =
+        (preparedByName == null || preparedByName.trim().isEmpty)
+        ? '--'
+        : preparedByName.trim().toUpperCase();
     final selectionKey = item['selectionKey']?.toString();
     final isSelected =
         selectionKey != null && _selectedKitchenItemKeys.contains(selectionKey);
-    final shouldStrike = isSelected || isPrepared || isCancelled;
+    final shouldStrike = isSelected || isFinalized || isCancelled;
     final quantityDisplayColor = isCancelled
         ? const Color(0xFFC62828)
-        : isPrepared
+        : isFinalized
         ? const Color(0xFF8E8E8E)
         : quantityColor;
     final productDisplayColor = isCancelled
         ? const Color(0xFFC62828)
-        : isPrepared
+        : isFinalized
         ? const Color(0xFF8E8E8E)
         : const Color(0xFF212121);
     final metaIconColor = isCancelled
         ? const Color(0xFFE57373)
-        : isPrepared
+        : isFinalized
         ? const Color(0xFFB0B0B0)
         : elapsedColor;
     final metaTextColor = isCancelled
         ? const Color(0xFFE57373)
-        : isPrepared
+        : isFinalized
         ? const Color(0xFFB0B0B0)
         : elapsedColor;
 
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: (isPrepared || isCancelled)
+      onTap: (isCancelled || _userRole == 'supervisor')
           ? null
-          : () => _selectKitchenItem(item),
-      onDoubleTap: (isPrepared || isCancelled)
+          : () => _onKitchenItemTapped(item),
+      onDoubleTap: (isCancelled || _userRole == 'supervisor')
           ? null
-          : () => _onKitchenItemTapped(item, requirePreselected: false),
+          : () => _onKitchenItemTapped(item, targetStatus: 'delivered'),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(0, 0, 0, 0),
@@ -2533,6 +2997,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     fontSize: 11,
                   ),
                 ),
+                if (showPreparedBy) ...[
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      preparedByLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: metaTextColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             if (instruction != null && instruction.isNotEmpty) ...[
@@ -2570,6 +3049,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildKitchenCombinedOrderActions({required String alertLabel}) {
+    if (_userRole == 'supervisor') {
+      return const SizedBox.shrink();
+    }
     if (alertLabel == 'PREPARING') {
       return _buildKitchenCombinedActionButton(
         label: 'PREAPARING',
@@ -2662,7 +3144,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       case 'complete':
       case 'complete_order':
         _showKitchenCombinedSnack(
-          'Tap once to select, then double tap to mark prepared.',
+          'Double tap an item to mark prepared.',
         );
         break;
       case 'expedite':
@@ -2679,7 +3161,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         break;
       default:
         _showKitchenCombinedSnack(
-          'Start prepping by selecting an item, then double tap to confirm.',
+          'Start prepping with a double tap on an item.',
         );
     }
   }
@@ -2696,6 +3178,69 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _handleStockFooterSelection(StockFooterTab tab) {
+    switch (tab) {
+      case StockFooterTab.live:
+        // Already on live
+        break;
+      case StockFooterTab.stock:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const StockTicketListScreen(),
+          ),
+        );
+        break;
+      case StockFooterTab.review:
+        Navigator.push(
+          context,
+          smoothPageRoute(
+            ReviewListScreen(
+              showKitchenFooter: true,
+              onKotTap: _returnToKitchenKotFromNestedScreen,
+              onStockTap: _openKitchenStockFromNestedScreen,
+              stockBadgeCount: _stockCount,
+              liveBadgeCount: _branchCount,
+              reviewBadgeCount: _reviewCount,
+              footerMode: 'STOCK',
+            ),
+          ),
+        );
+        break;
+      case StockFooterTab.chats:
+        Navigator.push(
+          context,
+          smoothPageRoute(
+            KitchenChatsScreen(
+              onKotTap: _returnToKitchenKotFromNestedScreen,
+              onStockTap: _openKitchenStockFromNestedScreen,
+              onReviewTap: () {
+                Navigator.pushReplacement(
+                  context,
+                  smoothPageRoute(
+                    ReviewListScreen(
+                      showKitchenFooter: true,
+                      onKotTap: _returnToKitchenKotFromNestedScreen,
+                      onStockTap: _openKitchenStockFromNestedScreen,
+                      stockBadgeCount: _stockCount,
+                      liveBadgeCount: _branchCount,
+                      reviewBadgeCount: _reviewCount,
+                      footerMode: 'STOCK',
+                    ),
+                  ),
+                );
+              },
+              stockBadgeCount: _stockCount,
+              liveBadgeCount: _branchCount,
+              reviewBadgeCount: _reviewCount,
+              footerMode: 'STOCK',
+            ),
+          ),
+        );
+        break;
+    }
+  }
+
   void _handleKitchenFooterSelection(KitchenFooterTab tab) {
     switch (tab) {
       case KitchenFooterTab.kot:
@@ -2707,11 +3252,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       case KitchenFooterTab.review:
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (routeContext) => ReviewListScreen(
+          smoothPageRoute(
+            ReviewListScreen(
               showKitchenFooter: true,
               onKotTap: _returnToKitchenKotFromNestedScreen,
               onStockTap: _openKitchenStockFromNestedScreen,
+              stockBadgeCount: _stockCount,
+              liveBadgeCount: _branchCount,
+              reviewBadgeCount: _reviewCount,
+              footerMode: 'KITCHEN',
             ),
           ),
         );
@@ -2719,22 +3268,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       case KitchenFooterTab.chats:
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (routeContext) => KitchenChatsScreen(
+          smoothPageRoute(
+            KitchenChatsScreen(
               onKotTap: _returnToKitchenKotFromNestedScreen,
               onStockTap: _openKitchenStockFromNestedScreen,
               onReviewTap: () {
                 Navigator.pushReplacement(
-                  routeContext,
-                  MaterialPageRoute(
-                    builder: (context) => ReviewListScreen(
+                  context,
+                  smoothPageRoute(
+                    ReviewListScreen(
                       showKitchenFooter: true,
                       onKotTap: _returnToKitchenKotFromNestedScreen,
                       onStockTap: _openKitchenStockFromNestedScreen,
+                      stockBadgeCount: _stockCount,
+                      liveBadgeCount: _branchCount,
+                      reviewBadgeCount: _reviewCount,
+                      footerMode: 'KITCHEN',
                     ),
                   ),
                 );
               },
+              stockBadgeCount: _stockCount,
+              liveBadgeCount: _branchCount,
+              reviewBadgeCount: _reviewCount,
+              footerMode: 'KITCHEN',
             ),
           ),
         );
@@ -2775,23 +3332,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               Future.microtask(() async {
                 try {
                   final kitchens = await ApiService.instance.fetchKitchens();
-                  final liveK1 = kitchens.firstWhere(
-                    (k) =>
-                        (k['name'] ?? '').toString().toLowerCase() == 'live-k1',
-                    orElse: () => null,
-                  );
 
-                  if (liveK1 == null) {
-                    if (context.mounted) Navigator.pop(context);
-                    return;
-                  }
-
-                  final categories = (liveK1['categories'] as List?) ?? [];
-                  final List<String> categoryIds = [];
-                  for (var cat in categories) {
-                    final id = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)
+                  // Filter kitchens that match the user's branch
+                  final branchKitchens = kitchens.where((k) {
+                    final bId = (k['branch'] is Map
+                            ? (k['branch']['id'] ?? k['branch']['_id'])
+                            : k['branch'])
                         ?.toString();
-                    if (id != null) categoryIds.add(id);
+                    return bId == _userBranchId;
+                  }).toList();
+
+                  // Use branch kitchens if found, otherwise fallback to all kitchens
+                  final targetKitchens =
+                      branchKitchens.isEmpty ? kitchens : branchKitchens;
+
+                  final List<String> categoryIds = [];
+                  for (var kitchen in targetKitchens) {
+                    final categories = (kitchen['categories'] as List?) ?? [];
+                    for (var cat in categories) {
+                      final id = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)
+                          ?.toString();
+                      if (id != null && !categoryIds.contains(id)) {
+                        categoryIds.add(id);
+                      }
+                    }
                   }
 
                   if (categoryIds.isEmpty) {
@@ -2885,8 +3449,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   '';
             }
 
+            String stockProductBranchId(dynamic rawBranch) {
+              if (rawBranch is Map) {
+                return (rawBranch['id'] ??
+                            rawBranch['_id'] ??
+                            rawBranch[r'$oid'])
+                        ?.toString()
+                        .trim() ??
+                    '';
+              }
+              return rawBranch?.toString().trim() ?? '';
+            }
+
             bool stockProductIsOut(dynamic rawProduct) {
               if (rawProduct is! Map) return false;
+              final branchId = _userBranchId.trim();
+              if (branchId.isNotEmpty) {
+                final outOfStockBranches = rawProduct['outOfStockBranches'];
+                if (outOfStockBranches is List) {
+                  for (final rawBranch in outOfStockBranches) {
+                    if (stockProductBranchId(rawBranch) == branchId) {
+                      return true;
+                    }
+                  }
+                }
+              }
+
               final isStock = rawProduct['isStock'];
               if (isStock is bool) {
                 return !isStock;
@@ -2960,34 +3548,74 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Row(
-                              children: [
-                                if (selectedCategoryId != null)
-                                  IconButton(
-                                    onPressed: () {
-                                      setSheetState(() {
-                                        selectedCategoryId = null;
-                                        selectedCategoryName = '';
-                                        searchQuery = '';
-                                      });
-                                    },
-                                    icon: const Icon(
-                                      Icons.arrow_back_ios_new_rounded,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      if (selectedCategoryId != null)
+                                        IconButton(
+                                          onPressed: () {
+                                            setSheetState(() {
+                                              selectedCategoryId = null;
+                                              selectedCategoryName = '';
+                                              searchQuery = '';
+                                            });
+                                          },
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          icon: const Icon(
+                                            Icons.arrow_back_ios_new_rounded,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      if (selectedCategoryId != null)
+                                        const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          selectedCategoryId == null
+                                              ? 'STOCK CATEGORIES'
+                                              : selectedCategoryName
+                                                  .toUpperCase(),
+                                          style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: 1.0,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (selectedCategoryId == null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      (_branches.firstWhere(
+                                                (b) =>
+                                                    (b['id'] ?? b['_id'])
+                                                        .toString() ==
+                                                    _userBranchId,
+                                                orElse: () =>
+                                                    {'name': 'Branch'},
+                                              )['name'] ??
+                                              'Branch')
+                                          .toString()
+                                          .toUpperCase(),
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 12,
+                                        letterSpacing: 0.5,
+                                      ),
                                     ),
-                                  ),
-                                Text(
-                                  selectedCategoryId == null
-                                      ? 'STOCK CATEGORIES'
-                                      : selectedCategoryName.toUpperCase(),
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 1.5,
-                                  ),
-                                ),
-                              ],
+                                  ],
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 8),
                             GestureDetector(
                               onTap: () {
                                 setSheetState(() {
@@ -2999,31 +3627,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 });
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
+                                padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
                                   color: Colors.red[50],
-                                  borderRadius: BorderRadius.circular(8),
+                                  shape: BoxShape.circle,
                                 ),
-                                child: const Row(
-                                  children: [
-                                    Text(
-                                      'Live-k1',
-                                      style: TextStyle(
-                                        color: Colors.red,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    SizedBox(width: 4),
-                                    Icon(
-                                      Icons.refresh,
-                                      size: 14,
-                                      color: Colors.red,
-                                    ),
-                                  ],
+                                child: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 20,
+                                  color: Colors.red,
                                 ),
                               ),
                             ),
@@ -3229,12 +3841,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                               final description =
                                                   (product['description'] ?? '')
                                                       .toString();
-                                              bool isOutOfStock =
-                                                  product['isStock'] is bool
-                                                  ? !(product['isStock']
-                                                        as bool)
-                                                  : product['isOutOfStock'] ==
-                                                        true;
+                                              final productId =
+                                                  (product['id'] ??
+                                                          product['_id'])
+                                                      ?.toString()
+                                                      .trim() ??
+                                                  '';
+                                              final isOutOfStock =
+                                                  stockProductIsOut(product);
+                                              final isAlerting =
+                                                  _stockAlertingProductIds
+                                                      .contains(productId);
 
                                               return Row(
                                                 children: [
@@ -3280,31 +3897,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                                     ),
                                                   ),
                                                   const SizedBox(width: 16),
-                                                  _buildStockSwitch(
-                                                    isOn: !isOutOfStock,
-                                                    onChanged: (val) async {
-                                                      final previousIsOutOfStock =
-                                                          product['isStock']
-                                                              is bool
-                                                          ? !(product['isStock']
-                                                                as bool)
-                                                          : product['isOutOfStock'] ==
-                                                                true;
-                                                      final previousIsStock =
-                                                          product['isStock']
-                                                              is bool
-                                                          ? product['isStock']
-                                                                as bool
-                                                          : !previousIsOutOfStock;
-                                                      final productId =
-                                                          (product['id'] ??
-                                                                  product['_id'])
-                                                              ?.toString()
-                                                              .trim() ??
-                                                          '';
-                                                      final previousOutOrder =
-                                                          _stockOutOrderByProductId[productId];
-
+                                                  _buildOutAlertButton(
+                                                    isSending: isAlerting,
+                                                    isOutOfStock: isOutOfStock,
+                                                    onPressed: () async {
                                                       if (productId.isEmpty) {
                                                         if (context.mounted) {
                                                           ScaffoldMessenger.of(
@@ -3312,7 +3908,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                                           ).showSnackBar(
                                                             const SnackBar(
                                                               content: Text(
-                                                                'Unable to update this product right now.',
+                                                                'Unable to alert this product right now.',
+                                                              ),
+                                                              backgroundColor:
+                                                                  Colors.red,
+                                                            ),
+                                                          );
+                                                        }
+                                                        return;
+                                                      }
+
+                                                      if (_userBranchId
+                                                          .isEmpty) {
+                                                        if (context.mounted) {
+                                                          ScaffoldMessenger.of(
+                                                            context,
+                                                          ).showSnackBar(
+                                                            const SnackBar(
+                                                              content: Text(
+                                                                'No branch found for this kitchen alert.',
                                                               ),
                                                               backgroundColor:
                                                                   Colors.red,
@@ -3323,86 +3937,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                                       }
 
                                                       setSheetState(() {
-                                                        if (!val) {
-                                                          _stockOutOrderByProductId
-                                                              .putIfAbsent(
-                                                                productId,
-                                                                () {
-                                                                  _stockOutOrderCounter +=
-                                                                      1;
-                                                                  return _stockOutOrderCounter;
-                                                                },
-                                                              );
-                                                        } else {
-                                                          _stockOutOrderByProductId
-                                                              .remove(
-                                                                productId,
-                                                              );
-                                                        }
-                                                        product['isStock'] =
-                                                            val;
-                                                        product['isOutOfStock'] =
-                                                            !val;
+                                                        _stockAlertingProductIds
+                                                            .add(productId);
                                                       });
+
                                                       try {
-                                                        final savedIsOutOfStock =
-                                                            await ApiService
-                                                                .instance
-                                                                .updateProductStockStatus(
+                                                        await ApiService
+                                                            .instance
+                                                            .createStockAlert(
+                                                              productId:
                                                                   productId,
-                                                                  !val,
-                                                                );
-                                                        setSheetState(() {
-                                                          if (savedIsOutOfStock) {
-                                                            _stockOutOrderByProductId
-                                                                .putIfAbsent(
-                                                                  productId,
-                                                                  () {
-                                                                    _stockOutOrderCounter +=
-                                                                        1;
-                                                                    return _stockOutOrderCounter;
-                                                                  },
-                                                                );
-                                                          } else {
-                                                            _stockOutOrderByProductId
-                                                                .remove(
-                                                                  productId,
-                                                                );
-                                                          }
-                                                          product['isStock'] =
-                                                              !savedIsOutOfStock;
-                                                          product['isOutOfStock'] =
-                                                              savedIsOutOfStock;
-                                                        });
-                                                      } catch (e) {
-                                                        setSheetState(() {
-                                                          if (previousOutOrder !=
-                                                              null) {
-                                                            _stockOutOrderByProductId[productId] =
-                                                                previousOutOrder;
-                                                          } else {
-                                                            _stockOutOrderByProductId
-                                                                .remove(
-                                                                  productId,
-                                                                );
-                                                          }
-                                                          product['isStock'] =
-                                                              previousIsStock;
-                                                          product['isOutOfStock'] =
-                                                              previousIsOutOfStock;
-                                                        });
+                                                              branchId:
+                                                                  _userBranchId,
+                                                            );
                                                         if (context.mounted) {
                                                           ScaffoldMessenger.of(
                                                             context,
                                                           ).showSnackBar(
                                                             SnackBar(
                                                               content: Text(
-                                                                'Stock update failed: $e',
+                                                                '$name alert sent to branch.',
+                                                              ),
+                                                              backgroundColor:
+                                                                  Colors.green,
+                                                            ),
+                                                          );
+                                                        }
+                                                      } catch (e) {
+                                                        if (context.mounted) {
+                                                          ScaffoldMessenger.of(
+                                                            context,
+                                                          ).showSnackBar(
+                                                            SnackBar(
+                                                              content: Text(
+                                                                'Alert failed: $e',
                                                               ),
                                                               backgroundColor:
                                                                   Colors.red,
                                                             ),
                                                           );
+                                                        }
+                                                      } finally {
+                                                        if (mounted) {
+                                                          setSheetState(() {
+                                                            _stockAlertingProductIds
+                                                                .remove(
+                                                                  productId,
+                                                                );
+                                                          });
+                                                        } else {
+                                                          _stockAlertingProductIds
+                                                              .remove(
+                                                                productId,
+                                                              );
                                                         }
                                                       }
                                                     },
@@ -3426,62 +4013,71 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildStockSwitch({
-    required bool isOn,
-    required ValueChanged<bool> onChanged,
+  Widget _buildOutAlertButton({
+    required bool isSending,
+    required bool isOutOfStock,
+    required Future<void> Function() onPressed,
   }) {
+    final backgroundColor = isOutOfStock
+        ? const Color(0xFF546E7A)
+        : const Color(0xFFD84315);
+    final shadowColor = backgroundColor.withValues(alpha: 0.3);
+    final label = isSending
+        ? 'SENDING'
+        : isOutOfStock
+        ? 'OUT OF STOCK'
+        : 'OUT ALERT';
+
     return GestureDetector(
-      onTap: () => onChanged(!isOn),
+      onTap: (isSending || isOutOfStock) ? null : onPressed,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        width: 85,
+        width: isOutOfStock ? 146 : 118,
         height: 44,
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          color: isOn ? const Color(0xFF1A237E) : const Color(0xFFFFA726),
+          color: backgroundColor,
           boxShadow: [
             BoxShadow(
-              color: (isOn ? const Color(0xFF1A237E) : const Color(0xFFFFA726))
-                  .withValues(alpha: 0.3),
+              color: shadowColor,
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Stack(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Align(
-              alignment: isOn ? Alignment.centerLeft : Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text(
-                  isOn ? 'IN' : 'OUT',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 14,
-                  ),
+            if (isSending)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
+              )
+            else
+              Icon(
+                isOutOfStock
+                    ? Icons.block_rounded
+                    : Icons.notifications_active_rounded,
+                color: Colors.white,
+                size: 18,
               ),
-            ),
-            AnimatedAlign(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              alignment: isOn ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  fontWeight: FontWeight.w900,
+                  fontSize: isOutOfStock ? 11 : 12,
+                  letterSpacing: isOutOfStock ? 0.2 : 0.4,
                 ),
               ),
             ),
@@ -3545,9 +4141,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .where((item) {
+          final targetStatus = _userRole == 'supervisor' ? 'prepared' : 'ordered';
           final status =
               (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
-          return status == 'ordered';
+          return status == targetStatus;
         })
         .toList();
     gridItems.sort((a, b) {
@@ -3563,20 +4160,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       return (bElapsed ?? -1).compareTo(aElapsed ?? -1);
     });
-    final gridTimingItems = List<Map<String, dynamic>>.from(gridItems);
     final allTimingItems = items.whereType<Map>().map((item) {
       return Map<String, dynamic>.from(item.cast<String, dynamic>());
     }).toList();
-    final timingItems = gridTimingItems.isNotEmpty
-        ? gridTimingItems
-        : allTimingItems;
-    final tableStartedAt = _resolveKitchenGroupStartedAt(group, timingItems);
+    final tableStartedAt = _resolveKitchenEffectiveGroupStartedAt(
+      group,
+      allTimingItems,
+    );
     final tableTimerItem = tableStartedAt == null
         ? null
         : {'createdAt': tableStartedAt.toIso8601String()};
     final startedAtFallback =
         tableStartedAt?.toIso8601String() ?? group['createdAt'];
-    final tableBadgeMainLabel = 'TABLE $tableNumber';
+    final showRunningPrefix = _shouldShowKitchenRunningTablePrefix(group);
+    final tableBadgeMainLabel = showRunningPrefix
+        ? 'RUNNING TABLE $tableNumber'
+        : 'TABLE $tableNumber';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
@@ -4239,6 +4838,64 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return null;
   }
 
+  DateTime? _tryParseKitchenTimeOnly(
+    dynamic value, {
+    DateTime? referenceDate,
+  }) {
+    if (value == null) return null;
+    final raw = value.toString().trim();
+    if (raw.isEmpty || raw.toLowerCase() == 'null') return null;
+
+    final twentyFourHour = RegExp(
+      r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$',
+    ).firstMatch(raw);
+    final twelveHour = RegExp(
+      r'^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])$',
+    ).firstMatch(raw);
+
+    int? hour;
+    int? minute;
+    int second = 0;
+
+    if (twentyFourHour != null) {
+      hour = int.tryParse(twentyFourHour.group(1)!);
+      minute = int.tryParse(twentyFourHour.group(2)!);
+      second = int.tryParse(twentyFourHour.group(3) ?? '0') ?? 0;
+    } else if (twelveHour != null) {
+      hour = int.tryParse(twelveHour.group(1)!);
+      minute = int.tryParse(twelveHour.group(2)!);
+      second = int.tryParse(twelveHour.group(3) ?? '0') ?? 0;
+      final period = (twelveHour.group(4) ?? '').toUpperCase();
+      if (hour == null || minute == null) return null;
+      if (hour == 12) {
+        hour = period == 'AM' ? 0 : 12;
+      } else if (period == 'PM') {
+        hour += 12;
+      }
+    } else {
+      return null;
+    }
+
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    if (second < 0 || second > 59) return null;
+
+    final base = referenceDate ?? DateTime.now();
+    var parsed = DateTime(
+      base.year,
+      base.month,
+      base.day,
+      hour,
+      minute,
+      second,
+    );
+    final futureSkewLimit = DateTime.now().add(const Duration(hours: 4));
+    if (parsed.isAfter(futureSkewLimit)) {
+      parsed = parsed.subtract(const Duration(days: 1));
+    }
+    return parsed;
+  }
+
   dynamic _readKitchenMapValueByAliases(Map map, List<String> aliases) {
     for (final alias in aliases) {
       if (map.containsKey(alias)) return map[alias];
@@ -4264,8 +4921,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   DateTime? _extractKitchenStatusTimelineTimestamp(
     Map item,
-    Set<String> targetStatuses,
-  ) {
+    Set<String> targetStatuses, [
+    DateTime? referenceDate,
+  ]) {
     const timelineAliases = [
       'statusHistory',
       'statusLogs',
@@ -4311,6 +4969,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
         final parsed = _extractKitchenTimestampFromMap(entry, timeAliases);
         if (parsed != null) return parsed;
+        final rawTime = _readKitchenMapValueByAliases(entry, timeAliases);
+        final parsedTimeOnly = _tryParseKitchenTimeOnly(
+          rawTime,
+          referenceDate: referenceDate,
+        );
+        if (parsedTimeOnly != null) return parsedTimeOnly;
       }
     }
 
@@ -4342,16 +5006,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'timestamp',
     ];
 
-    final direct = _extractKitchenTimestampFromMap(item, orderedAliases);
+    final directRaw = _readKitchenMapValueByAliases(item, orderedAliases);
+    final direct = _tryParseKitchenDateTime(directRaw);
     if (direct != null) return direct;
+    final referenceDate =
+        _tryParseKitchenDateTime(item['billingCreatedAt']) ??
+        _tryParseKitchenDateTime(item['orderCreatedAt']) ??
+        _tryParseKitchenDateTime(fallbackStartedAt);
+    final directTimeOnly = _tryParseKitchenTimeOnly(
+      directRaw,
+      referenceDate: referenceDate,
+    );
+    if (directTimeOnly != null) return directTimeOnly;
 
     final timeline = _extractKitchenStatusTimelineTimestamp(item, {
       'ordered',
       'order',
       'pending',
       'new',
-    });
+    }, referenceDate);
     if (timeline != null) return timeline;
+
+    final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
+    if (status == 'ordered' || status == 'confirmed') {
+      final updateRaw = _readKitchenMapValueByAliases(item, [
+        'statusUpdatedAt',
+        'status_updated_at',
+        'updatedAt',
+        'updated_at',
+      ]);
+      final updateParsed = _tryParseKitchenDateTime(updateRaw);
+      if (updateParsed != null) return updateParsed;
+      final updateTimeOnly = _tryParseKitchenTimeOnly(
+        updateRaw,
+        referenceDate: referenceDate,
+      );
+      if (updateTimeOnly != null) return updateTimeOnly;
+    }
 
     if (!allowBillingFallback) return null;
 
@@ -4377,7 +5068,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (item is! Map) return null;
 
     final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
-    if (status != 'prepared') return null;
+    final isDoneStatus =
+        status == 'prepared' || status == 'delivered' || status == 'served';
+    if (!isDoneStatus) return null;
 
     const preparedAliases = [
       'preparedAt',
@@ -4391,30 +5084,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       'prepareTime',
     ];
 
-    final direct = _extractKitchenTimestampFromMap(item, preparedAliases);
-    if (direct != null) return direct;
+    // Try aliases and timeline first
+    final preparedByStaff = _extractKitchenTimestampFromMap(item, preparedAliases);
+    if (preparedByStaff != null) return preparedByStaff;
 
+    final referenceDate =
+        _tryParseKitchenDateTime(item['billingCreatedAt']) ??
+        _tryParseKitchenDateTime(item['orderCreatedAt']) ??
+        _tryParseKitchenDateTime(item['createdAt']);
     final timeline = _extractKitchenStatusTimelineTimestamp(item, {
       'prepared',
       'complete',
       'completed',
       'done',
-    });
+    }, referenceDate);
     if (timeline != null) return timeline;
 
-    return _extractKitchenTimestampFromMap(item, [
-      'statusUpdatedAt',
-      'status_updated_at',
-      'updatedAt',
-      'updated_at',
-    ]);
+    // Fallback to updatedAt ONLY if status is 'prepared'
+    if (status == 'prepared') {
+      return _extractKitchenTimestampFromMap(item, [
+        'statusUpdatedAt',
+        'status_updated_at',
+        'updatedAt',
+        'updated_at',
+      ]);
+    }
+
+    return null;
   }
 
   DateTime? _parseKitchenOrderFinalizedAt(dynamic item) {
     if (item is! Map) return null;
 
     final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
-    final isPrepared = status == 'prepared';
+    final isPrepared = status == 'prepared' ||
+        status == 'delivered' ||
+        status == 'served';
     final isCancelled = status == 'cancelled' || status == 'canceled';
     if (!isPrepared && !isCancelled) return null;
 
@@ -4437,11 +5142,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ]);
       if (cancelledAt != null) return cancelledAt;
 
+      final referenceDate =
+          _tryParseKitchenDateTime(item['billingCreatedAt']) ??
+          _tryParseKitchenDateTime(item['orderCreatedAt']) ??
+          _tryParseKitchenDateTime(item['createdAt']);
       final cancelledTimeline = _extractKitchenStatusTimelineTimestamp(item, {
         'cancel',
         'cancelled',
         'canceled',
-      });
+      }, referenceDate);
       if (cancelledTimeline != null) return cancelledTimeline;
     }
 
@@ -4451,11 +5160,604 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ]);
   }
 
+  bool _canShowKitchenPreparationCountdown(String status) {
+    return status == 'pending' ||
+        status == 'ordered' ||
+        status == 'confirmed' ||
+        status == 'prepared';
+  }
+
+  bool _isKitchenPreparationCountdownStoppedStatus(String status) {
+    return status == 'prepared' ||
+        status == 'delivered' ||
+        status == 'completed' ||
+        status == 'cancelled' ||
+        status == 'canceled';
+  }
+
+  double? _extractKitchenDoubleMinutes(dynamic value) {
+    if (value == null) return null;
+    if (value is num) {
+      final minutes = value.toDouble();
+      if (!minutes.isFinite || minutes <= 0) return null;
+      return minutes;
+    }
+    if (value is String) {
+      final cleaned = value.trim();
+      if (cleaned.isEmpty) return null;
+      final minutes = double.tryParse(cleaned);
+      if (minutes == null || !minutes.isFinite || minutes <= 0) return null;
+      return minutes;
+    }
+    return null;
+  }
+
+  double? _resolveKitchenPreparationMinutes(dynamic item) {
+    if (item is! Map) return null;
+
+    const aliases = [
+      'preparingTime',
+      'preparing_time',
+      'preparationTime',
+      'preparation_time',
+      'preparationMinutes',
+      'preparation_minutes',
+      'preparationTimeMinutes',
+      'preparation_time_minutes',
+      'prepTime',
+      'prep_time',
+      'prepMinutes',
+      'prep_minutes',
+    ];
+
+    final fromItem = _extractKitchenDoubleMinutes(
+      _readKitchenMapValueByAliases(item, aliases),
+    );
+    if (fromItem != null) return fromItem;
+
+    final product = item['product'];
+    if (product is Map) {
+      final fromProduct = _extractKitchenDoubleMinutes(
+        _readKitchenMapValueByAliases(product, aliases),
+      );
+      if (fromProduct != null) return fromProduct;
+    }
+
+    final variant = _readKitchenMapValueByAliases(item, [
+      'variant',
+      'selectedVariant',
+      'productVariant',
+      'selectedProductVariant',
+    ]);
+    if (variant is Map) {
+      final fromVariant = _extractKitchenDoubleMinutes(
+        _readKitchenMapValueByAliases(variant, aliases),
+      );
+      if (fromVariant != null) return fromVariant;
+    }
+
+    return null;
+  }
+
+  int? _resolveKitchenPreparationRemainingSeconds(
+    dynamic item, {
+    dynamic fallbackStartedAt,
+    bool allowBillingFallback = true,
+    bool clampAtZero = true,
+  }) {
+    if (item is! Map) return null;
+
+    final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
+    if (!_canShowKitchenPreparationCountdown(status)) return null;
+
+    final preparationMinutes = _resolveKitchenPreparationMinutes(item);
+    if (preparationMinutes == null) return null;
+
+    final preparationSeconds = (preparationMinutes * 60).round();
+    if (preparationSeconds <= 0) return null;
+
+    final orderedAt = _parseKitchenOrderOrderedAt(
+      item,
+      fallbackStartedAt: fallbackStartedAt,
+      allowBillingFallback: allowBillingFallback,
+    );
+    if (orderedAt == null) return preparationSeconds;
+
+    DateTime effectiveNow = DateTime.now();
+    if (_isKitchenPreparationCountdownStoppedStatus(status)) {
+      DateTime? finalizedAt = _parseKitchenOrderFinalizedAt(item);
+      finalizedAt ??= _extractKitchenTimestampFromMap(item, [
+        'deliveredAt',
+        'deliveredOn',
+        'delivered_at',
+        'deliveredTime',
+        'completedAt',
+        'completedOn',
+        'completed_at',
+        'completedTime',
+      ]);
+      finalizedAt ??= _extractKitchenStatusTimelineTimestamp(item, {
+        'delivered',
+        'complete',
+        'completed',
+      }, orderedAt);
+      if (finalizedAt != null && !finalizedAt.isBefore(orderedAt)) {
+        effectiveNow = finalizedAt;
+      }
+    }
+
+    final elapsedSeconds = effectiveNow.difference(orderedAt).inSeconds;
+    final safeElapsedSeconds = elapsedSeconds < 0 ? 0 : elapsedSeconds;
+    final elapsedAfterDelay =
+        safeElapsedSeconds - _kitchenPreparationTimerStartDelaySeconds;
+    final consumedSeconds = elapsedAfterDelay < 0 ? 0 : elapsedAfterDelay;
+
+    final remainingSeconds = preparationSeconds - consumedSeconds;
+    return clampAtZero && remainingSeconds < 0 ? 0 : remainingSeconds;
+  }
+
+  String? _formatKitchenPreparationCountdown(
+    dynamic item, {
+    dynamic fallbackStartedAt,
+    bool allowBillingFallback = true,
+  }) {
+    final remainingSeconds = _resolveKitchenPreparationRemainingSeconds(
+      item,
+      fallbackStartedAt: fallbackStartedAt,
+      allowBillingFallback: allowBillingFallback,
+    );
+    if (remainingSeconds == null) return null;
+
+    final minutes = remainingSeconds ~/ 60;
+    final seconds = remainingSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  int? _resolveKitchenPreparationEditRemainingSeconds(
+    dynamic item, {
+    dynamic fallbackStartedAt,
+  }) {
+    final orderedAt = _parseKitchenOrderOrderedAt(
+      item,
+      fallbackStartedAt: fallbackStartedAt,
+    );
+    if (orderedAt == null) return null;
+
+    final elapsedSeconds = DateTime.now().difference(orderedAt).inSeconds;
+    final safeElapsedSeconds = elapsedSeconds < 0 ? 0 : elapsedSeconds;
+    return _kitchenPreparationEditWindowSeconds - safeElapsedSeconds;
+  }
+
+  Future<void> _checkAndShowKitchenPreparationAlert() async {
+    try {
+      if (!mounted ||
+          _userRole != 'kitchen' ||
+          _isKitchenPreparationAlertDialogOpen ||
+          _isKitchenPreparationTimeDialogOpen) {
+        return;
+      }
+
+      final now = DateTime.now();
+      final activeSelectionKeys = <String>{};
+      Map<String, dynamic>? candidate;
+      int candidateBucket = -1;
+      int candidateRemainingSeconds = 1 << 30;
+
+      for (final group in _kitchenOrders) {
+        if (group is! Map<String, dynamic>) continue;
+
+        final groupBillingId =
+            (group['billingId'] ?? group['id'] ?? group['_id'])
+                ?.toString()
+                .trim() ??
+            '';
+        final tableObj = group['tableDetails'] ?? group['table'];
+        final tableNumberRaw =
+            (tableObj is Map
+                    ? (tableObj['tableNumber'] ?? tableObj['name'])
+                    : tableObj)
+                ?.toString()
+                .trim() ??
+            '';
+        final tableNumber = tableNumberRaw.isEmpty ? 'N/A' : tableNumberRaw;
+        final kotNumber = (group['kotNumber'] ?? '').toString().trim();
+
+        final personCandidates = [
+          group['customerName'],
+          group['waiterName'],
+          group['createdByName'],
+        ];
+        String personName = '';
+        for (final candidateName in personCandidates) {
+          final resolved = candidateName?.toString().trim() ?? '';
+          if (resolved.isEmpty) continue;
+          final lower = resolved.toLowerCase();
+          if (lower == 'customer' || lower == 'guest' || lower == 'waiter') {
+            continue;
+          }
+          personName = resolved;
+          break;
+        }
+
+        final rawItems = (group['items'] as List?) ?? const [];
+        for (final rawItem in rawItems) {
+          if (rawItem is! Map) continue;
+          final item = Map<String, dynamic>.from(rawItem);
+          final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
+          if (status != 'ordered' && status != 'confirmed') continue;
+
+          final billingId = (item['billingId'] ?? groupBillingId).toString().trim();
+          if (billingId.isEmpty) continue;
+
+          final hasSelectionKey =
+              item['selectionKey']?.toString().trim().isNotEmpty ?? false;
+          final selectionKey = hasSelectionKey
+              ? item['selectionKey'].toString().trim()
+              : _buildKitchenSelectionKey(billingId, item);
+          if (selectionKey.isEmpty) continue;
+          activeSelectionKeys.add(selectionKey);
+
+          if (_kitchenPreparationAlertSuppressedKeys.contains(selectionKey)) {
+            continue;
+          }
+
+          final snoozeUntil =
+              _kitchenPreparationAlertSnoozeUntilByKey[selectionKey];
+          if (snoozeUntil != null && now.isBefore(snoozeUntil)) continue;
+
+          final remainingSeconds = _resolveKitchenPreparationRemainingSeconds(
+            item,
+            fallbackStartedAt: group['createdAt'],
+            clampAtZero: false,
+          );
+          if (remainingSeconds == null) {
+            _kitchenPreparationAlertBucketByKey.remove(selectionKey);
+            _kitchenPreparationAlertLastShownAtByKey.remove(selectionKey);
+            continue;
+          }
+
+          if (remainingSeconds > 60) {
+            _kitchenPreparationAlertBucketByKey.remove(selectionKey);
+            _kitchenPreparationAlertLastShownAtByKey.remove(selectionKey);
+            continue;
+          }
+
+          int bucket;
+          String alertLabel;
+          if (remainingSeconds > 0) {
+            bucket = 0;
+            alertLabel = 'LAST 1 MINUTE';
+          } else {
+            final overdueMinutes = ((-remainingSeconds) ~/ 60) + 1;
+            bucket = overdueMinutes;
+            alertLabel =
+                'DELAYED BY $overdueMinutes ${overdueMinutes == 1 ? 'MIN' : 'MINS'}';
+          }
+
+          final previousBucket = _kitchenPreparationAlertBucketByKey[selectionKey];
+          if (remainingSeconds > 0) {
+            if (previousBucket != null && bucket <= previousBucket) continue;
+          } else {
+            final lastShownAt =
+                _kitchenPreparationAlertLastShownAtByKey[selectionKey];
+            final dueByInterval =
+                lastShownAt == null ||
+                now.difference(lastShownAt).inSeconds >= 30;
+            final dueByBucketChange =
+                previousBucket == null || bucket > previousBucket;
+            if (!dueByInterval && !dueByBucketChange) continue;
+          }
+
+          final shouldReplaceCandidate =
+              candidate == null ||
+              bucket > candidateBucket ||
+              (bucket == candidateBucket &&
+                  remainingSeconds < candidateRemainingSeconds);
+          if (!shouldReplaceCandidate) continue;
+
+          item['billingId'] = billingId;
+          item['selectionKey'] = selectionKey;
+
+          candidate = {
+            'item': item,
+            'selectionKey': selectionKey,
+            'bucket': bucket,
+            'alertLabel': alertLabel,
+            'tableNumber': tableNumber,
+            'kotNumber': kotNumber,
+            'personName': personName,
+            'fallbackStartedAt': group['createdAt'],
+          };
+          candidateBucket = bucket;
+          candidateRemainingSeconds = remainingSeconds;
+        }
+      }
+
+      _kitchenPreparationAlertSnoozeUntilByKey.removeWhere(
+        (key, value) =>
+            !activeSelectionKeys.contains(key) || !value.isAfter(now),
+      );
+      _kitchenPreparationAlertBucketByKey.removeWhere(
+        (key, value) => !activeSelectionKeys.contains(key),
+      );
+      _kitchenPreparationAlertLastShownAtByKey.removeWhere(
+        (key, value) => !activeSelectionKeys.contains(key),
+      );
+      _kitchenPreparationAlertSuppressedKeys.removeWhere(
+        (key) => !activeSelectionKeys.contains(key),
+      );
+
+      if (!mounted || candidate == null) return;
+
+      final selectionKey = candidate['selectionKey'].toString();
+      final bucket = (candidate['bucket'] as int?) ?? 0;
+      _kitchenPreparationAlertBucketByKey[selectionKey] = bucket;
+      _kitchenPreparationAlertLastShownAtByKey[selectionKey] = now;
+      _isKitchenPreparationAlertDialogOpen = true;
+
+      try {
+        final action = await _showKitchenPreparationAlertDialog(
+          item: candidate['item'],
+          alertLabel: candidate['alertLabel']?.toString() ?? 'LAST 1 MINUTE',
+          tableNumber: candidate['tableNumber']?.toString() ?? 'N/A',
+          kotNumber: candidate['kotNumber']?.toString() ?? '',
+          personName: candidate['personName']?.toString() ?? '',
+          fallbackStartedAt: candidate['fallbackStartedAt'],
+        );
+
+        if (!mounted) return;
+
+        if (action == 'preparing') {
+          _kitchenPreparationAlertSnoozeUntilByKey[selectionKey] = DateTime.now()
+              .add(const Duration(minutes: 1));
+        } else if (action == 'serve_later') {
+          _kitchenPreparationAlertSuppressedKeys.add(selectionKey);
+          _kitchenPreparationAlertSnoozeUntilByKey.remove(selectionKey);
+          _kitchenPreparationAlertLastShownAtByKey.remove(selectionKey);
+          _kitchenPreparationAlertBucketByKey.remove(selectionKey);
+        } else if (action == 'prepared') {
+          _kitchenPreparationAlertSnoozeUntilByKey.remove(selectionKey);
+          await _onKitchenItemTapped(candidate['item']);
+        }
+      } finally {
+        _isKitchenPreparationAlertDialogOpen = false;
+      }
+    } catch (e) {
+      debugPrint('DEBUG: Kitchen preparation alert check failed: $e');
+      _isKitchenPreparationAlertDialogOpen = false;
+    }
+  }
+
+  Future<String?> _showKitchenPreparationAlertDialog({
+    required dynamic item,
+    required String alertLabel,
+    required String tableNumber,
+    required String kotNumber,
+    required String personName,
+    dynamic fallbackStartedAt,
+  }) async {
+    if (!mounted) return null;
+
+    final product = item is Map ? item['product'] : null;
+    final itemName =
+        ((item is Map
+                    ? item['name']
+                    : null) ??
+                (product is Map ? product['name'] : null) ??
+                'Item')
+            .toString();
+    final orderedAt = _parseKitchenOrderOrderedAt(
+      item,
+      fallbackStartedAt: fallbackStartedAt,
+    );
+    final timeLabel = orderedAt == null
+        ? '--'
+        : DateFormat('h:mm a').format(orderedAt);
+    final tableLine = personName.isEmpty
+        ? 'Table $tableNumber'
+        : 'Table $tableNumber • $personName';
+    final kotLine = kotNumber.isEmpty ? timeLabel : 'KOT-$kotNumber • $timeLabel';
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          contentPadding: EdgeInsets.zero,
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFC4151C),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.notifications_active_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'REAL-TIME ALERT',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          letterSpacing: 1.6,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Table $tableNumber',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 38,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                  child: Column(
+                    children: [
+                      Text(
+                        itemName,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF202124),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 30,
+                          height: 1.06,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        alertLabel,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFFC4151C),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 24,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        tableLine,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF202124),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 22,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        kotLine,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF4A4F56),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.of(dialogContext).pop('preparing'),
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(54),
+                                backgroundColor: const Color(0xFF2748E6),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: const FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  'Preparing',
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.of(dialogContext).pop('prepared'),
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(54),
+                                backgroundColor: const Color(0xFF2E7D32),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: const FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  'Prepared',
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(dialogContext).pop('serve_later'),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50),
+                            backgroundColor: const Color(0xFF8D6E63),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              'Server Later',
+                              maxLines: 1,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   int? _resolveKitchenElapsedSeconds(
     dynamic item, {
     dynamic fallbackStartedAt,
     bool allowBillingFallback = true,
   }) {
+    final status =
+        (item is Map ? item['status'] as String? : null)?.toLowerCase().trim() ??
+            'ordered';
+
     if (item is Map) {
       final preparedMinutes = _extractKitchenIntMinutes(
         _readKitchenMapValueByAliases(item, [
@@ -4469,8 +5771,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return preparedMinutes * 60;
       }
 
-      final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
-      if (status != 'prepared') {
+      if (status != 'prepared' && status != 'delivered' && status != 'served') {
         final currentMinutes = _extractKitchenIntMinutes(
           _readKitchenMapValueByAliases(item, [
             'currentPreparationMinutes',
@@ -4494,6 +5795,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final finalizedAt = _parseKitchenOrderFinalizedAt(item);
     if (finalizedAt != null && !finalizedAt.isBefore(startedAt)) {
       endAt = finalizedAt;
+    } else if (status == 'delivered' || status == 'served') {
+      // Fallback to stop the timer if no specialized finalizedAt is found
+      final fallback = (item is Map)
+          ? _extractKitchenTimestampFromMap(item, [
+              'statusUpdatedAt',
+              'updatedAt',
+              'updated_at',
+            ])
+          : null;
+      if (fallback != null && !fallback.isBefore(startedAt)) {
+        endAt = fallback;
+      }
     }
 
     final totalSeconds = endAt.difference(startedAt).inSeconds;
@@ -4577,15 +5890,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       item,
       allowBillingFallback: false,
     );
-    final elapsedLabel = _formatKitchenElapsedTime(
-      item,
-      allowBillingFallback: false,
-    );
+    final elapsedLabel = itemStartedAt == null
+        ? null
+        : _formatKitchenElapsedTime({
+            'createdAt': itemStartedAt.toIso8601String(),
+          }, allowBillingFallback: false);
     final elapsedColor = itemStartedAt == null
         ? Colors.green[700]!
         : _getKitchenElapsedTimeColor({
             'createdAt': itemStartedAt.toIso8601String(),
           }, allowBillingFallback: false);
+    final preparationCountdown = _formatKitchenPreparationCountdown(
+      item,
+      fallbackStartedAt: fallbackStartedAt,
+    );
     final orderOverlayColor = _getKitchenOrderCardOverlayColor(itemStartedAt);
     final hasInstruction = instructionText != null;
     final status = (item['status'] as String?)?.toLowerCase().trim() ?? '';
@@ -4594,9 +5912,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return GestureDetector(
       onTap: null,
-      onDoubleTap: (isPrepared || isCancelled)
+      onDoubleTap: (isCancelled || (isPrepared && _userRole != 'supervisor'))
           ? null
-          : () => _onKitchenItemTapped(item, requirePreselected: false),
+          : () => _onKitchenItemTapped(item),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -4679,37 +5997,69 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Positioned.fill(
               child: Align(
                 alignment: Alignment.center,
-                child: Container(
-                  width: 36,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.62),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.28),
-                      width: 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.18),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+                child: GestureDetector(
+                  onTap: isCancelled
+                      ? null
+                      : () => _showKitchenPreparationTimeDialog(item),
+                  child: Container(
+                    width: 36,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.62),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.28),
+                        width: 1,
                       ),
-                    ],
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    qty.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 20,
-                      height: 1,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      qty.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                        height: 1,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
+            if (preparationCountdown != null)
+              Positioned(
+                top: 0,
+                left: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4F5F),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(18),
+                      bottomRight: Radius.circular(12),
+                    ),
+                  ),
+                  child: Text(
+                    preparationCountdown,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ),
             Positioned(
               top: 0,
               right: 0,
@@ -4803,55 +6153,282 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _selectKitchenItem(dynamic item) {
-    final currentStatus =
-        (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
-    if (currentStatus != 'ordered' && currentStatus != 'confirmed') {
+  Future<void> _showKitchenPreparationTimeDialog(dynamic item) async {
+    if (!mounted || item is! Map) return;
+
+    final billingId = (item['billingId'] ?? '').toString().trim();
+    final itemId = (item['id'] ?? item['_id'])?.toString().trim() ?? '';
+    if (billingId.isEmpty || itemId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to identify billing item for preparation time.'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 1),
+        ),
+      );
       return;
     }
 
-    final billingId = (item['billingId'] ?? '').toString();
-    final selectionKey =
-        (item is Map ? item['selectionKey']?.toString() : null) ??
-        _buildKitchenSelectionKey(billingId, item);
-    if (selectionKey.isEmpty || !mounted) return;
+    final product = item['product'];
+    final rawName =
+        (item['name'] ?? (product is Map ? product['name'] : null) ?? 'Item')
+            .toString()
+            .trim();
+    final currentMinutes = _resolveKitchenPreparationMinutes(item);
+    final editWindowFallbackStartedAt =
+        item['itemStartedAt'] ??
+        item['orderedAt'] ??
+        item['billingCreatedAt'] ??
+        item['orderCreatedAt'] ??
+        item['createdAt'];
+    final remainingAtOpen = _resolveKitchenPreparationEditRemainingSeconds(
+      item,
+      fallbackStartedAt: editWindowFallbackStartedAt,
+    );
+    if (remainingAtOpen == null || remainingAtOpen < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Preparation minutes can be updated only within 45 seconds of order received.',
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    final controller = TextEditingController(
+      text: currentMinutes == null ? '' : currentMinutes.round().toString(),
+    );
 
-    setState(() {
-      _selectedKitchenItemKeys
-        ..clear()
-        ..add(selectionKey);
-    });
+    String? errorText;
+    bool isSaving = false;
+
+    _isKitchenPreparationTimeDialogOpen = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+        Future<void> handleSave(StateSetter setDialogState) async {
+          final rawMinutes = controller.text.trim();
+          if (rawMinutes.isEmpty) {
+            setDialogState(() {
+              errorText = 'Enter preparation minutes.';
+            });
+            return;
+          }
+
+          if (!RegExp(r'^\d+$').hasMatch(rawMinutes)) {
+            setDialogState(() {
+              errorText = 'Minutes must be a whole number (0, 1, 10, 15...).';
+            });
+            return;
+          }
+
+          final parsedMinutes = int.tryParse(rawMinutes);
+          if (parsedMinutes == null || parsedMinutes < 0) {
+            setDialogState(() {
+              errorText = 'Minutes cannot be negative.';
+            });
+            return;
+          }
+
+          setDialogState(() {
+            isSaving = true;
+            errorText = null;
+          });
+
+          final remainingAtSave = _resolveKitchenPreparationEditRemainingSeconds(
+            item,
+            fallbackStartedAt: editWindowFallbackStartedAt,
+          );
+          if (remainingAtSave == null || remainingAtSave < 0) {
+            setDialogState(() {
+              isSaving = false;
+              errorText =
+                  'Update window closed. You can edit only within 45 seconds.';
+            });
+            return;
+          }
+
+          try {
+            await ApiService.instance.updateBillingItemStatus(
+              billingId: billingId,
+              itemId: itemId,
+              preparingTime: parsedMinutes,
+            );
+
+            Map<String, dynamic>? preparationPayload;
+            try {
+              preparationPayload = await ApiService.instance
+                  .fetchBillingItemPreparationTime(
+                    billingId: billingId,
+                    itemId: itemId,
+                  );
+            } catch (e) {
+              debugPrint(
+                'DEBUG: Preparation time fetch failed after minutes update: $e',
+              );
+            }
+
+            if (!mounted) return;
+
+            final hasSelectionKey =
+                item['selectionKey']?.toString().trim().isNotEmpty ?? false;
+            final selectionKey = hasSelectionKey
+                ? item['selectionKey'].toString().trim()
+                : _buildKitchenSelectionKey(billingId, item);
+
+            setState(() {
+              final baseSnapshot = Map<String, dynamic>.from(
+                _kitchenItemPrepApiByKey[selectionKey] ?? const {},
+              );
+              baseSnapshot['preparingTime'] = parsedMinutes;
+              baseSnapshot['preparationTime'] = parsedMinutes;
+              _kitchenItemPrepApiByKey[selectionKey] = baseSnapshot;
+              _applyKitchenPreparationSnapshotToOrders(selectionKey, baseSnapshot);
+
+              final apiSnapshot = preparationPayload == null
+                  ? null
+                  : _buildKitchenPreparationSnapshotFromApi(preparationPayload);
+              if (apiSnapshot != null) {
+                final mergedSnapshot = Map<String, dynamic>.from(baseSnapshot)
+                  ..addAll(apiSnapshot);
+                _kitchenItemPrepApiByKey[selectionKey] = mergedSnapshot;
+                _applyKitchenPreparationSnapshotToOrders(
+                  selectionKey,
+                  mergedSnapshot,
+                );
+              }
+            });
+
+            if (mounted) {
+              Navigator.of(dialogContext).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Preparation time saved: ${parsedMinutes} min',
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            }
+          } catch (e) {
+            if (!mounted) return;
+            setDialogState(() {
+              isSaving = false;
+              errorText = 'Failed to save preparation time.';
+            });
+            debugPrint('DEBUG: Failed to save preparation time: $e');
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Preparation Time'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    rawName.isEmpty ? 'Item' : rawName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    autofocus: true,
+                    enabled: !isSaving,
+                    decoration: InputDecoration(
+                      labelText: 'Minutes',
+                      hintText: 'e.g. 15',
+                      errorText: errorText,
+                    ),
+                    onSubmitted: (_) {
+                      handleSave(setDialogState);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () {
+                          handleSave(setDialogState);
+                        },
+                  child: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+        },
+      );
+    } finally {
+      _isKitchenPreparationTimeDialogOpen = false;
+      controller.dispose();
+    }
   }
 
   Future<void> _onKitchenItemTapped(
     dynamic item, {
-    bool requirePreselected = true,
+    String? targetStatus,
   }) async {
     final billingId = item['billingId'];
     final itemId = item['id'] ?? item['_id'];
-    final currentStatus =
-        (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
-    if (currentStatus != 'ordered' && currentStatus != 'confirmed') {
+    final itemIdText = itemId?.toString().trim() ?? '';
+    if (itemIdText.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to identify item for status update.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
       return;
     }
+    final currentStatus =
+        (item['status'] as String?)?.toLowerCase().trim() ?? 'ordered';
+
+    // Role-based allowed transitions
+    bool canProceed = false;
+    if (targetStatus == 'delivered') {
+      canProceed = true; // Any valid item can be delivered via double tap
+    } else if (currentStatus == 'ordered' || currentStatus == 'confirmed') {
+      canProceed = true; // Standard preparation flow
+    } else if (currentStatus == 'prepared' && _userRole == 'supervisor') {
+      canProceed = true; // Supervisor marking prepared as served
+    }
+
+    if (!canProceed) return;
 
     final selectionKey =
         (item is Map ? item['selectionKey']?.toString() : null) ??
         _buildKitchenSelectionKey(billingId.toString(), item);
 
-    if (requirePreselected &&
-        !_selectedKitchenItemKeys.contains(selectionKey)) {
-      if (mounted) {
-        setState(() {
-          _selectedKitchenItemKeys
-            ..clear()
-            ..add(selectionKey);
-        });
-      }
-      return;
-    }
-
-    if (!requirePreselected && mounted) {
+    if (mounted) {
       setState(() {
         _selectedKitchenItemKeys
           ..clear()
@@ -4860,20 +6437,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     final itemKeys = _buildNotificationItemKeys(billingId.toString(), item);
-    if (itemId != null && itemId.toString().trim().isNotEmpty) {
-      itemKeys.add('${billingId}_${itemId.toString().trim()}');
-    }
+    itemKeys.add('${billingId}_$itemIdText');
 
     String nextStatus = '';
     String loadingMsg = '';
     String successMsg = '';
     Color successColor = Colors.blue;
 
-    if (currentStatus == 'ordered' || currentStatus == 'confirmed') {
+    if (targetStatus == 'delivered') {
+      nextStatus = 'delivered';
+      loadingMsg = 'Marking as delivered...';
+      successMsg = 'Item Delivered';
+      successColor = Colors.orange;
+    } else if (currentStatus == 'ordered' || currentStatus == 'confirmed') {
       nextStatus = 'prepared';
       loadingMsg = 'Marking as prepared...';
       successMsg = 'Item Prepared';
       successColor = Colors.green;
+    } else if (currentStatus == 'prepared' && _userRole == 'supervisor') {
+      nextStatus = 'delivered';
+      loadingMsg = 'Marking as delivered...';
+      successMsg = 'Item Delivered';
+      successColor = Colors.orange;
     } else {
       return;
     }
@@ -4888,24 +6473,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
 
       await ApiService.instance.updateBillingItemStatus(
-        billingId: billingId,
-        itemId: itemId,
+        billingId: billingId.toString(),
+        itemId: itemIdText,
         status: nextStatus,
       );
 
       Map<String, dynamic>? preparationPayload;
-      if (itemId != null && itemId.toString().trim().isNotEmpty) {
-        try {
-          preparationPayload = await ApiService.instance
-              .fetchBillingItemPreparationTime(
-                billingId: billingId.toString(),
-                itemId: itemId.toString().trim(),
-              );
-        } catch (e) {
-          debugPrint(
-            'DEBUG: Preparation time fetch failed after status update: $e',
-          );
-        }
+      try {
+        preparationPayload = await ApiService.instance
+            .fetchBillingItemPreparationTime(
+              billingId: billingId.toString(),
+              itemId: itemIdText,
+            );
+      } catch (e) {
+        debugPrint(
+          'DEBUG: Preparation time fetch failed after status update: $e',
+        );
       }
 
       // Never show the same item notification again once marked prepared.
@@ -4914,7 +6497,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _removeKitchenItemLocally(
             billingId: billingId.toString(),
             selectionKey: selectionKey,
-            itemId: itemId?.toString().trim(),
+            itemId: itemIdText,
+            newStatus: nextStatus,
           );
           final bucketKey = _buildSuppressionBucketKey(
             billingId.toString(),

@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-enum KitchenFooterTab { kot, stock, review, chats }
+enum StockFooterTab { live, stock, review, chats }
 
-class KitchenFooter extends StatelessWidget {
-  final KitchenFooterTab selectedTab;
-  final ValueChanged<KitchenFooterTab> onSelected;
+class StockFooter extends StatelessWidget {
+  final StockFooterTab selectedTab;
+  final ValueChanged<StockFooterTab> onSelected;
   final int stockBadgeCount;
   final int liveBadgeCount;
   final int reviewBadgeCount;
 
-  const KitchenFooter({
+  const StockFooter({
     super.key,
     required this.selectedTab,
     required this.onSelected,
@@ -37,38 +37,38 @@ class KitchenFooter extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: _KitchenFooterItem(
+              child: _StockFooterItem(
                 icon: Icons.receipt_long_rounded,
-                label: 'KOT',
-                isSelected: selectedTab == KitchenFooterTab.kot,
-                onTap: () => onSelected(KitchenFooterTab.kot),
+                label: 'LIVE',
+                isSelected: selectedTab == StockFooterTab.live,
+                onTap: () => onSelected(StockFooterTab.live),
                 badgeCount: liveBadgeCount,
               ),
             ),
             Expanded(
-              child: _KitchenFooterItem(
+              child: _StockFooterItem(
                 icon: Icons.inventory_2_rounded,
                 label: 'STOCK',
-                isSelected: selectedTab == KitchenFooterTab.stock,
-                onTap: () => onSelected(KitchenFooterTab.stock),
+                isSelected: selectedTab == StockFooterTab.stock,
+                onTap: () => onSelected(StockFooterTab.stock),
                 badgeCount: stockBadgeCount,
               ),
             ),
             Expanded(
-              child: _KitchenFooterItem(
+              child: _StockFooterItem(
                 icon: Icons.reviews_outlined,
-                label: 'Review',
-                isSelected: selectedTab == KitchenFooterTab.review,
-                onTap: () => onSelected(KitchenFooterTab.review),
+                label: 'REVIEW',
+                isSelected: selectedTab == StockFooterTab.review,
+                onTap: () => onSelected(StockFooterTab.review),
                 badgeCount: reviewBadgeCount,
               ),
             ),
             Expanded(
-              child: _KitchenFooterItem(
+              child: _StockFooterItem(
                 icon: Icons.chat_bubble_outline_rounded,
-                label: 'Chats',
-                isSelected: selectedTab == KitchenFooterTab.chats,
-                onTap: () => onSelected(KitchenFooterTab.chats),
+                label: 'CHATS',
+                isSelected: selectedTab == StockFooterTab.chats,
+                onTap: () => onSelected(StockFooterTab.chats),
               ),
             ),
           ],
@@ -78,14 +78,14 @@ class KitchenFooter extends StatelessWidget {
   }
 }
 
-class _KitchenFooterItem extends StatelessWidget {
+class _StockFooterItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool isSelected;
   final int badgeCount;
 
-  const _KitchenFooterItem({
+  const _StockFooterItem({
     required this.icon,
     required this.label,
     required this.onTap,

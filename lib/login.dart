@@ -209,16 +209,28 @@ class _LoginPageState extends State<LoginPage> {
             'DEBUG: Login success. Role: $userRole, Name: $userName, ID: $userId',
           );
 
+          final isKitchen =
+              fullUser['isKitchen'] == true || userRole == 'kitchen';
+          final isStock =
+              fullUser['isStock'] == true ||
+              userRole == 'chef' ||
+              userRole == 'supervisor' ||
+              userRole == 'driver' ||
+              userRole == 'factory';
+
           const storage = FlutterSecureStorage();
           await storage.write(key: 'isLoggedIn', value: 'true');
           await storage.write(key: 'token', value: token);
           await storage.write(key: 'userId', value: userId);
           await storage.write(key: 'userRole', value: userRole);
           await storage.write(key: 'userName', value: userName);
+          await storage.write(key: 'userIsKitchen', value: isKitchen.toString());
+          await storage.write(key: 'userIsStock', value: isStock.toString());
 
-          if (userRole == 'kitchen') {
+          if (isKitchen) {
             final branchObj = fullUser['branch'];
             final kitchenObj = fullUser['kitchen'];
+            final kitchenBranches = fullUser['kitchenBranches'] as List?;
 
             // Extract Kitchen ID and Categories
             String kitchenId = '';
@@ -253,6 +265,18 @@ class _LoginPageState extends State<LoginPage> {
             var bId =
                 (branchObj is Map ? branchObj['id'] : branchObj)?.toString() ??
                 '';
+
+            // Check kitchenBranches if primary branch is missing
+            if (bId.isEmpty &&
+                kitchenBranches != null &&
+                kitchenBranches.isNotEmpty) {
+              final firstBranch = kitchenBranches.first;
+              bId =
+                  (firstBranch is Map ? firstBranch['id'] : firstBranch)
+                      ?.toString() ??
+                  '';
+            }
+
             // Fallback for branch in employee
             if (bId.isEmpty && fullUser['employee'] is Map) {
               final emp = fullUser['employee'];

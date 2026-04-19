@@ -122,10 +122,7 @@ class _BranchListPageState extends State<BranchListPage> {
               return s == 'ordered' || s == 'pending' || s == 'sending';
             });
           } else if (_userRole == 'supervisor') {
-            shouldShow = items.any((item) {
-              final s = (item['status'] as String?)?.toLowerCase() ?? 'sending';
-              return s == 'sending' || s == 'confirmed';
-            });
+            shouldShow = true;
           } else if (_userRole == 'driver') {
             shouldShow = items.any((item) {
               final s =

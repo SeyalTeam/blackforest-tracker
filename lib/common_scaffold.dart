@@ -8,12 +8,15 @@ class CommonScaffold extends StatelessWidget {
   final List<Widget>? actions;
   final Widget? bottomNavigationBar;
 
+  final Widget? persistentFooter;
+
   const CommonScaffold({
     super.key,
     required this.body,
     required this.title,
     this.actions,
     this.bottomNavigationBar,
+    this.persistentFooter,
   });
 
   @override
@@ -96,7 +99,15 @@ class CommonScaffold extends StatelessWidget {
         ),
       ),
       body: body,
-      bottomNavigationBar: bottomNavigationBar,
+      bottomNavigationBar: persistentFooter == null
+          ? bottomNavigationBar
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (bottomNavigationBar != null) bottomNavigationBar!,
+                persistentFooter!,
+              ],
+            ),
     );
   }
 }

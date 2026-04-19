@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'common_scaffold.dart';
 import 'api_service.dart';
 import 'stockorder_report.dart';
+import 'stock_footer.dart';
+import 'review_list.dart';
+import 'kitchen_chats_screen.dart';
+import 'smooth_navigation.dart';
 
 class StockTicketListScreen extends StatefulWidget {
   const StockTicketListScreen({super.key});
@@ -23,11 +28,17 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
   bool _isLoading = true;
   String _userRole = '';
   DateTime _selectedDate = DateTime.now();
+  int _stockCount = 0;
+  int _branchCount = 0;
+  int _reviewCount = 0;
+  final Set<String> _stockAlertingProductIds = {};
+  Timer? _syncTimer;
 
   @override
   void initState() {
     super.initState();
     _initData();
+    _startSyncTimer();
   }
 
   Future<void> _initData() async {
@@ -36,6 +47,24 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
     // Cache Check logic same as Home
     await _fetchCounts();
     await _fetchBranches();
+  }
+
+  void _startSyncTimer() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _fetchCounts(forceRefresh: false);
+      _fetchReviewsCount();
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchBranches() async {
@@ -92,6 +121,8 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
       );
 
       List<dynamic> validOrders = [];
+      int stockCount = 0;
+      int branchCount = 0;
 
       for (var o in orders) {
         final cDate = DateTime.tryParse(o['createdAt'] ?? '')?.toLocal();
@@ -109,6 +140,16 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
 
           bool isLive = isOrderedOnFilterDate && isDeliveryOnFilterDate;
 
+          int status = _getOrderStatus(o);
+
+          if (status < 2) {
+            if (isLive) {
+              branchCount++;
+            } else {
+              stockCount++;
+            }
+          }
+
           // FILTER: ONLY SHOW STOCK ORDERS (Not Live)
           if (isLive) continue;
 
@@ -122,22 +163,17 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
               return s == 'ordered' || s == 'pending' || s == 'sending';
             });
           } else if (_userRole == 'supervisor') {
-            shouldShow = items.any((item) {
-              final s = (item['status'] as String?)?.toLowerCase() ?? 'sending';
-              return s == 'sending' || s == 'confirmed';
-            });
+            shouldShow = true;
           } else if (_userRole == 'driver') {
             shouldShow = items.any((item) {
               final s =
                   (item['status'] as String?)?.toLowerCase() ?? 'confirmed';
               return s == 'confirmed' || s == 'picked';
             });
-          } else {
-            bool isOpened = items.any((item) {
-              final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
-              return s != 'ordered' && s != 'pending';
-            });
-            shouldShow = !isOpened;
+          }
+
+          if (status == 2) {
+            shouldShow = true; // Still show completed orders for the day
           }
 
           if (shouldShow) {
@@ -186,13 +222,40 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
       if (mounted) {
         setState(() {
           _recentOrders = validOrders;
+          _stockCount = stockCount;
+          _branchCount = branchCount;
           _isLoading = false;
         });
+        _fetchReviewsCount();
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<void> _fetchReviewsCount() async {
+    try {
+      final reviews = await ApiService.instance.fetchReviews();
+      int count = 0;
+      for (var review in reviews) {
+        final items = (review['items'] as List?) ?? [];
+        for (var item in items) {
+          final itemStatus = item['status'] ?? 'waiting';
+          final hasReply = (item['chefReply'] as String?)?.isNotEmpty ?? false;
+          if (itemStatus == 'waiting' && !hasReply) {
+            count++;
+          }
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _reviewCount = count;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching reviews: $e');
     }
   }
 
@@ -494,6 +557,7 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                     ),
                   ),
 
+                  const SizedBox(height: 12),
                   // TABS (Left Aligned)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.start,
@@ -522,8 +586,82 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
                 ],
               ),
             ),
-      bottomNavigationBar: _buildDepartmentFooter(),
+      bottomNavigationBar: StockFooter(
+        selectedTab: StockFooterTab.stock,
+        onSelected: _handleStockFooterSelection,
+        stockBadgeCount: _stockCount,
+        liveBadgeCount: _branchCount,
+        reviewBadgeCount: _reviewCount,
+      ),
     );
+  }
+
+  void _handleStockFooterSelection(StockFooterTab tab) {
+    switch (tab) {
+      case StockFooterTab.live:
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        break;
+      case StockFooterTab.stock:
+        // Already here
+        break;
+      case StockFooterTab.review:
+        Navigator.push(
+          context,
+          smoothPageRoute(
+            ReviewListScreen(
+              showKitchenFooter: true,
+              onKotTap: () => Navigator.of(context).popUntil((r) => r.isFirst),
+              onStockTap: () {
+                Navigator.pop(context);
+                // Already on stock tickets, but we could refresh
+                _fetchCounts(forceRefresh: true);
+              },
+              stockBadgeCount: _stockCount,
+              liveBadgeCount: _branchCount,
+              reviewBadgeCount: _reviewCount,
+              footerMode: 'STOCK',
+            ),
+          ),
+        );
+        break;
+      case StockFooterTab.chats:
+        Navigator.push(
+          context,
+          smoothPageRoute(
+            KitchenChatsScreen(
+              onKotTap: () => Navigator.of(context).popUntil((r) => r.isFirst),
+              onStockTap: () {
+                Navigator.pop(context);
+                // Already on stock tickets
+              },
+              onReviewTap: () {
+                Navigator.pushReplacement(
+                  context,
+                  smoothPageRoute(
+                    ReviewListScreen(
+                      showKitchenFooter: true,
+                      onKotTap:
+                          () => Navigator.of(context).popUntil((r) => r.isFirst),
+                      onStockTap: () {
+                        Navigator.pop(context);
+                      },
+                      stockBadgeCount: _stockCount,
+                      liveBadgeCount: _branchCount,
+                      reviewBadgeCount: _reviewCount,
+                      footerMode: 'STOCK',
+                    ),
+                  ),
+                );
+              },
+              stockBadgeCount: _stockCount,
+              liveBadgeCount: _branchCount,
+              reviewBadgeCount: _reviewCount,
+              footerMode: 'STOCK',
+            ),
+          ),
+        );
+        break;
+    }
   }
 
   bool _doesOrderContainDepartment(dynamic order, String deptId) {
