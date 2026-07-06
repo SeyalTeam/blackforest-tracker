@@ -521,6 +521,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         initialValue: _selectedCategoryId,
+                        isExpanded: true,
                         decoration: InputDecoration(
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -528,7 +529,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                         items: _categories.map((cat) {
                           return DropdownMenuItem<String>(
                             value: cat['id']?.toString(),
-                            child: Text(cat['name'] ?? 'Unknown'),
+                            child: Text(cat['name'] ?? 'Unknown', overflow: TextOverflow.ellipsis),
                           );
                         }).toList(),
                         onChanged: (val) {
@@ -542,6 +543,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         initialValue: _selectedDealerId,
+                        isExpanded: true,
                         decoration: InputDecoration(
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -554,7 +556,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                           ..._dealers.map((dl) {
                             return DropdownMenuItem<String>(
                               value: dl['id']?.toString(),
-                              child: Text(dl['companyName'] ?? 'Unknown Dealer'),
+                              child: Text(dl['companyName'] ?? 'Unknown Dealer', overflow: TextOverflow.ellipsis),
                             );
                           }),
                         ],
@@ -569,6 +571,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         initialValue: _selectedUnit,
+                        isExpanded: true,
                         decoration: InputDecoration(
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -576,7 +579,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                         items: _unitOptions.map((opt) {
                           return DropdownMenuItem<String>(
                             value: opt['value'],
-                            child: Text(opt['label']!),
+                            child: Text(opt['label']!, overflow: TextOverflow.ellipsis),
                           );
                         }).toList(),
                         onChanged: (val) {
