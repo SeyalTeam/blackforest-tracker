@@ -10,7 +10,8 @@ class ApiService {
   ApiService._internal();
   static ApiService get instance => _instance;
 
-  static const String _baseUrl = 'https://blackforest.vseyal.com/api';
+  static const String _baseUrl = 'https://blackforest4.vseyal.com/api';
+  static String get baseUrl => _baseUrl;
   static const storage = FlutterSecureStorage();
 
   // Cache Storage
@@ -118,15 +119,16 @@ class ApiService {
   Future<List<dynamic>> fetchStockOrders({
     required DateTime fromDate,
     DateTime? toDate,
+    String filterBy = 'deliveryDate',
     bool forceRefresh = false,
   }) async {
     final start = DateTime(fromDate.year, fromDate.month, fromDate.day);
-    final end =
-        toDate != null
-            ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
-            : DateTime(fromDate.year, fromDate.month, fromDate.day, 23, 59, 59);
+    final end = toDate != null
+        ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
+        : DateTime(fromDate.year, fromDate.month, fromDate.day, 23, 59, 59);
 
-    final cacheKey = '${start.toIso8601String()}_${end.toIso8601String()}';
+    final cacheKey =
+        '${filterBy}_${start.toIso8601String()}_${end.toIso8601String()}';
 
     if (_cachedStockOrders.containsKey(cacheKey) && !forceRefresh) {
       return _cachedStockOrders[cacheKey]!;
@@ -138,8 +140,8 @@ class ApiService {
       // Using deliveryDate as per recent requirement changes
       final url =
           '$_baseUrl/stock-orders?limit=1000&depth=2'
-          '&where[deliveryDate][greater_than]=${start.toUtc().toIso8601String()}'
-          '&where[deliveryDate][less_than]=${end.toUtc().toIso8601String()}';
+          '&where[$filterBy][greater_than]=${start.toUtc().toIso8601String()}'
+          '&where[$filterBy][less_than]=${end.toUtc().toIso8601String()}';
 
       final res = await http.get(
         Uri.parse(url),
@@ -183,24 +185,30 @@ class ApiService {
     }
   }
 
-  Future<List<dynamic>> fetchReviews({DateTime? date}) async {
+  Future<List<dynamic>> fetchReviews({DateTime? date, String? branchId}) async {
     try {
       final token = await _getToken();
 
       String url = '$_baseUrl/reviews?limit=100&depth=1&sort=-createdAt';
 
+      if (branchId != null && branchId.isNotEmpty && branchId != 'ALL') {
+        url += '&where[branch][equals]=$branchId';
+      }
+
       if (date != null) {
-        final start =
-            DateTime(date.year, date.month, date.day).toUtc().toIso8601String();
-        final end =
-            DateTime(
-              date.year,
-              date.month,
-              date.day,
-              23,
-              59,
-              59,
-            ).toUtc().toIso8601String();
+        final start = DateTime(
+          date.year,
+          date.month,
+          date.day,
+        ).toUtc().toIso8601String();
+        final end = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          23,
+          59,
+          59,
+        ).toUtc().toIso8601String();
         url +=
             '&where[createdAt][greater_than]=$start&where[createdAt][less_than]=$end';
       }
@@ -246,19 +254,18 @@ class ApiService {
 
       // 2. Find and update the specific item
       bool found = false;
-      final updatedItems =
-          items.map((item) {
-            final currentId = item['id'] ?? item['_id'];
-            if (currentId == itemId) {
-              found = true;
-              return {
-                ...item,
-                'chefReply': replyText,
-                // 'status': 'replied' // Let backend hook handle status
-              };
-            }
-            return item;
-          }).toList();
+      final updatedItems = items.map((item) {
+        final currentId = item['id'] ?? item['_id'];
+        if (currentId == itemId) {
+          found = true;
+          return {
+            ...item,
+            'chefReply': replyText,
+            // 'status': 'replied' // Let backend hook handle status
+          };
+        }
+        return item;
+      }).toList();
 
       if (!found) {
         throw Exception('Review item not found');
@@ -267,13 +274,12 @@ class ApiService {
       // 3. Patch the review with updated items array
       final patchRes = await http.patch(
         Uri.parse('$_baseUrl/reviews/$reviewId'),
-        headers:
-            token != null
-                ? {
-                  'Authorization': 'Bearer $token',
-                  'Content-Type': 'application/json',
-                }
-                : {},
+        headers: token != null
+            ? {
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json',
+              }
+            : {},
         body: jsonEncode({'items': updatedItems}),
       );
 
@@ -353,6 +359,40 @@ class ApiService {
     }
   }
 
+  Future<List<dynamic>> fetchProductsByIds(
+    List<String> productIds, {
+    int depth = 1,
+  }) async {
+    final ids = productIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (ids.isEmpty) return [];
+
+    try {
+      final token = await _getToken();
+      String url = '$_baseUrl/products?limit=${ids.length}&depth=$depth';
+      for (int i = 0; i < ids.length; i++) {
+        url += '&where[id][in][$i]=${Uri.encodeQueryComponent(ids[i])}';
+      }
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load products by ids');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> fetchProductById(String productId) async {
     try {
       final token = await _getToken();
@@ -367,6 +407,57 @@ class ApiService {
         return Map<String, dynamic>.from(jsonDecode(res.body) as Map);
       } else {
         throw Exception('Failed to load product details');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchMediaById(String mediaId) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/media/$mediaId';
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        return Map<String, dynamic>.from(jsonDecode(res.body) as Map);
+      } else {
+        throw Exception('Failed to load media details');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchMediaByIds(List<String> mediaIds) async {
+    final ids = mediaIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (ids.isEmpty) return [];
+
+    try {
+      final token = await _getToken();
+      String url = '$_baseUrl/media?limit=${ids.length}';
+      for (int i = 0; i < ids.length; i++) {
+        url += '&where[id][in][$i]=${Uri.encodeQueryComponent(ids[i])}';
+      }
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load media by ids');
       }
     } catch (e) {
       rethrow;
@@ -475,17 +566,9 @@ class ApiService {
         url +=
             '&where[createdAt][greater_than]=${start.toUtc().toIso8601String()}';
 
-        final end =
-            toDate != null
-                ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
-                : DateTime(
-                  fromDate.year,
-                  fromDate.month,
-                  fromDate.day,
-                  23,
-                  59,
-                  59,
-                );
+        final end = toDate != null
+            ? DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59)
+            : DateTime(fromDate.year, fromDate.month, fromDate.day, 23, 59, 59);
         url += '&where[createdAt][less_than]=${end.toUtc().toIso8601String()}';
       }
 
@@ -517,6 +600,7 @@ class ApiService {
     String? status,
     int? preparingTime,
     int? preparationTime,
+    String? actorUserId,
   }) async {
     try {
       final normalizedStatus = status?.trim();
@@ -536,6 +620,11 @@ class ApiService {
         payload['preparingTime'] = preparingTime;
       } else if (preparationTime != null) {
         payload['preparationTime'] = preparationTime;
+      }
+
+      // Send actorUserId so backend can record who performed the action
+      if (actorUserId != null && actorUserId.isNotEmpty) {
+        payload['actorUserId'] = actorUserId;
       }
 
       if (!payload.containsKey('status') &&
@@ -638,6 +727,183 @@ class ApiService {
         return (data['docs'] as List?) ?? [];
       } else {
         throw Exception('Failed to load billings');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchCompanies() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/companies?limit=1000'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load companies');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchRawMaterialCategories() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/raw-material-categories?limit=1000'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load raw material categories');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createRawMaterialCategory({
+    required String name,
+    required List<String> companyIds,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/raw-material-categories'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'name': name,
+          'company': companyIds,
+        }),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create raw material category: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createRawMaterial({
+    required String name,
+    required String categoryId,
+    required String unit,
+    double? minimumStockLevel,
+    String? dealerId,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/raw-materials'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'name': name,
+          'category': categoryId,
+          'unit': unit,
+          if (minimumStockLevel != null) 'minimumStockLevel': minimumStockLevel,
+          if (dealerId != null) 'dealer': dealerId,
+        }),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create raw material: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchRawMaterials() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/raw-materials?limit=1000'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load raw materials');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchDealers() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/dealers?limit=1000&depth=1'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load dealers');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createDealer({
+    required String companyName,
+    required String address,
+    required String phoneNumber,
+    required String email,
+    required String contactName,
+    required List<String> allowedCompanies,
+    String? gst,
+    String? pan,
+  }) async {
+    try {
+      final token = await _getToken();
+      final bodyMap = {
+        'companyName': companyName,
+        'address': address,
+        'phoneNumber': phoneNumber,
+        'email': email,
+        'contactPerson': {
+          'name': contactName,
+        },
+        'allowedCompanies': allowedCompanies,
+        'isGSTRegistered': gst != null && gst.isNotEmpty,
+        if (gst != null && gst.isNotEmpty) 'gst': gst,
+        if (pan != null && pan.isNotEmpty) 'pan': pan,
+        'status': 'active',
+      };
+
+      final res = await http.post(
+        Uri.parse('$_baseUrl/dealers'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(bodyMap),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create dealer: ${res.body}');
       }
     } catch (e) {
       rethrow;
