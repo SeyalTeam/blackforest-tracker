@@ -386,7 +386,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
       }).toList();
 
       // 4. Fetch and filter dealers
-      final dealers = await ApiService.instance.fetchDealers();
+      final dealers = await ApiService.instance.fetchRawMaterialDealers();
       final filteredDealers = dealers.where((dl) {
         final allowedComps = dl['allowedCompanies'] as List?;
         if (allowedComps == null) return false;
@@ -776,14 +776,14 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
   }
 }
 
-class CreateDealerScreen extends StatefulWidget {
-  const CreateDealerScreen({super.key});
+class CreateRawMaterialDealerScreen extends StatefulWidget {
+  const CreateRawMaterialDealerScreen({super.key});
 
   @override
-  State<CreateDealerScreen> createState() => _CreateDealerScreenState();
+  State<CreateRawMaterialDealerScreen> createState() => _CreateRawMaterialDealerScreenState();
 }
 
-class _CreateDealerScreenState extends State<CreateDealerScreen> {
+class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerScreen> {
   final _formKey = GlobalKey<FormState>();
   
   final _companyNameController = TextEditingController();
@@ -845,7 +845,7 @@ class _CreateDealerScreenState extends State<CreateDealerScreen> {
       }
 
       // 2. Fetch all dealers
-      final dealers = await ApiService.instance.fetchDealers();
+      final dealers = await ApiService.instance.fetchRawMaterialDealers();
 
       // Filter dealers to only those allowed for the storekeeper's companies
       final filteredDealers = dealers.where((dl) {
@@ -891,7 +891,7 @@ class _CreateDealerScreenState extends State<CreateDealerScreen> {
     });
 
     try {
-      await ApiService.instance.createDealer(
+      await ApiService.instance.createRawMaterialDealer(
         companyName: _companyNameController.text.trim(),
         address: _addressController.text.trim(),
         phoneNumber: _phoneController.text.trim(),
@@ -912,7 +912,7 @@ class _CreateDealerScreenState extends State<CreateDealerScreen> {
       _panController.clear();
 
       // Reload dealers
-      final dealers = await ApiService.instance.fetchDealers();
+      final dealers = await ApiService.instance.fetchRawMaterialDealers();
       final filteredDealers = dealers.where((dl) {
         final allowedComps = dl['allowedCompanies'] as List?;
         if (allowedComps == null) return false;
@@ -930,7 +930,7 @@ class _CreateDealerScreenState extends State<CreateDealerScreen> {
         Navigator.of(context).pop(); // dismiss dialog
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Dealer created successfully!'),
+            content: Text('Raw Material Dealer created successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -942,7 +942,7 @@ class _CreateDealerScreenState extends State<CreateDealerScreen> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error creating dealer: $e'),
+            content: Text('Error creating raw material dealer: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -955,7 +955,7 @@ class _CreateDealerScreenState extends State<CreateDealerScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Add Dealer'),
+          title: const Text('Add Raw Material Dealer'),
           content: SingleChildScrollView(
             child: Form(
               key: _formKey,
@@ -1091,7 +1091,7 @@ class _CreateDealerScreenState extends State<CreateDealerScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Dealers'),
+        title: const Text('Raw Material Dealers'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
       ),

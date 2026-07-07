@@ -909,4 +909,67 @@ class ApiService {
       rethrow;
     }
   }
+
+  Future<List<dynamic>> fetchRawMaterialDealers() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/raw-material-dealers?limit=1000&depth=1'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load raw material dealers');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createRawMaterialDealer({
+    required String companyName,
+    required String address,
+    required String phoneNumber,
+    required String email,
+    required String contactName,
+    required List<String> allowedCompanies,
+    String? gst,
+    String? pan,
+  }) async {
+    try {
+      final token = await _getToken();
+      final bodyMap = {
+        'companyName': companyName,
+        'address': address,
+        'phoneNumber': phoneNumber,
+        'email': email,
+        'contactPerson': {
+          'name': contactName,
+        },
+        'allowedCompanies': allowedCompanies,
+        'isGSTRegistered': gst != null && gst.isNotEmpty,
+        if (gst != null && gst.isNotEmpty) 'gst': gst,
+        if (pan != null && pan.isNotEmpty) 'pan': pan,
+        'status': 'active',
+      };
+
+      final res = await http.post(
+        Uri.parse('$_baseUrl/raw-material-dealers'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(bodyMap),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create raw material dealer: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }

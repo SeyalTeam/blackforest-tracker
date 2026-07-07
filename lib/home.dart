@@ -1908,14 +1908,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       _buildStoreKeeperGridItem(
                         context,
-                        title: 'Dealers',
-                        icon: Icons.business_rounded,
+                        title: 'Raw Material Dealer',
+                        icon: Icons.local_shipping_rounded,
                         color: Colors.purpleAccent,
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const CreateDealerScreen(),
+                              builder: (context) => const CreateRawMaterialDealerScreen(),
                             ),
                           );
                         },
