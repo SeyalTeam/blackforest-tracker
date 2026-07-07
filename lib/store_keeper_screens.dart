@@ -293,26 +293,13 @@ class CreateRawMaterialScreen extends StatefulWidget {
 }
 
 class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _minStockController = TextEditingController();
-  
   bool _isLoading = false;
   List<dynamic> _categories = [];
   List<dynamic> _products = [];
   List<dynamic> _dealers = [];
-  String? _selectedCategoryId;
-  String? _selectedDealerId;
-  String _selectedUnit = 'kg';
+  String? _selectedFilterCategoryId = 'all';
+  String? _selectedFilterDealerId = 'all';
   String? _errorMsg;
-
-  final List<Map<String, String>> _unitOptions = [
-    {'label': 'Pieces (pcs)', 'value': 'pcs'},
-    {'label': 'Kilograms (kg)', 'value': 'kg'},
-    {'label': 'Grams (g)', 'value': 'g'},
-    {'label': 'Liters (l)', 'value': 'l'},
-    {'label': 'Milliliters (ml)', 'value': 'ml'},
-  ];
 
   @override
   void initState() {
@@ -401,9 +388,6 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
           _categories = filteredCategories;
           _products = filteredProducts;
           _dealers = filteredDealers;
-          if (_categories.isNotEmpty) {
-            _selectedCategoryId = _categories.first['id']?.toString();
-          }
           _isLoading = false;
         });
       }
@@ -417,232 +401,22 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
     }
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_selectedCategoryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a category.')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      double? minStock;
-      if (_minStockController.text.trim().isNotEmpty) {
-        minStock = double.tryParse(_minStockController.text.trim());
-      }
-
-      await ApiService.instance.createRawMaterial(
-        name: _nameController.text.trim(),
-        categoryId: _selectedCategoryId!,
-        unit: _selectedUnit,
-        minimumStockLevel: minStock,
-        dealerId: _selectedDealerId,
-      );
-
-      // Clear input fields
-      _nameController.clear();
-      _minStockController.clear();
-      _selectedDealerId = null;
-      
-      // Reload products list
-      final rawMaterials = await ApiService.instance.fetchRawMaterials();
-      final filteredProducts = rawMaterials.where((prod) {
-        final catObj = prod['category'];
-        final catId = (catObj is Map ? catObj['id'] : catObj)?.toString();
-        return catId != null && _categories.any((c) => c['id']?.toString() == catId);
-      }).toList();
-
-      if (mounted) {
-        setState(() {
-          _products = filteredProducts;
-          _isLoading = false;
-        });
-        Navigator.of(context).pop(); // dismiss the dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Raw Material Product created successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _showCreateDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Add Product'),
-              content: SingleChildScrollView(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Product Name', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: InputDecoration(
-                          hintText: 'e.g. Tomato',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Required';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('Category', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 6),
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedCategoryId,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        items: _categories.map((cat) {
-                          return DropdownMenuItem<String>(
-                            value: cat['id']?.toString(),
-                            child: Text(cat['name'] ?? 'Unknown', overflow: TextOverflow.ellipsis),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          setDialogState(() {
-                            _selectedCategoryId = val;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('Dealer (Optional)', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 6),
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedDealerId,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        items: [
-                          const DropdownMenuItem<String>(
-                            value: null,
-                            child: Text('None (Internal)'),
-                          ),
-                          ..._dealers.map((dl) {
-                            return DropdownMenuItem<String>(
-                              value: dl['id']?.toString(),
-                              child: Text(dl['companyName'] ?? 'Unknown Dealer', overflow: TextOverflow.ellipsis),
-                            );
-                          }),
-                        ],
-                        onChanged: (val) {
-                          setDialogState(() {
-                            _selectedDealerId = val;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('Unit', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 6),
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedUnit,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        items: _unitOptions.map((opt) {
-                          return DropdownMenuItem<String>(
-                            value: opt['value'],
-                            child: Text(opt['label']!, overflow: TextOverflow.ellipsis),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setDialogState(() {
-                              _selectedUnit = val;
-                            });
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('Minimum Stock Level', style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _minStockController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. 5.0',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        validator: (value) {
-                          if (value != null && value.trim().isNotEmpty) {
-                            final num = double.tryParse(value.trim());
-                            if (num == null) return 'Must be a number';
-                          }
-                          return null;
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-                ),
-                ElevatedButton(
-                  onPressed: _submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Add'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _minStockController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
+    final filteredProducts = _products.where((prod) {
+      if (_selectedFilterCategoryId != null && _selectedFilterCategoryId != 'all') {
+        final catObj = prod['category'];
+        final catId = (catObj is Map ? catObj['id'] : catObj)?.toString();
+        if (catId != _selectedFilterCategoryId) return false;
+      }
+      if (_selectedFilterDealerId != null && _selectedFilterDealerId != 'all') {
+        final dealerObj = prod['dealer'];
+        final dealerId = (dealerObj is Map ? dealerObj['id'] : dealerObj)?.toString();
+        if (dealerId != _selectedFilterDealerId) return false;
+      }
+      return true;
+    }).toList();
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -669,109 +443,469 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                     ),
                   ),
                 )
-              : _products.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No products found.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _products.length,
-                      padding: const EdgeInsets.all(16.0),
-                      itemBuilder: (context, index) {
-                        final prod = _products[index];
-                        final name = prod['name'] ?? 'Unknown';
-                        final unit = prod['unit'] ?? '';
-                        final minStock = prod['minimumStockLevel']?.toString() ?? 'N/A';
-                        
-                        final catObj = prod['category'];
-                        final catName = (catObj is Map ? catObj['name'] : 'Unknown');
-
-                        final dealerObj = prod['dealer'];
-                        final dealerName = (dealerObj is Map ? dealerObj['companyName'] : null) ?? '';
-                        final displayName = name + (dealerName.isNotEmpty ? ' with $dealerName' : '');
-
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12.0),
-                          elevation: 1,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 16.0, bottom: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Total: ${filteredProducts.length} products',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
                           ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.05),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.inventory_2_outlined,
-                                    color: Colors.black54,
-                                    size: 24,
-                                  ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                      child: Row(
+                        children: [
+                           Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: _selectedFilterCategoryId,
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: 'Category',
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              ),
+                              items: [
+                                const DropdownMenuItem<String>(
+                                  value: 'all',
+                                  child: Text('All Categories'),
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        displayName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.grey[200],
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              catName,
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.black54,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'Min: $minStock $unit',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                ..._categories.map((cat) {
+                                  return DropdownMenuItem<String>(
+                                    value: cat['id']?.toString(),
+                                    child: Text(cat['name'] ?? 'Unknown', overflow: TextOverflow.ellipsis),
+                                  );
+                                }),
                               ],
+                              onChanged: (val) {
+                                setState(() {
+                                  _selectedFilterCategoryId = val;
+                                });
+                              },
                             ),
                           ),
-                        );
-                      },
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: _selectedFilterDealerId,
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: 'Dealer',
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              ),
+                              items: [
+                                const DropdownMenuItem<String>(
+                                  value: 'all',
+                                  child: Text('All Dealers'),
+                                ),
+                                ..._dealers.map((dl) {
+                                  return DropdownMenuItem<String>(
+                                    value: dl['id']?.toString(),
+                                    child: Text(dl['companyName'] ?? 'Unknown Dealer', overflow: TextOverflow.ellipsis),
+                                  );
+                                }),
+                              ],
+                              onChanged: (val) {
+                                setState(() {
+                                  _selectedFilterDealerId = val;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: filteredProducts.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'No products found.',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filteredProducts.length,
+                              padding: const EdgeInsets.all(16.0),
+                              itemBuilder: (context, index) {
+                                final prod = filteredProducts[index];
+                                final name = prod['name'] ?? 'Unknown';
+                                final unit = prod['unit'] ?? '';
+                                final minStock = prod['minimumStockLevel']?.toString() ?? 'N/A';
+                                
+                                final catObj = prod['category'];
+                                final catName = (catObj is Map ? catObj['name'] : 'Unknown');
+
+                                final dealerObj = prod['dealer'];
+                                final dealerName = (dealerObj is Map ? dealerObj['companyName'] : null) ?? '';
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 12.0),
+                                  elevation: 1,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 36,
+                                          height: 36,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(alpha: 0.05),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Text(
+                                            '${index + 1}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                name,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                  color: Colors.black87,
+                                                ),
+                                              ),
+                                              if (dealerName.isNotEmpty) ...[
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  dealerName,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w500,
+                                                    fontSize: 13,
+                                                    color: Colors.black54,
+                                                  ),
+                                                ),
+                                              ],
+                                              const SizedBox(height: 6),
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 2,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.grey[200],
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      catName,
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.black54,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    'Min: $minStock $unit',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateDialog,
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CreateRawMaterialFormScreen(
+                categories: _categories,
+                dealers: _dealers,
+              ),
+            ),
+          );
+          if (result == true) {
+            _loadInitialData();
+          }
+        },
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
       ),
+    );
+  }
+}
+
+class CreateRawMaterialFormScreen extends StatefulWidget {
+  final List<dynamic> categories;
+  final List<dynamic> dealers;
+
+  const CreateRawMaterialFormScreen({
+    super.key,
+    required this.categories,
+    required this.dealers,
+  });
+
+  @override
+  State<CreateRawMaterialFormScreen> createState() => _CreateRawMaterialFormScreenState();
+}
+
+class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _minStockController = TextEditingController();
+
+  String? _selectedCategoryId;
+  String? _selectedDealerId;
+  String _selectedUnit = 'kg';
+  bool _isSaving = false;
+
+  final List<Map<String, String>> _unitOptions = [
+    {'label': 'Pieces (pcs)', 'value': 'pcs'},
+    {'label': 'Kilograms (kg)', 'value': 'kg'},
+    {'label': 'Grams (g)', 'value': 'g'},
+    {'label': 'Liters (l)', 'value': 'l'},
+    {'label': 'Milliliters (ml)', 'value': 'ml'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.categories.isNotEmpty) {
+      _selectedCategoryId = widget.categories.first['id']?.toString();
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedCategoryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a category.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      double? minStock;
+      if (_minStockController.text.trim().isNotEmpty) {
+        minStock = double.tryParse(_minStockController.text.trim());
+      }
+
+      await ApiService.instance.createRawMaterial(
+        name: _nameController.text.trim(),
+        categoryId: _selectedCategoryId!,
+        unit: _selectedUnit,
+        minimumStockLevel: minStock,
+        dealerId: _selectedDealerId,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Raw Material Product created successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _minStockController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('Add Raw Material Product'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: _isSaving
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(24.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Product Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: InputDecoration(
+                        hintText: 'e.g. Tomato',
+                        fillColor: Colors.white,
+                        filled: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      ),
+                      validator: (value) => (value == null || value.trim().isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Category', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: _selectedCategoryId,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        fillColor: Colors.white,
+                        filled: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      items: widget.categories.map((cat) {
+                        return DropdownMenuItem<String>(
+                          value: cat['id']?.toString(),
+                          child: Text(cat['name'] ?? 'Unknown', overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedCategoryId = val;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Dealer (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: _selectedDealerId,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        fillColor: Colors.white,
+                        filled: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text('None (Internal)'),
+                        ),
+                        ...widget.dealers.map((dl) {
+                          return DropdownMenuItem<String>(
+                            value: dl['id']?.toString(),
+                            child: Text(dl['companyName'] ?? 'Unknown Dealer', overflow: TextOverflow.ellipsis),
+                          );
+                        }),
+                      ],
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedDealerId = val;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Unit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: _selectedUnit,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        fillColor: Colors.white,
+                        filled: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      items: _unitOptions.map((opt) {
+                        return DropdownMenuItem<String>(
+                          value: opt['value'],
+                          child: Text(opt['label']!, overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedUnit = val;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Minimum Stock Level', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _minStockController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(
+                        hintText: 'e.g. 5.0',
+                        fillColor: Colors.white,
+                        filled: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      ),
+                      validator: (value) {
+                        if (value != null && value.trim().isNotEmpty) {
+                          final num = double.tryParse(value.trim());
+                          if (num == null) return 'Must be a number';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _submit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Create Product', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }
