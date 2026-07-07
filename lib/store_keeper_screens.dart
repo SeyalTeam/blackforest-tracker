@@ -1176,6 +1176,7 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
   final _gstController = TextEditingController();
   final _panController = TextEditingController();
   final _fssaiController = TextEditingController();
+  final _aadharController = TextEditingController();
 
   // Bank & Payment Details
   bool _hasBankAccount = true;
@@ -1198,6 +1199,7 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
   final _gstRegex = RegExp(r'^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$');
   final _panRegex = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$');
   final _ifscRegex = RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$');
+  final _aadharRegex = RegExp(r'^\d{12}$');
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -1224,6 +1226,7 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
         gst: _isGSTRegistered ? _gstController.text.trim().toUpperCase() : null,
         pan: _isGSTRegistered ? _panController.text.trim().toUpperCase() : null,
         fssai: _isGSTRegistered ? _fssaiController.text.trim() : null,
+        aadhar: !_isGSTRegistered ? _aadharController.text.trim() : null,
         contactDesignation: _contactDesignationController.text.trim(),
         contactPhone: _contactPhoneController.text.trim(),
         contactEmail: _contactEmailController.text.trim(),
@@ -1274,6 +1277,7 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
     _gstController.dispose();
     _panController.dispose();
     _fssaiController.dispose();
+    _aadharController.dispose();
     _bankNameController.dispose();
     _accountNumberController.dispose();
     _ifscCodeController.dispose();
@@ -1487,6 +1491,21 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
                                 controller: _fssaiController,
                                 label: 'FSSAI Number',
                               ),
+                            ] else ...[
+                              _buildTextField(
+                                controller: _aadharController,
+                                label: 'Aadhar Card Number',
+                                hint: 'e.g. 123456789012',
+                                required: true,
+                                keyboardType: TextInputType.number,
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) return null;
+                                  if (!_aadharRegex.hasMatch(val.trim())) {
+                                    return 'Aadhar must be exactly 12 digits';
+                                  }
+                                  return null;
+                                },
+                              ),
                             ],
                           ],
                         ),
@@ -1684,6 +1703,7 @@ class RawMaterialDealerDetailScreen extends StatelessWidget {
     final gst = dealer['gst'] ?? '';
     final pan = dealer['pan'] ?? '';
     final fssai = dealer['fssai'] ?? '';
+    final aadhar = dealer['aadhar'] ?? '';
 
     // Payment/Bank details
     final hasBank = dealer['hasBankAccount'] ?? false;
@@ -1776,6 +1796,8 @@ class RawMaterialDealerDetailScreen extends StatelessWidget {
                   _buildDetailRow('GST Number', gst, icon: Icons.receipt_long),
                   _buildDetailRow('PAN Number', pan, icon: Icons.credit_card),
                   if (fssai.isNotEmpty) _buildDetailRow('FSSAI Number', fssai, icon: Icons.security),
+                ] else ...[
+                  _buildDetailRow('Aadhar Card Number', aadhar, icon: Icons.fingerprint),
                 ],
               ],
             ),
