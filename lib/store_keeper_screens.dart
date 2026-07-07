@@ -918,16 +918,6 @@ class CreateRawMaterialDealerScreen extends StatefulWidget {
 }
 
 class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerScreen> {
-  final _formKey = GlobalKey<FormState>();
-  
-  final _companyNameController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _contactNameController = TextEditingController();
-  final _gstController = TextEditingController();
-  final _panController = TextEditingController();
-
   bool _isLoading = false;
   List<dynamic> _dealers = [];
   List<String> _companyIds = [];
@@ -946,7 +936,6 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
     });
 
     try {
-      // 1. Resolve store keeper's allowed companies
       const storage = FlutterSecureStorage();
       final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
 
@@ -978,10 +967,8 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
         }
       }
 
-      // 2. Fetch all dealers
       final dealers = await ApiService.instance.fetchRawMaterialDealers();
 
-      // Filter dealers to only those allowed for the storekeeper's companies
       final filteredDealers = dealers.where((dl) {
         final allowedComps = dl['allowedCompanies'] as List?;
         if (allowedComps == null) return false;
@@ -1006,218 +993,6 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
         });
       }
     }
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_companyIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not resolve company for your branch/profile.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      await ApiService.instance.createRawMaterialDealer(
-        companyName: _companyNameController.text.trim(),
-        address: _addressController.text.trim(),
-        phoneNumber: _phoneController.text.trim(),
-        email: _emailController.text.trim(),
-        contactName: _contactNameController.text.trim(),
-        allowedCompanies: _companyIds,
-        gst: _gstController.text.trim().isNotEmpty ? _gstController.text.trim() : null,
-        pan: _panController.text.trim().isNotEmpty ? _panController.text.trim() : null,
-      );
-
-      // Clear form inputs
-      _companyNameController.clear();
-      _addressController.clear();
-      _phoneController.clear();
-      _emailController.clear();
-      _contactNameController.clear();
-      _gstController.clear();
-      _panController.clear();
-
-      // Reload dealers
-      final dealers = await ApiService.instance.fetchRawMaterialDealers();
-      final filteredDealers = dealers.where((dl) {
-        final allowedComps = dl['allowedCompanies'] as List?;
-        if (allowedComps == null) return false;
-        return allowedComps.any((c) {
-          final cId = (c is Map ? c['id'] : c)?.toString();
-          return cId != null && _companyIds.contains(cId);
-        });
-      }).toList();
-
-      if (mounted) {
-        setState(() {
-          _dealers = filteredDealers;
-          _isLoading = false;
-        });
-        Navigator.of(context).pop(); // dismiss dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Raw Material Dealer created successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error creating raw material dealer: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _showCreateDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Add Raw Material Dealer'),
-          content: SingleChildScrollView(
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Company Name', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    controller: _companyNameController,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. ABC Distributors',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    validator: (value) => (value == null || value.trim().isEmpty) ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Address', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    controller: _addressController,
-                    maxLines: 2,
-                    decoration: InputDecoration(
-                      hintText: 'Enter full address',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    validator: (value) => (value == null || value.trim().isEmpty) ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Phone Number', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    controller: _phoneController,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. 9876543210',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    validator: (value) => (value == null || value.trim().isEmpty) ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Email Address', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. info@abc.com',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) return 'Required';
-                      if (!value.contains('@')) return 'Enter a valid email';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Contact Person Name', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    controller: _contactNameController,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. John Doe',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    validator: (value) => (value == null || value.trim().isEmpty) ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('GST (Optional)', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    controller: _gstController,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. 22AAAAA0000A1Z5',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('PAN (Optional)', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  TextFormField(
-                    controller: _panController,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. ABCDE1234F',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: _submit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _companyNameController.dispose();
-    _addressController.dispose();
-    _phoneController.dispose();
-    _emailController.dispose();
-    _contactNameController.dispose();
-    _gstController.dispose();
-    _panController.dispose();
-    super.dispose();
   }
 
   @override
@@ -1331,11 +1106,482 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
                       },
                     ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateDialog,
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CreateRawMaterialDealerFormScreen(
+                allowedCompanies: _companyIds,
+              ),
+            ),
+          );
+          if (result == true) {
+            _loadInitialData();
+          }
+        },
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
       ),
+    );
+  }
+}
+
+class CreateRawMaterialDealerFormScreen extends StatefulWidget {
+  final List<String> allowedCompanies;
+
+  const CreateRawMaterialDealerFormScreen({
+    super.key,
+    required this.allowedCompanies,
+  });
+
+  @override
+  State<CreateRawMaterialDealerFormScreen> createState() => _CreateRawMaterialDealerFormScreenState();
+}
+
+class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDealerFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+
+  // General fields
+  final _companyNameController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _notesController = TextEditingController();
+
+  // Contact Person fields
+  final _contactNameController = TextEditingController();
+  final _contactDesignationController = TextEditingController();
+  final _contactPhoneController = TextEditingController();
+  final _contactEmailController = TextEditingController();
+
+  // GST & Compliance
+  bool _isGSTRegistered = true;
+  final _gstController = TextEditingController();
+  final _panController = TextEditingController();
+  final _fssaiController = TextEditingController();
+
+  // Bank & Payment Details
+  bool _hasBankAccount = true;
+  String _preferredPaymentMethod = 'cash';
+  final _bankNameController = TextEditingController();
+  final _accountNumberController = TextEditingController();
+  final _ifscCodeController = TextEditingController();
+  final _bankBranchController = TextEditingController();
+
+  bool _isSaving = false;
+
+  final List<Map<String, String>> _paymentOptions = [
+    {'label': 'Cash', 'value': 'cash'},
+    {'label': 'UPI', 'value': 'upi'},
+    {'label': 'Cheque', 'value': 'cheque'},
+    {'label': 'Credit', 'value': 'credit'},
+  ];
+
+  // Regex definitions
+  final _gstRegex = RegExp(r'^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$');
+  final _panRegex = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$');
+  final _ifscRegex = RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$');
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (widget.allowedCompanies.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: No company code associated with your account.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      await ApiService.instance.createRawMaterialDealer(
+        companyName: _companyNameController.text.trim(),
+        address: _addressController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        email: _emailController.text.trim(),
+        contactName: _contactNameController.text.trim(),
+        allowedCompanies: widget.allowedCompanies,
+        isGSTRegistered: _isGSTRegistered,
+        gst: _isGSTRegistered ? _gstController.text.trim().toUpperCase() : null,
+        pan: _isGSTRegistered ? _panController.text.trim().toUpperCase() : null,
+        fssai: _isGSTRegistered ? _fssaiController.text.trim() : null,
+        contactDesignation: _contactDesignationController.text.trim(),
+        contactPhone: _contactPhoneController.text.trim(),
+        contactEmail: _contactEmailController.text.trim(),
+        notes: _notesController.text.trim(),
+        hasBankAccount: _hasBankAccount,
+        preferredPaymentMethod: !_hasBankAccount ? _preferredPaymentMethod : null,
+        bankName: _hasBankAccount ? _bankNameController.text.trim() : null,
+        accountNumber: _hasBankAccount ? _accountNumberController.text.trim() : null,
+        ifscCode: _hasBankAccount ? _ifscCodeController.text.trim().toUpperCase() : null,
+        bankBranch: _hasBankAccount ? _bankBranchController.text.trim() : null,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Raw Material Dealer created successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _companyNameController.dispose();
+    _addressController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _notesController.dispose();
+    _contactNameController.dispose();
+    _contactDesignationController.dispose();
+    _contactPhoneController.dispose();
+    _contactEmailController.dispose();
+    _gstController.dispose();
+    _panController.dispose();
+    _fssaiController.dispose();
+    _bankNameController.dispose();
+    _accountNumberController.dispose();
+    _ifscCodeController.dispose();
+    _bankBranchController.dispose();
+    super.dispose();
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0, bottom: 12.0),
+      child: Text(
+        title,
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    bool required = false,
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+    String? Function(String?)? validator,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        decoration: InputDecoration(
+          labelText: label + (required ? ' *' : ''),
+          hintText: hint,
+          fillColor: Colors.white,
+          filled: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        ),
+        validator: (value) {
+          if (required && (value == null || value.trim().isEmpty)) {
+            return '$label is required';
+          }
+          if (validator != null) {
+            return validator(value);
+          }
+          return null;
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('Add Raw Material Dealer'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: _isSaving
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Card(
+                      elevation: 1,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader('General Details'),
+                            _buildTextField(
+                              controller: _companyNameController,
+                              label: 'Company Name',
+                              required: true,
+                            ),
+                            _buildTextField(
+                              controller: _addressController,
+                              label: 'Address',
+                              required: true,
+                              maxLines: 3,
+                            ),
+                            _buildTextField(
+                              controller: _phoneController,
+                              label: 'Phone Number',
+                              required: true,
+                              keyboardType: TextInputType.phone,
+                            ),
+                            _buildTextField(
+                              controller: _emailController,
+                              label: 'Email Address',
+                              required: true,
+                              keyboardType: TextInputType.emailAddress,
+                              validator: (val) {
+                                if (val != null && val.trim().isNotEmpty) {
+                                  if (!val.contains('@') || !val.contains('.')) {
+                                    return 'Invalid email address';
+                                  }
+                                }
+                                return null;
+                              },
+                            ),
+                            _buildTextField(
+                              controller: _notesController,
+                              label: 'Notes',
+                              maxLines: 2,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Card(
+                      elevation: 1,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader('Contact Person Details'),
+                            _buildTextField(
+                              controller: _contactNameController,
+                              label: 'Contact Person Name',
+                              required: true,
+                            ),
+                            _buildTextField(
+                              controller: _contactDesignationController,
+                              label: 'Designation',
+                            ),
+                            _buildTextField(
+                              controller: _contactPhoneController,
+                              label: 'Contact Phone',
+                              keyboardType: TextInputType.phone,
+                            ),
+                            _buildTextField(
+                              controller: _contactEmailController,
+                              label: 'Contact Email',
+                              keyboardType: TextInputType.emailAddress,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Card(
+                      elevation: 1,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'GST Registered?',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
+                                Switch(
+                                  value: _isGSTRegistered,
+                                  onChanged: (val) {
+                                    setState(() {
+                                      _isGSTRegistered = val;
+                                    });
+                                  },
+                                  activeTrackColor: Colors.black54,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (_isGSTRegistered) ...[
+                              _buildTextField(
+                                controller: _gstController,
+                                label: 'GST Number',
+                                hint: 'e.g. 22AAAAA1111A1Z1',
+                                required: true,
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) return null;
+                                  if (!_gstRegex.hasMatch(val.trim().toUpperCase())) {
+                                    return 'Invalid GSTIN format';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              _buildTextField(
+                                controller: _panController,
+                                label: 'PAN Number',
+                                hint: 'e.g. ABCDE1234F',
+                                required: true,
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) return null;
+                                  if (!_panRegex.hasMatch(val.trim().toUpperCase())) {
+                                    return 'Invalid PAN format';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              _buildTextField(
+                                controller: _fssaiController,
+                                label: 'FSSAI Number',
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    Card(
+                      elevation: 1,
+                      margin: const EdgeInsets.only(bottom: 24),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Has Bank Account?',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
+                                Switch(
+                                  value: _hasBankAccount,
+                                  onChanged: (val) {
+                                    setState(() {
+                                      _hasBankAccount = val;
+                                    });
+                                  },
+                                  activeTrackColor: Colors.black54,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (_hasBankAccount) ...[
+                              _buildTextField(
+                                controller: _bankNameController,
+                                label: 'Bank Name',
+                                required: true,
+                              ),
+                              _buildTextField(
+                                controller: _accountNumberController,
+                                label: 'Account Number',
+                                required: true,
+                              ),
+                              _buildTextField(
+                                controller: _ifscCodeController,
+                                label: 'IFSC Code',
+                                hint: 'e.g. SBIN0001234',
+                                required: true,
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) return null;
+                                  if (!_ifscRegex.hasMatch(val.trim().toUpperCase())) {
+                                    return 'Invalid IFSC Code format';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              _buildTextField(
+                                controller: _bankBranchController,
+                                label: 'Branch',
+                              ),
+                            ] else ...[
+                              const Text(
+                                'Preferred Payment Method',
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black54),
+                              ),
+                              const SizedBox(height: 8),
+                              DropdownButtonFormField<String>(
+                                initialValue: _preferredPaymentMethod,
+                                isExpanded: true,
+                                decoration: InputDecoration(
+                                  fillColor: Colors.white,
+                                  filled: true,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                items: _paymentOptions.map((opt) {
+                                  return DropdownMenuItem<String>(
+                                    value: opt['value'],
+                                    child: Text(opt['label']!),
+                                  );
+                                }).toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() {
+                                      _preferredPaymentMethod = val;
+                                    });
+                                  }
+                                },
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: _submit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Create Dealer', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }

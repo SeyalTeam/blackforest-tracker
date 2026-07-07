@@ -935,8 +935,20 @@ class ApiService {
     required String email,
     required String contactName,
     required List<String> allowedCompanies,
+    required bool isGSTRegistered,
     String? gst,
     String? pan,
+    String? fssai,
+    String? contactDesignation,
+    String? contactPhone,
+    String? contactEmail,
+    String? notes,
+    required bool hasBankAccount,
+    String? preferredPaymentMethod,
+    String? bankName,
+    String? accountNumber,
+    String? ifscCode,
+    String? bankBranch,
   }) async {
     try {
       final token = await _getToken();
@@ -947,12 +959,27 @@ class ApiService {
         'email': email,
         'contactPerson': {
           'name': contactName,
+          if (contactDesignation != null && contactDesignation.isNotEmpty) 'designation': contactDesignation,
+          if (contactPhone != null && contactPhone.isNotEmpty) 'phone': contactPhone,
+          if (contactEmail != null && contactEmail.isNotEmpty) 'email': contactEmail,
         },
         'allowedCompanies': allowedCompanies,
-        'isGSTRegistered': gst != null && gst.isNotEmpty,
-        if (gst != null && gst.isNotEmpty) 'gst': gst,
-        if (pan != null && pan.isNotEmpty) 'pan': pan,
+        'isGSTRegistered': isGSTRegistered,
+        if (isGSTRegistered && gst != null && gst.isNotEmpty) 'gst': gst,
+        if (isGSTRegistered && pan != null && pan.isNotEmpty) 'pan': pan,
+        if (isGSTRegistered && fssai != null && fssai.isNotEmpty) 'fssai': fssai,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
         'status': 'active',
+        'hasBankAccount': hasBankAccount,
+        if (!hasBankAccount && preferredPaymentMethod != null)
+          'preferredPaymentMethod': preferredPaymentMethod,
+        if (hasBankAccount)
+          'bankDetails': {
+            if (bankName != null && bankName.isNotEmpty) 'bankName': bankName,
+            if (accountNumber != null && accountNumber.isNotEmpty) 'accountNumber': accountNumber,
+            if (ifscCode != null && ifscCode.isNotEmpty) 'ifscCode': ifscCode,
+            if (bankBranch != null && bankBranch.isNotEmpty) 'branch': bankBranch,
+          },
       };
 
       final res = await http.post(
