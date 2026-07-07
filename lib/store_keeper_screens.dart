@@ -1048,58 +1048,74 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.05),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.business_outlined,
-                                    color: Colors.black54,
-                                    size: 24,
-                                  ),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => RawMaterialDealerDetailScreen(dealer: dl),
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        companyName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          color: Colors.black87,
-                                        ),
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.05),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: Colors.black87,
                                       ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'Contact: $contactName | Phone: $phone',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        address,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[500],
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          companyName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Contact: $contactName | Phone: $phone',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          address,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey[500],
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -1582,6 +1598,206 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
                 ),
               ),
             ),
+    );
+  }
+}
+
+class RawMaterialDealerDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> dealer;
+
+  const RawMaterialDealerDetailScreen({
+    super.key,
+    required this.dealer,
+  });
+
+  Widget _buildDetailRow(String label, String? value, {IconData? icon}) {
+    final displayValue = (value == null || value.trim().isEmpty) ? 'N/A' : value;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 20, color: Colors.black54),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  displayValue,
+                  style: const TextStyle(fontSize: 15, color: Colors.black87, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardSection({required String title, required List<Widget> children}) {
+    return Card(
+      elevation: 1,
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            const Divider(height: 24, thickness: 1),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final companyName = dealer['companyName'] ?? 'Unknown Company';
+    final address = dealer['address'] ?? '';
+    final phone = dealer['phoneNumber'] ?? '';
+    final email = dealer['email'] ?? '';
+    final notes = dealer['notes'] ?? '';
+
+    // Contact details
+    final contactObj = dealer['contactPerson'];
+    final contactName = contactObj is Map ? contactObj['name'] : 'N/A';
+    final contactDesignation = contactObj is Map ? contactObj['designation'] : '';
+    final contactPhone = contactObj is Map ? contactObj['phone'] : '';
+    final contactEmail = contactObj is Map ? contactObj['email'] : '';
+
+    // Compliance details
+    final isGST = dealer['isGSTRegistered'] ?? false;
+    final gst = dealer['gst'] ?? '';
+    final pan = dealer['pan'] ?? '';
+    final fssai = dealer['fssai'] ?? '';
+
+    // Payment/Bank details
+    final hasBank = dealer['hasBankAccount'] ?? false;
+    final preferredPay = dealer['preferredPaymentMethod'] ?? '';
+    final bankObj = dealer['bankDetails'];
+    final bankName = bankObj is Map ? bankObj['bankName'] : '';
+    final accountNum = bankObj is Map ? bankObj['accountNumber'] : '';
+    final ifsc = bankObj is Map ? bankObj['ifscCode'] : '';
+    final branch = bankObj is Map ? bankObj['branch'] : '';
+
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('Dealer Details'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header card
+            Card(
+              elevation: 1,
+              margin: const EdgeInsets.only(bottom: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.business, size: 36, color: Colors.black),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            companyName,
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Status: ${dealer['status']?.toString().toUpperCase() ?? 'ACTIVE'}',
+                            style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // General Details
+            _buildCardSection(
+              title: 'General Info',
+              children: [
+                _buildDetailRow('Phone Number', phone, icon: Icons.phone),
+                _buildDetailRow('Email Address', email, icon: Icons.email),
+                _buildDetailRow('Address', address, icon: Icons.location_on),
+                if (notes.isNotEmpty) _buildDetailRow('Notes', notes, icon: Icons.note),
+              ],
+            ),
+
+            // Contact Person Details
+            _buildCardSection(
+              title: 'Contact Person Details',
+              children: [
+                _buildDetailRow('Name', contactName, icon: Icons.person),
+                if (contactDesignation.isNotEmpty) _buildDetailRow('Designation', contactDesignation, icon: Icons.badge),
+                if (contactPhone.isNotEmpty) _buildDetailRow('Phone', contactPhone, icon: Icons.phone_iphone),
+                if (contactEmail.isNotEmpty) _buildDetailRow('Email', contactEmail, icon: Icons.mail_outline),
+              ],
+            ),
+
+            // GST & Compliance
+            _buildCardSection(
+              title: 'Taxation & Compliance',
+              children: [
+                _buildDetailRow('GST Registered', isGST ? 'Yes' : 'No', icon: Icons.check_circle_outline),
+                if (isGST) ...[
+                  _buildDetailRow('GST Number', gst, icon: Icons.receipt_long),
+                  _buildDetailRow('PAN Number', pan, icon: Icons.credit_card),
+                  if (fssai.isNotEmpty) _buildDetailRow('FSSAI Number', fssai, icon: Icons.security),
+                ],
+              ],
+            ),
+
+            // Payment details
+            _buildCardSection(
+              title: 'Payment & Banking Details',
+              children: [
+                _buildDetailRow('Bank Account Linked', hasBank ? 'Yes' : 'No', icon: Icons.account_balance),
+                if (hasBank) ...[
+                  _buildDetailRow('Bank Name', bankName, icon: Icons.corporate_fare),
+                  _buildDetailRow('Account Number', accountNum, icon: Icons.pin),
+                  _buildDetailRow('IFSC Code', ifsc, icon: Icons.code),
+                  if (branch.isNotEmpty) _buildDetailRow('Branch', branch, icon: Icons.location_city),
+                ] else ...[
+                  _buildDetailRow('Preferred Payment Method', preferredPay.toUpperCase(), icon: Icons.payments),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
