@@ -22,14 +22,14 @@ class _PhotoSlot {
   _PhotoSlot({required this.label, required this.prefix});
 }
 
-class DealerBillingPage extends StatefulWidget {
-  const DealerBillingPage({super.key});
+class RawMaterialBillingPage extends StatefulWidget {
+  const RawMaterialBillingPage({super.key});
 
   @override
-  State<DealerBillingPage> createState() => _DealerBillingPageState();
+  State<RawMaterialBillingPage> createState() => _RawMaterialBillingPageState();
 }
 
-class _DealerBillingPageState extends State<DealerBillingPage> {
+class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
   final _formKey = GlobalKey<FormState>();
   
   List<Map<String, dynamic>> _dealers = [];

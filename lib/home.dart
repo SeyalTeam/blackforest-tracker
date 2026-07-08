@@ -5,7 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'login.dart';
 import 'store_keeper_screens.dart';
 import 'common_scaffold.dart';
-import 'dealer_billing.dart';
+import 'raw_material_billing.dart';
 import 'branch_list.dart';
 import 'stock_ticket_list.dart';
 import 'api_service.dart';
@@ -1901,7 +1901,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const DealerBillingPage(),
+                              builder: (context) => const RawMaterialBillingPage(),
                             ),
                           );
                         },
