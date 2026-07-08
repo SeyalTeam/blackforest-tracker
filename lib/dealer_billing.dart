@@ -828,8 +828,9 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                           ),
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
-                            isExpanded: true,
+                            key: ValueKey(_selectedDealerId),
                             initialValue: _selectedDealerId,
+                            isExpanded: true,
                             hint: _isLoadingDealers
                                 ? const Text('Loading dealers...', overflow: TextOverflow.ellipsis)
                                 : const Text('Select a raw material dealer', overflow: TextOverflow.ellipsis),

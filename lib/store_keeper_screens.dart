@@ -372,16 +372,8 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
         return catId != null && filteredCategories.any((c) => c['id']?.toString() == catId);
       }).toList();
 
-      // 4. Fetch and filter dealers
-      final dealers = await ApiService.instance.fetchRawMaterialDealers();
-      final filteredDealers = dealers.where((dl) {
-        final allowedComps = dl['allowedCompanies'] as List?;
-        if (allowedComps == null) return false;
-        return allowedComps.any((c) {
-          final cId = (c is Map ? c['id'] : c)?.toString();
-          return cId != null && companyIds.contains(cId);
-        });
-      }).toList();
+      // 4. Fetch all raw material dealers (without company filter)
+      final filteredDealers = await ApiService.instance.fetchRawMaterialDealers();
 
       if (mounted) {
         setState(() {
@@ -463,6 +455,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                         children: [
                            Expanded(
                             child: DropdownButtonFormField<String>(
+                              key: ValueKey(_selectedFilterCategoryId),
                               initialValue: _selectedFilterCategoryId,
                               isExpanded: true,
                               decoration: InputDecoration(
@@ -492,6 +485,7 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: DropdownButtonFormField<String>(
+                              key: ValueKey(_selectedFilterDealerId),
                               initialValue: _selectedFilterDealerId,
                               isExpanded: true,
                               decoration: InputDecoration(
@@ -793,7 +787,8 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
                     const SizedBox(height: 20),
                     const Text('Category', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
+                     DropdownButtonFormField<String>(
+                      key: ValueKey(_selectedCategoryId),
                       initialValue: _selectedCategoryId,
                       isExpanded: true,
                       decoration: InputDecoration(
@@ -816,7 +811,8 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
                     const SizedBox(height: 20),
                     const Text('Dealer (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
+                    DropdownButtonFormField<String?>(
+                      key: ValueKey(_selectedDealerId),
                       initialValue: _selectedDealerId,
                       isExpanded: true,
                       decoration: InputDecoration(
@@ -825,12 +821,12 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       items: [
-                        const DropdownMenuItem<String>(
+                        const DropdownMenuItem<String?>(
                           value: null,
                           child: Text('None (Internal)'),
                         ),
                         ...widget.dealers.map((dl) {
-                          return DropdownMenuItem<String>(
+                          return DropdownMenuItem<String?>(
                             value: dl['id']?.toString(),
                             child: Text(dl['companyName'] ?? 'Unknown Dealer', overflow: TextOverflow.ellipsis),
                           );
@@ -846,6 +842,7 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
                     const Text('Unit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
+                      key: ValueKey(_selectedUnit),
                       initialValue: _selectedUnit,
                       isExpanded: true,
                       decoration: InputDecoration(
@@ -856,7 +853,7 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
                       items: _unitOptions.map((opt) {
                         return DropdownMenuItem<String>(
                           value: opt['value'],
-                          child: Text(opt['label']!, overflow: TextOverflow.ellipsis),
+                          child: Text(opt['label'] ?? '', overflow: TextOverflow.ellipsis),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -967,16 +964,7 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
         }
       }
 
-      final dealers = await ApiService.instance.fetchRawMaterialDealers();
-
-      final filteredDealers = dealers.where((dl) {
-        final allowedComps = dl['allowedCompanies'] as List?;
-        if (allowedComps == null) return false;
-        return allowedComps.any((c) {
-          final cId = (c is Map ? c['id'] : c)?.toString();
-          return cId != null && companyIds.contains(cId);
-        });
-      }).toList();
+      final filteredDealers = await ApiService.instance.fetchRawMaterialDealers();
 
       if (mounted) {
         setState(() {
@@ -1574,6 +1562,7 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
                               ),
                               const SizedBox(height: 8),
                               DropdownButtonFormField<String>(
+                                key: ValueKey(_preferredPaymentMethod),
                                 initialValue: _preferredPaymentMethod,
                                 isExpanded: true,
                                 decoration: InputDecoration(
