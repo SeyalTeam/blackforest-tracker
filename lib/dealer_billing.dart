@@ -104,7 +104,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
       };
 
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/dealers?limit=200&depth=0'),
+        Uri.parse('${ApiService.baseUrl}/raw-material-dealers?limit=200&depth=0'),
         headers: headers,
       );
 
@@ -151,7 +151,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
       };
 
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/products?where[dealer][equals]=$dealerId&limit=500&depth=0'),
+        Uri.parse('${ApiService.baseUrl}/raw-materials?where[dealer][equals]=$dealerId&limit=500&depth=0'),
         headers: headers,
       );
 
@@ -161,7 +161,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
         final List<Map<String, dynamic>> loadedProducts = [];
         for (var doc in docs) {
           final id = doc['id']?.toString() ?? '';
-          final name = doc['name']?.toString() ?? 'Unknown Product';
+          final name = doc['name']?.toString() ?? 'Unknown Raw Material';
           loadedProducts.add({'id': id, 'name': name});
         }
         loadedProducts.sort((a, b) => a['name'].toString().toLowerCase().compareTo(b['name'].toString().toLowerCase()));
@@ -169,12 +169,12 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
           _products = loadedProducts;
         });
       } else {
-        throw Exception('Failed to load products: ${response.statusCode}');
+        throw Exception('Failed to load raw materials: ${response.statusCode}');
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error fetching products: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error fetching raw materials: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -440,8 +440,42 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
     try {
       const storage = FlutterSecureStorage();
       final token = await storage.read(key: 'token');
-      final branchId = await storage.read(key: 'userBranchId');
       if (token == null) throw Exception('No session token found. Please login again.');
+
+      // Resolve Company ID
+      final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
+      List<String> companyIds = [];
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+
+      if (companyIds.isEmpty) {
+        final branchId = await storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
+      if (companyIds.isEmpty) {
+        throw Exception('No company code associated with your account.');
+      }
+      final companyId = companyIds.first;
 
       // 1. Upload Bill Copy Photo
       final billCopyAlt = 'Dealer Bill Copy for dealer $_selectedDealerId';
@@ -469,16 +503,16 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
         billsData.add({'amount': val});
       }
 
-      // 5. Submit Dealer Billing Document
+      // 5. Submit Raw Material Billing Document
       final payload = {
         'dealer': _selectedDealerId,
-        'branch': branchId,
+        'company': companyId,
         'bills': billsData,
         'total': _calculateTotal(),
         'billCopyPhoto': billCopyId,
         'deliveryPersonPhoto': deliveryPersonId,
         'productsPhoto': productsPhotoIds,
-        'products': _selectedProductIds,
+        'rawMaterials': _selectedProductIds,
         'date': DateTime.now().toUtc().toIso8601String(),
       };
 
@@ -488,7 +522,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
       };
 
       final response = await http.post(
-        Uri.parse('${ApiService.baseUrl}/dealer-billings'),
+        Uri.parse('${ApiService.baseUrl}/raw-material-billings'),
         headers: headers,
         body: jsonEncode(payload),
       );
@@ -496,7 +530,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
       if (response.statusCode == 201 || response.statusCode == 200) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Dealer Billing submitted successfully!'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Raw Material Billing submitted successfully!'), backgroundColor: Colors.green),
           );
           Navigator.pop(context);
         }
@@ -598,7 +632,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
             }).toList();
 
             return AlertDialog(
-              title: const Text('Select Products'),
+              title: const Text('Select Raw Materials'),
               content: SizedBox(
                 width: double.maxFinite,
                 height: 400,
@@ -606,7 +640,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                   children: [
                     TextField(
                       decoration: const InputDecoration(
-                        hintText: 'Search products...',
+                        hintText: 'Search raw materials...',
                         prefixIcon: Icon(Icons.search),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.all(Radius.circular(10.0)),
@@ -621,7 +655,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                     const SizedBox(height: 10),
                     Expanded(
                       child: filtered.isEmpty
-                          ? const Center(child: Text('No products found'))
+                          ? const Center(child: Text('No raw materials found'))
                           : ListView.builder(
                               itemCount: filtered.length,
                               itemBuilder: (context, index) {
@@ -686,7 +720,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Select Products',
+              'Select Raw Materials',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
@@ -699,7 +733,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
               )
             else if (_products.isEmpty)
               const Text(
-                'No products associated with this dealer.',
+                'No raw materials associated with this dealer.',
                 style: TextStyle(color: Colors.grey, fontSize: 14),
               )
             else
@@ -720,8 +754,8 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                           Expanded(
                             child: Text(
                               _selectedProductIds.isEmpty
-                                  ? 'Select products'
-                                  : '${_selectedProductIds.length} products selected',
+                                  ? 'Select raw materials'
+                                  : '${_selectedProductIds.length} raw materials selected',
                               style: TextStyle(
                                 color: _selectedProductIds.isEmpty ? Colors.grey : Colors.black87,
                                 fontSize: 15,
@@ -769,7 +803,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
   @override
   Widget build(BuildContext context) {
     return CommonScaffold(
-      title: 'Dealer Billing',
+      title: 'Raw Material Billing',
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -789,7 +823,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Select Dealer',
+                            'Select Raw Material Dealer',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                           ),
                           const SizedBox(height: 12),
@@ -798,7 +832,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                             initialValue: _selectedDealerId,
                             hint: _isLoadingDealers
                                 ? const Text('Loading dealers...', overflow: TextOverflow.ellipsis)
-                                : const Text('Select a dealer', overflow: TextOverflow.ellipsis),
+                                : const Text('Select a raw material dealer', overflow: TextOverflow.ellipsis),
                             items: _dealers.map((dealer) {
                               return DropdownMenuItem<String>(
                                 value: dealer['id'],
@@ -825,7 +859,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             ),
-                            validator: (val) => val == null ? 'Dealer selection is required' : null,
+                            validator: (val) => val == null ? 'Raw material dealer selection is required' : null,
                           ),
                         ],
                       ),
@@ -946,7 +980,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                               ),
                               onPressed: _submitBilling,
                               child: const Text(
-                                'SUBMIT DEALER BILLING',
+                                'SUBMIT RAW MATERIAL BILLING',
                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                               ),
                             ),

@@ -1894,7 +1894,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       _buildStoreKeeperGridItem(
                         context,
-                        title: 'Dealer Billing',
+                        title: 'Raw Material Billing',
                         icon: Icons.receipt_long_rounded,
                         color: Colors.teal,
                         onTap: () {
