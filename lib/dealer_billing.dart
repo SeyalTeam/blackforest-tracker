@@ -41,6 +41,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
 
   List<Map<String, dynamic>> _products = [];
   List<String> _selectedProductIds = [];
+  Map<String, double> _selectedRawMaterialQuantities = {};
   bool _isLoadingProducts = false;
 
   late final _PhotoSlot _billCopySlot;
@@ -503,7 +504,16 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
         billsData.add({'amount': val});
       }
 
-      // 5. Submit Raw Material Billing Document
+      // 5. Compile Raw Materials List
+      final List<Map<String, dynamic>> rawMaterialsListData = [];
+      _selectedRawMaterialQuantities.forEach((id, qty) {
+        rawMaterialsListData.add({
+          'rawMaterial': id,
+          'quantity': qty,
+        });
+      });
+
+      // 6. Submit Raw Material Billing Document
       final payload = {
         'dealer': _selectedDealerId,
         'company': companyId,
@@ -512,7 +522,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
         'billCopyPhoto': billCopyId,
         'deliveryPersonPhoto': deliveryPersonId,
         'productsPhoto': productsPhotoIds,
-        'rawMaterials': _selectedProductIds,
+        'rawMaterialsList': rawMaterialsListData,
         'date': DateTime.now().toUtc().toIso8601String(),
       };
 
@@ -617,93 +627,22 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
     );
   }
 
-  void _showProductSelectionDialog() {
-    final List<String> tempSelected = List.from(_selectedProductIds);
-    String searchQuery = '';
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            final filtered = _products.where((p) {
-              final name = p['name'].toString().toLowerCase();
-              return name.contains(searchQuery.toLowerCase());
-            }).toList();
-
-            return AlertDialog(
-              title: const Text('Select Raw Materials'),
-              content: SizedBox(
-                width: double.maxFinite,
-                height: 400,
-                child: Column(
-                  children: [
-                    TextField(
-                      decoration: const InputDecoration(
-                        hintText: 'Search raw materials...',
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(10.0)),
-                        ),
-                      ),
-                      onChanged: (val) {
-                        setStateDialog(() {
-                          searchQuery = val;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    Expanded(
-                      child: filtered.isEmpty
-                          ? const Center(child: Text('No raw materials found'))
-                          : ListView.builder(
-                              itemCount: filtered.length,
-                              itemBuilder: (context, index) {
-                                final product = filtered[index];
-                                final productId = product['id'] as String;
-                                final isSelected = tempSelected.contains(productId);
-
-                                return CheckboxListTile(
-                                  title: Text(product['name']),
-                                  value: isSelected,
-                                  onChanged: (bool? checked) {
-                                    setStateDialog(() {
-                                      if (checked == true) {
-                                        tempSelected.add(productId);
-                                      } else {
-                                        tempSelected.remove(productId);
-                                      }
-                                    });
-                                  },
-                                  controlAffinity: ListTileControlAffinity.leading,
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    setStateDialog(() {});
-                    setState(() {
-                      _selectedProductIds = tempSelected;
-                    });
-                    Navigator.pop(context);
-                  },
-                  child: const Text('Apply'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+  Future<void> _navigateToRawMaterialSelection() async {
+    final Map<String, double>? result = await Navigator.push<Map<String, double>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RawMaterialSelectionPage(
+          products: _products,
+          initialQuantities: _selectedRawMaterialQuantities,
+        ),
+      ),
     );
+    if (result != null) {
+      setState(() {
+        _selectedRawMaterialQuantities = result;
+        _selectedProductIds = result.keys.toList();
+      });
+    }
   }
 
   Widget _buildProductSelector() {
@@ -741,7 +680,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   InkWell(
-                    onTap: _showProductSelectionDialog,
+                    onTap: _navigateToRawMaterialSelection,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
@@ -770,19 +709,21 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                   if (_selectedProductIds.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     SizedBox(
-                      height: 48,
+                      height: 52,
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: _selectedProductIds.map((id) {
                             final product = _products.firstWhere((p) => p['id'] == id, orElse: () => {'name': 'Unknown'});
+                            final qty = _selectedRawMaterialQuantities[id] ?? 0.0;
                             return Padding(
                               padding: const EdgeInsets.only(right: 8.0),
                               child: Chip(
-                                label: Text(product['name']),
+                                label: Text('${product['name']} (Qty: $qty)'),
                                 onDeleted: () {
                                   setState(() {
                                     _selectedProductIds.remove(id);
+                                    _selectedRawMaterialQuantities.remove(id);
                                   });
                                 },
                               ),
@@ -849,6 +790,7 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                                     setState(() {
                                       _selectedDealerId = val;
                                       _selectedProductIds = [];
+                                      _selectedRawMaterialQuantities = {};
                                       _products = [];
                                     });
                                     if (val != null) {
@@ -1016,6 +958,163 @@ class _DealerBillingPageState extends State<DealerBillingPage> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class RawMaterialSelectionPage extends StatefulWidget {
+  final List<dynamic> products;
+  final Map<String, double> initialQuantities;
+
+  const RawMaterialSelectionPage({
+    super.key,
+    required this.products,
+    required this.initialQuantities,
+  });
+
+  @override
+  State<RawMaterialSelectionPage> createState() => _RawMaterialSelectionPageState();
+}
+
+class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
+  final Map<String, double> _quantities = {};
+  final Map<String, TextEditingController> _controllers = {};
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _quantities.addAll(widget.initialQuantities);
+    for (var p in widget.products) {
+      final id = p['id'] as String;
+      final qty = _quantities[id];
+      _controllers[id] = TextEditingController(text: qty != null && qty > 0 ? qty.toString() : '');
+    }
+  }
+
+  @override
+  void dispose() {
+    for (var ctrl in _controllers.values) {
+      ctrl.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.products.where((p) {
+      final name = p['name'].toString().toLowerCase();
+      return name.contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Select Raw Materials'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.check),
+            onPressed: () {
+              final result = <String, double>{};
+              _quantities.forEach((id, qty) {
+                if (qty > 0) {
+                  result[id] = qty;
+                }
+              });
+              Navigator.pop(context, result);
+            },
+          )
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Search raw materials...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(10.0)),
+                ),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  _searchQuery = val;
+                });
+              },
+            ),
+          ),
+          Expanded(
+            child: filtered.isEmpty
+                ? const Center(child: Text('No raw materials found'))
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final product = filtered[index];
+                      final id = product['id'] as String;
+                      final isSelected = _quantities.containsKey(id) && _quantities[id]! > 0;
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: isSelected,
+                              onChanged: (bool? checked) {
+                                setState(() {
+                                  if (checked == true) {
+                                    _quantities[id] = 1.0;
+                                    _controllers[id]?.text = '1.0';
+                                  } else {
+                                    _quantities.remove(id);
+                                    _controllers[id]?.clear();
+                                  }
+                                });
+                              },
+                            ),
+                            Expanded(
+                              child: Text(
+                                product['name'],
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                            if (isSelected)
+                              SizedBox(
+                                width: 100,
+                                child: TextField(
+                                  controller: _controllers[id],
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Qty',
+                                    labelText: 'Quantity',
+                                    isDense: true,
+                                    border: OutlineInputBorder(),
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                  ),
+                                  onChanged: (val) {
+                                    final qty = double.tryParse(val) ?? 0.0;
+                                    setState(() {
+                                      if (qty > 0) {
+                                        _quantities[id] = qty;
+                                      } else {
+                                        _quantities[id] = 0.0;
+                                      }
+                                    });
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ],
       ),
     );
