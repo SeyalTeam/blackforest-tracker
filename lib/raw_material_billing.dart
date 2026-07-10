@@ -1022,11 +1022,26 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
             icon: const Icon(Icons.check),
             onPressed: () {
               final result = <String, double>{};
+              bool hasInvalid = false;
+              
               _quantities.forEach((id, qty) {
-                if (qty > 0) {
+                if (qty <= 0.0) {
+                  hasInvalid = true;
+                } else {
                   result[id] = qty;
                 }
               });
+
+              if (hasInvalid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a quantity greater than 0 for all selected items.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
               Navigator.pop(context, result);
             },
           )
@@ -1061,7 +1076,7 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                     itemBuilder: (context, index) {
                       final product = filtered[index];
                       final id = product['id'] as String;
-                      final isSelected = _quantities.containsKey(id) && _quantities[id]! > 0;
+                      final isSelected = _quantities.containsKey(id);
 
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -1072,8 +1087,8 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                               onChanged: (bool? checked) {
                                 setState(() {
                                   if (checked == true) {
-                                    _quantities[id] = 1.0;
-                                    _controllers[id]?.text = '1.0';
+                                    _quantities[id] = 0.0;
+                                    _controllers[id]?.text = '';
                                   } else {
                                     _quantities.remove(id);
                                     _controllers[id]?.clear();
@@ -1103,11 +1118,7 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                                   onChanged: (val) {
                                     final qty = double.tryParse(val) ?? 0.0;
                                     setState(() {
-                                      if (qty > 0) {
-                                        _quantities[id] = qty;
-                                      } else {
-                                        _quantities[id] = 0.0;
-                                      }
+                                      _quantities[id] = qty;
                                     });
                                   },
                                 ),
