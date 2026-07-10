@@ -41,7 +41,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _fetchDynamicRanges() async {
     try {
       final res = await http.get(
-        Uri.parse('https://blackforest.vseyal.com/api/branches?limit=1000'),
+        Uri.parse('https://blackforest4.vseyal.com/api/branches?limit=1000'),
       );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -165,7 +165,7 @@ class _LoginPageState extends State<LoginPage> {
         // We try sending the input as email.
 
         final res = await http.post(
-          Uri.parse('https://blackforest.vseyal.com/api/users/login'),
+          Uri.parse('https://blackforest4.vseyal.com/api/users/login'),
           headers: {
             'Content-Type': 'application/json',
             'x-private-ip': _privateIp ?? '',
@@ -209,14 +209,8 @@ class _LoginPageState extends State<LoginPage> {
             'DEBUG: Login success. Role: $userRole, Name: $userName, ID: $userId',
           );
 
-          final isKitchen =
-              fullUser['isKitchen'] == true || userRole == 'kitchen';
-          final isStock =
-              fullUser['isStock'] == true ||
-              userRole == 'chef' ||
-              userRole == 'supervisor' ||
-              userRole == 'driver' ||
-              userRole == 'factory';
+          final isKitchen = fullUser['isKitchen'] == true;
+          final isStock = fullUser['isStock'] == true;
 
           const storage = FlutterSecureStorage();
           await storage.write(key: 'isLoggedIn', value: 'true');
@@ -227,15 +221,46 @@ class _LoginPageState extends State<LoginPage> {
           await storage.write(key: 'userIsKitchen', value: isKitchen.toString());
           await storage.write(key: 'userIsStock', value: isStock.toString());
 
+          // Extract and write userBranchId for all users
+          final branchObj = fullUser['branch'];
+          var bId = (branchObj is Map ? branchObj['id'] : branchObj)?.toString() ?? '';
+          if (bId.isEmpty && fullUser['employee'] is Map) {
+            final emp = fullUser['employee'];
+            bId = (emp['branch'] is Map ? emp['branch']['id'] : emp['branch'])?.toString() ?? '';
+          }
+          await storage.write(key: 'userBranchId', value: bId);
+
+          // Extract and write storekeeper_companies
+          final skCompanies = fullUser['storekeeper_companies'] as List?;
+          if (skCompanies != null && skCompanies.isNotEmpty) {
+            final ids = skCompanies
+                .map((c) => (c is Map ? c['id'] : c)?.toString() ?? '')
+                .where((id) => id.isNotEmpty)
+                .toList();
+            await storage.write(key: 'userStorekeeperCompanies', value: ids.join(','));
+          } else {
+            await storage.write(key: 'userStorekeeperCompanies', value: '');
+          }
+
           if (isKitchen) {
             final branchObj = fullUser['branch'];
             final kitchenObj = fullUser['kitchen'];
             final kitchenBranches = fullUser['kitchenBranches'] as List?;
 
             // Extract Kitchen ID and Categories
+            // Extract Kitchen ID and Categories
             String kitchenId = '';
             List<String> categories = [];
 
+            // 1. Extract categories directly from the user object (New Pattern)
+            if (fullUser['categories'] is List) {
+              for (var c in fullUser['categories']) {
+                final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                if (cId.isNotEmpty && !categories.contains(cId)) categories.add(cId);
+              }
+            }
+
+            // 2. Extract from Kitchen object (Legacy Pattern)
             if (kitchenObj is Map) {
               kitchenId =
                   (kitchenObj['id'] ?? kitchenObj['_id'])?.toString() ?? '';
@@ -243,14 +268,14 @@ class _LoginPageState extends State<LoginPage> {
                 for (var c in kitchenObj['categories']) {
                   final cId =
                       (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-                  if (cId.isNotEmpty) categories.add(cId);
+                  if (cId.isNotEmpty && !categories.contains(cId)) categories.add(cId);
                 }
               }
             } else if (kitchenObj is String) {
               kitchenId = kitchenObj;
             }
 
-            // Fallback: Check employee collection if still needed for legacy
+            // 3. Fallback: Check employee collection if still needed for legacy
             if (kitchenId.isEmpty && fullUser['employee'] is Map) {
               final emp = fullUser['employee'];
               final empK = emp['kitchen'];

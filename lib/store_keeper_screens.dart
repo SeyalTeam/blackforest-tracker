@@ -249,22 +249,37 @@ class _RawMaterialCategoryScreenState extends State<RawMaterialCategoryScreen> {
                                 style: TextStyle(color: Colors.grey),
                               ),
                             )
-                          : ListView.builder(
-                              itemCount: _categories.length,
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                              itemBuilder: (context, index) {
-                                final cat = _categories[index];
-                                final name = cat['name'] ?? 'Unknown';
-                                return Card(
-                                  margin: const EdgeInsets.only(bottom: 8.0),
-                                  elevation: 1,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: ListTile(
-                                    leading: const Icon(
-                                      Icons.category_outlined,
-                                      color: Colors.black54,
+                          : Container(
+                              color: Colors.white,
+                              child: ListView.separated(
+                                itemCount: _categories.length,
+                                separatorBuilder: (context, index) => const Divider(
+                                  height: 1,
+                                  indent: 64,
+                                  endIndent: 16,
+                                  color: Colors.black12,
+                                ),
+                                itemBuilder: (context, index) {
+                                  final cat = _categories[index];
+                                  final name = cat['name'] ?? 'Unknown';
+                                  return ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                                    leading: Container(
+                                      width: 32,
+                                      height: 32,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.05),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Text(
+                                        '${index + 1}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
                                     ),
                                     title: Text(
                                       name,
@@ -273,9 +288,19 @@ class _RawMaterialCategoryScreenState extends State<RawMaterialCategoryScreen> {
                                         fontSize: 16,
                                       ),
                                     ),
-                                  ),
-                                );
-                              },
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => CategoryProductsScreen(
+                                            category: cat,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
                             ),
                     ),
                   ],
@@ -919,8 +944,10 @@ class CreateRawMaterialDealerScreen extends StatefulWidget {
 class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerScreen> {
   bool _isLoading = false;
   List<dynamic> _dealers = [];
+  List<dynamic> _products = [];
   List<String> _companyIds = [];
   String? _errorMsg;
+  String _selectedFilterProductId = 'all';
 
   @override
   void initState() {
@@ -967,10 +994,12 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
       }
 
       final filteredDealers = await ApiService.instance.fetchRawMaterialDealers();
+      final products = await ApiService.instance.fetchRawMaterials();
 
       if (mounted) {
         setState(() {
           _dealers = filteredDealers;
+          _products = products;
           _companyIds = companyIds;
           _isLoading = false;
         });
@@ -987,6 +1016,24 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
 
   @override
   Widget build(BuildContext context) {
+    final filtered = _dealers.where((dealer) {
+      if (_selectedFilterProductId != 'all') {
+        final selectedProd = _products.firstWhere(
+          (p) => p['id']?.toString() == _selectedFilterProductId,
+          orElse: () => null,
+        );
+        if (selectedProd != null) {
+          final prodDealer = selectedProd['dealer'];
+          final prodDealerId = (prodDealer is Map ? prodDealer['id'] : prodDealer)?.toString();
+          final dealerId = dealer['id']?.toString();
+          if (dealerId != prodDealerId) return false;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -994,52 +1041,88 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
       ),
-      body: _isLoading && _dealers.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMsg != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _loadInitialData,
-                          child: const Text('Retry'),
-                        )
-                      ],
-                    ),
+      body: Column(
+        children: [
+          if (!_isLoading && _dealers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              child: DropdownButtonFormField<String>(
+                key: ValueKey(_selectedFilterProductId),
+                initialValue: _selectedFilterProductId,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Filter by Supplied Product',
+                  prefixIcon: const Icon(Icons.inventory_2_outlined, size: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: 'all',
+                    child: Text('All Products'),
                   ),
-                )
-              : _dealers.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No dealers found.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _dealers.length,
-                      padding: const EdgeInsets.all(16.0),
-                      itemBuilder: (context, index) {
-                        final dl = _dealers[index];
-                        final companyName = dl['companyName'] ?? 'Unknown Company';
-                        final address = dl['address'] ?? '';
-                        final phone = dl['phoneNumber'] ?? '';
-                        
-                        final contactObj = dl['contactPerson'];
-                        final contactName = contactObj is Map ? contactObj['name'] : 'N/A';
-
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12.0),
-                          elevation: 1,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                  ..._products.map((p) {
+                    return DropdownMenuItem<String>(
+                      value: p['id']?.toString(),
+                      child: Text(p['name'] ?? 'Unknown Product', overflow: TextOverflow.ellipsis),
+                    );
+                  }),
+                ],
+                onChanged: (val) {
+                  setState(() {
+                    _selectedFilterProductId = val ?? 'all';
+                  });
+                },
+              ),
+            ),
+          Expanded(
+            child: _isLoading && _dealers.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMsg != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: _loadInitialData,
+                                child: const Text('Retry'),
+                              )
+                            ],
                           ),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
+                        ),
+                      )
+                    : filtered.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No dealers found.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
+                        : Container(
+                            color: Colors.white,
+                            child: ListView.separated(
+                              itemCount: filtered.length,
+                              padding: const EdgeInsets.symmetric(vertical: 8.0),
+                              separatorBuilder: (context, index) => const Divider(
+                                height: 1,
+                                indent: 68,
+                                endIndent: 16,
+                                color: Colors.black12,
+                              ),
+                              itemBuilder: (context, index) {
+                                final dl = filtered[index];
+                                final companyName = dl['companyName'] ?? 'Unknown Company';
+                                final address = dl['address'] ?? '';
+                                final phone = dl['phoneNumber'] ?? '';
+                                
+                                final contactObj = dl['contactPerson'];
+                                final contactName = contactObj is Map ? contactObj['name'] : 'N/A';
+
+                          return InkWell(
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -1049,7 +1132,7 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
                               );
                             },
                             child: Padding(
-                              padding: const EdgeInsets.all(16.0),
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -1107,10 +1190,13 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
                                 ],
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
+                  ),
+                ],
+              ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           final result = await Navigator.push(
@@ -1811,6 +1897,202 @@ class RawMaterialDealerDetailScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class CategoryProductsScreen extends StatefulWidget {
+  final Map<String, dynamic> category;
+
+  const CategoryProductsScreen({super.key, required this.category});
+
+  @override
+  State<CategoryProductsScreen> createState() => _CategoryProductsScreenState();
+}
+
+class _CategoryProductsScreenState extends State<CategoryProductsScreen> {
+  bool _isLoading = false;
+  List<dynamic> _products = [];
+  String? _errorMsg;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProducts();
+  }
+
+  Future<void> _loadProducts() async {
+    setState(() {
+      _isLoading = true;
+      _errorMsg = null;
+    });
+
+    try {
+      final rawMaterials = await ApiService.instance.fetchRawMaterials();
+      final catId = widget.category['id']?.toString();
+      final filtered = rawMaterials.where((prod) {
+        final catObj = prod['category'];
+        final pCatId = (catObj is Map ? catObj['id'] : catObj)?.toString();
+        return pCatId == catId;
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _products = filtered;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMsg = 'Failed to load products: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final catName = widget.category['name'] ?? 'Category Products';
+
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: Text(catName),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMsg != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _loadProducts,
+                          child: const Text('Retry'),
+                        )
+                      ],
+                    ),
+                  ),
+                )
+              : _products.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No products found in this category.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : Container(
+                      color: Colors.white,
+                      child: ListView.separated(
+                        itemCount: _products.length,
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        separatorBuilder: (context, index) => const Divider(
+                          height: 1,
+                          indent: 68,
+                          endIndent: 16,
+                          color: Colors.black12,
+                        ),
+                        itemBuilder: (context, index) {
+                          final prod = _products[index];
+                          final name = prod['name'] ?? 'Unknown';
+                          final unit = prod['unit'] ?? '';
+                          final minStock = prod['minimumStockLevel']?.toString() ?? 'N/A';
+                          
+                          final dealerObj = prod['dealer'];
+                          final dealerName = (dealerObj is Map ? dealerObj['companyName'] : null) ?? '';
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 36,
+                                  height: 36,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.05),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${index + 1}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      if (dealerName.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          dealerName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 13,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey[200],
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              catName,
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Min: $minStock $unit',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
     );
   }
 }

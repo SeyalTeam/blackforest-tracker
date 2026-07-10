@@ -15,6 +15,7 @@ import 'review_list.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'notification_service.dart';
 import 'kitchen_notifications_page.dart';
+import 'kitchen_waiter_call_page.dart';
 import 'kitchen_chats_screen.dart';
 import 'kitchen_footer.dart';
 import 'dart:convert';
@@ -1013,6 +1014,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+
+
   Future<void> _fetchKitchenOrders({bool showLoader = true}) async {
     debugPrint(
       'DEBUG: _fetchKitchenOrders called. Role: $_userRole, Branch: $_userBranchId, Kitchen: $_userKitchenId',
@@ -1861,7 +1864,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     children: [
                       _buildStoreKeeperGridItem(
                         context,
-                        title: 'Billing',
+                        title: 'Invoice',
                         icon: Icons.receipt_long_rounded,
                         color: Colors.teal,
                         onTap: () {
@@ -2175,6 +2178,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       actions: [
         _buildNotificationIcon(),
         _buildKitchenStockIcon(),
+        IconButton(
+          icon: const Icon(Icons.ring_volume_rounded, color: Colors.orange),
+          tooltip: 'Call Waiter',
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => KitchenWaiterCallPage(
+                  branchId: _userBranchId,
+                  userRole: _userRole,
+                  kitchenOrders: List.from(_kitchenOrders),
+                ),
+              ),
+            );
+          },
+        ),
         IconButton(
           icon: const Icon(Icons.refresh),
           onPressed: _fetchKitchenOrders,

@@ -1019,4 +1019,118 @@ class ApiService {
       rethrow;
     }
   }
+
+  Future<List<dynamic>> fetchLiveWaiters({required String branchId}) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/users?limit=150&depth=1&where[role][equals]=waiter&where[or][0][branch][equals]=$branchId&where[or][1][lastLoginBranch][equals]=$branchId';
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final waiters = (data['docs'] as List?) ?? [];
+        
+        return waiters.map((user) {
+          return {
+            'id': user['id'] ?? user['_id'],
+            'name': user['name'] ?? user['username'] ?? 'Waiter',
+            'role': user['role'] ?? 'waiter',
+            'email': user['email'] ?? '',
+          };
+        }).toList();
+      } else {
+        throw Exception('Failed to load waiters');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> updateBillNotes({
+    required String billId,
+    required String notes,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.patch(
+        Uri.parse('$_baseUrl/billings/$billId'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'notes': notes}),
+      );
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body);
+      } else {
+        throw Exception('Failed to update bill notes: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createBilling({
+    required Map<String, dynamic> billingData,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/billings'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(billingData),
+      );
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body);
+      } else {
+        throw Exception('Failed to create billing: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> callWaiter({
+    required String branchId,
+    required String billId,
+    required String tableNumber,
+    required String section,
+    String? waiterId,
+    String? callerName,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/call-waiter'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'branchId': branchId,
+          'billId': billId,
+          'tableNumber': tableNumber,
+          'section': section,
+          if (waiterId != null && waiterId.isNotEmpty) 'waiterId': waiterId,
+          if (callerName != null && callerName.isNotEmpty) 'callerName': callerName,
+        }),
+      );
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body);
+      } else {
+        throw Exception('Failed to trigger waiter call endpoint: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }

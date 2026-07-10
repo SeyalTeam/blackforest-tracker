@@ -95,7 +95,7 @@ class _StockFooterItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeColor = Colors.black;
+    final activeColor = Colors.blue;
     final inactiveColor = Colors.grey[600]!;
 
     return InkWell(

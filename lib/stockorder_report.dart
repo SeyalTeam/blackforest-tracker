@@ -8,7 +8,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:share_plus/share_plus.dart';
 import 'api_service.dart';
 
 class StockOrderReportPage extends StatefulWidget {
@@ -56,6 +55,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   List<Map<String, dynamic>> departments = [];
   Map<String, dynamic>? _combinedOrder;
   String _userRole = '';
+  String _filterBy = 'deliveryDate'; // Default filter type
 
   bool get isChef => _userRole == 'chef';
   bool get isSupervisor => _userRole == 'supervisor';
@@ -83,11 +83,17 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   Map<String, int> _billPendingItemCounts = {};
   Map<String, bool> _orderIsLive = {};
 
+  // Category Filter State
+  List<String> _availableCategories = ['ALL'];
+  String _selectedCategoryFilter = 'ALL';
+
   // Map to track local edits: OrderID_ItemID -> Controller
   final Map<String, TextEditingController> _controllers = {};
 
   // Track recently updated items to delay sorting move
   final Set<String> _recentlyUpdatedIds = {};
+  String? _cachedToken;
+  String? _cachedUserId;
 
   void _markUpdated(String productId) {
     if (_recentlyUpdatedIds.contains(productId)) return; // Already tracking
@@ -152,7 +158,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
   Future<void> _getUserRole() async {
     const storage = FlutterSecureStorage();
+    _cachedToken = await storage.read(key: 'token');
+    _cachedUserId = await storage.read(key: 'userId');
     String? role = await storage.read(key: 'userRole');
+    if (!mounted) return;
     setState(() {
       _userRole = role?.toLowerCase() ?? '';
     });
@@ -165,27 +174,33 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   Future<void> _fetchBranches({bool forceRefresh = false}) async {
+    if (!mounted) return;
     setState(() => _loadingBranches = true);
     try {
       final docs = await ApiService.instance.fetchBranches(
         forceRefresh: forceRefresh,
       );
+      if (!mounted) return;
       final list = <Map<String, String>>[];
       for (var b in docs) {
         final id = (b['id'] ?? b['_id'])?.toString();
         final name = (b['name'] ?? 'Unnamed Branch').toString();
-        if (id != null) list.add({'id': id, 'name': name});
+        // Keep branch metadata (like type) if needed, but here we just need id/name for the list
+        // However, we filter by type later, so let's keep it.
+        final type = b['type']?.toString() ?? 'branch';
+        if (id != null) list.add({'id': id, 'name': name, 'type': type});
       }
       setState(() => branches = list);
     } catch (e) {
       debugPrint('fetchBranches error: $e');
+      if (!mounted) return;
       setState(
         () => branches = [
-          {'id': '1', 'name': 'Factory'},
+          {'id': '1', 'name': 'Factory', 'type': 'branch'},
         ],
       );
     } finally {
-      setState(() => _loadingBranches = false);
+      if (mounted) setState(() => _loadingBranches = false);
     }
   }
 
@@ -194,6 +209,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       final docs = await ApiService.instance.fetchDepartments(
         forceRefresh: forceRefresh,
       );
+      if (!mounted) return;
       setState(() {
         departments = docs.cast<Map<String, dynamic>>();
       });
@@ -213,6 +229,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       final docs = await ApiService.instance.fetchCategories(
         forceRefresh: forceRefresh,
       );
+      if (!mounted) return;
       setState(() {
         categories = docs.cast<Map<String, dynamic>>();
       });
@@ -243,16 +260,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   Future<void> _fetchStockOrders({bool forceRefresh = false}) async {
     if (fromDate == null) return;
 
+    if (!mounted) return;
     // Only show loader if we don't have data or we are forcing a refresh
     if (forceRefresh || stockOrders.isEmpty) {
       setState(() {
         _loading = true;
-        // Do not clear stockOrders here if we want to keep showing old data while refreshing?
-        // But usually refresh means we want to see new state.
-        // Let's clear perfectly if forceRefresh, otherwise keep it.
         if (forceRefresh) stockOrders = [];
       });
-      // Clear old controllers on refresh
       _controllers.clear();
     }
 
@@ -260,9 +274,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       final docs = await ApiService.instance.fetchStockOrders(
         fromDate: fromDate!,
         toDate: toDate,
+        filterBy: _filterBy,
         forceRefresh: forceRefresh,
       );
 
+      if (!mounted) return;
       setState(() {
         stockOrders = docs.cast<Map<String, dynamic>>();
         stockOrders.sort((a, b) {
@@ -279,7 +295,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     } catch (e) {
       debugPrint('fetchStockOrders error: $e');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -440,7 +456,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     Set<String> uniqueDepartments = {'ALL'}; // Init Set for Footer
 
     for (var order in finalFilteredOrders) {
-      final orderId = order['id'] ?? order['_id'];
+      final orderId = (order['id'] ?? order['_id'])?.toString() ?? '';
+      if (orderId.isEmpty) continue;
 
       final branch = order['branch'];
       String code = 'UNK';
@@ -649,30 +666,58 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     // Apply Status Filter (APPROVED / NOT APPROVED)
     if (_statusFilter != 'ALL') {
       rawList = rawList.where((item) {
-        bool isApproved = false;
-        // Logic same as sort logic for "Done" items
-        if (isChef) {
-          isApproved = ((item['sendingQty'] as num?) ?? 0) > 0;
-        } else if (isSupervisor) {
-          isApproved = ((item['confirmedQty'] as num?) ?? 0) > 0;
-        } else if (isDriver) {
-          isApproved = ((item['pickedQty'] as num?) ?? 0) > 0;
-        } else {
-          // Determine logic for Factory or others - defaulting to Chef logic (Sending > 0) or just ignore
-          // Let's assume sending > 0 for now as generic "Action Taken"
-          isApproved = ((item['sendingQty'] as num?) ?? 0) > 0;
-        }
+        final sent = ((item['sendingQty'] as num?) ?? 0) > 0;
+        final conf = ((item['confirmedQty'] as num?) ?? 0) > 0;
+        final pick = ((item['pickedQty'] as num?) ?? 0) > 0;
+        final recv = (item['statuses'] as Set).contains('received');
 
-        if (_statusFilter == 'APPROVED') {
-          return isApproved;
-        } else {
-          return !isApproved;
+        switch (_statusFilter) {
+          case 'PENDING':
+            return !sent && !conf && !pick && !recv;
+          case 'SENDING':
+            return sent && !conf && !pick && !recv;
+          case 'CONFIRMED':
+            return conf && !pick && !recv;
+          case 'PICKED':
+            return pick && !recv;
+          case 'RECEIVED':
+            return recv;
+          case 'APPROVED':
+            if (isChef) return sent;
+            if (isSupervisor) return conf;
+            if (isDriver) return pick;
+            return sent;
+          case 'NOT_APPROVED':
+            if (isChef) return !sent;
+            if (isSupervisor) return !conf;
+            if (isDriver) return !pick;
+            return !sent;
+          default:
+            return true;
         }
       }).toList();
     }
 
-    // 1. Grid List (Alphabetical Only)
-    List<Map<String, dynamic>> gridList = List.from(rawList);
+    // 1. Grid List (Alphabetical Only - removes updated/done products for instant KOT-like speed)
+    List<Map<String, dynamic>> gridList = rawList.where((item) {
+      if (['APPROVED', 'SENDING', 'CONFIRMED', 'PICKED', 'RECEIVED'].contains(_statusFilter)) {
+        return true;
+      }
+      if (_recentlyUpdatedIds.contains(item['productId'])) {
+        return true; // Keep in list temporarily (delay hiding for 5s)
+      }
+      bool isDone = false;
+      if (isChef) {
+        isDone = ((item['sendingQty'] as num?) ?? 0) > 0;
+      } else if (isSupervisor) {
+        isDone = ((item['confirmedQty'] as num?) ?? 0) > 0;
+      } else if (isDriver) {
+        isDone = ((item['pickedQty'] as num?) ?? 0) > 0;
+      } else {
+        isDone = ((item['sendingQty'] as num?) ?? 0) > 0;
+      }
+      return !isDone;
+    }).toList();
     gridList.sort((a, b) {
       int cmp = (a['departmentName'] ?? '').compareTo(
         b['departmentName'] ?? '',
@@ -685,8 +730,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       return (a['productName'] ?? '').compareTo(b['productName'] ?? '');
     });
 
-    // 2. Report List (Status Sorting - "Done" items to bottom)
-    rawList.sort((a, b) {
+    // 2. Report List (keeps all products, including updated/done ones, and sorts them)
+    List<Map<String, dynamic>> reportList = List<Map<String, dynamic>>.from(rawList);
+
+    reportList.sort((a, b) {
       int cmp = (a['departmentName'] ?? '').compareTo(
         b['departmentName'] ?? '',
       );
@@ -695,7 +742,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       cmp = (a['categoryName'] ?? '').compareTo(b['categoryName'] ?? '');
       if (cmp != 0) return cmp;
 
-      // Sort Approved/Done items to bottom of category
+      // Sort Approved/Done items to bottom of category (in case they are not hidden, e.g. when APPROVED filter is active)
       bool aDone = false;
       bool bDone = false;
 
@@ -800,9 +847,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           lastCat = null;
         }
         if (cat != lastCat && widget.categoryId == null) {
-          final totals =
-              categoryTotals[cat] ??
-              {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0};
+          final totals = Map<String, dynamic>.from(
+            categoryTotals[cat] ??
+                {'req': 0.0, 'sent': 0.0, 'conf': 0.0, 'pick': 0.0},
+          );
+          totals['categoryName'] = cat;
           res.add({'type': 'header_cat', 'title': cat, 'totals': totals});
           lastCat = cat;
         }
@@ -812,7 +861,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       return res;
     }
 
-    _consolidatedItemsReport = generateList(rawList);
+    _consolidatedItemsReport = generateList(reportList);
     _consolidatedItemsGrid = generateList(gridList);
     _consolidatedItems =
         _consolidatedItemsReport; // Default to report view logic for others
@@ -883,612 +932,341 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     return '${orderId}_$pid';
   }
 
-  Future<void> _updateItemStatus(
-    String orderId,
-    Map<String, dynamic> itemToUpdate,
-    double newSentQty, {
-    String? pName,
-  }) async {
-    final token = await ApiService.storage.read(key: 'token');
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  // --- Sequential Task Queue for Reliability ---
+  final List<Future<void> Function()> _taskQueue = [];
+  bool _isProcessingQueue = false;
+
+  void _addToQueue(Future<void> Function() task) {
+    _taskQueue.add(task);
+    if (!_isProcessingQueue) {
+      _processQueue();
+    }
+  }
+
+  Future<void> _processQueue() async {
+    if (_isProcessingQueue) return;
+    _isProcessingQueue = true;
+    while (_taskQueue.isNotEmpty) {
+      final task = _taskQueue.removeAt(0);
+      try {
+        await task();
+      } catch (e) {
+        debugPrint('Queue Error: $e');
+      }
+    }
+    _isProcessingQueue = false;
+  }
+
+  void _showQueuedSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Updating...'),
-        duration: Duration(milliseconds: 500),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.blueGrey,
+        duration: const Duration(seconds: 10),
       ),
     );
+  }
 
-    try {
-      final nowStr = DateTime.now().toUtc().toIso8601String();
-      // 1. Find the order to get full list of items
-      // We need to send ALL items back to Payload CMS to update the array properly,
-      // or at least that's the safest way without a custom endpoint.
-      // We use the local `stockOrders` list which should be up to date with `itemToUpdate` reference generally,
-      // but let's be safe and use parameters.
+  String _extractProductId(dynamic product) {
+    if (product is Map) {
+      return (product['id'] ?? product['_id'] ?? '').toString();
+    }
+    return (product ?? '').toString();
+  }
 
-      final orderIndex = stockOrders.indexWhere(
-        (o) => (o['id'] ?? o['_id']) == orderId,
+  Map<String, dynamic> _buildApiStockItem(Map<String, dynamic> item) {
+    final apiItem = <String, dynamic>{};
+
+    // Keep only scalar fields from each sub-item; this avoids sending
+    // nested populated objects back to Payload for older orders.
+    item.forEach((key, value) {
+      if (key == 'product') return;
+      if (key == 'createdAt' || key == 'updatedAt') return;
+      if (value is Map || value is List) return;
+      apiItem[key] = value;
+    });
+
+    final productId = _extractProductId(item['product']);
+    if (productId.isNotEmpty) {
+      apiItem['product'] = productId;
+    }
+
+    return apiItem;
+  }
+
+  // --- Core Batch Update Helper ---
+  Future<void> _updateStockOrderBatch({
+    required String orderId,
+    required List<Map<String, dynamic>> itemsToUpdate,
+    String mode = 'sending',
+  }) async {
+    final token = _cachedToken ?? await ApiService.storage.read(key: 'token');
+    final userId = _cachedUserId ?? await ApiService.storage.read(key: 'userId');
+    final nowStr = DateTime.now().toUtc().toIso8601String();
+
+    final orderIndex = stockOrders.indexWhere(
+      (o) => (o['id'] ?? o['_id']) == orderId,
+    );
+    if (orderIndex == -1) return;
+
+    final order = stockOrders[orderIndex];
+    final currentItems = (order['items'] as List?) ?? [];
+    List<Map<String, dynamic>> apiItems = [];
+
+    for (var item in currentItems) {
+      Map<String, dynamic> apiItem = _buildApiStockItem(
+        Map<String, dynamic>.from(item),
       );
-      if (orderIndex == -1) {
-        debugPrint('Order not found locally for update');
-        return;
-      }
-      final order = stockOrders[orderIndex];
-      final currentItems = (order['items'] as List?) ?? [];
+      final pid = _extractProductId(item['product']);
 
-      // 2. Prepare Items Payload
-      // We must map existing items to the format expected by API
-      // Usually: { "product": "ID", "sendingQty": N, "status": "S", ... }
+      final updateEntry = itemsToUpdate.firstWhere(
+        (u) {
+          final upid = _extractProductId(u['product']);
+          return pid == upid && pid.isNotEmpty;
+        },
+        orElse: () => {},
+      );
 
-      List<Map<String, dynamic>> apiItems = [];
-      bool found = false;
-
-      for (var item in currentItems) {
-        // Identify item by product ID
-        String pid = '';
-        if (item['product'] is Map) {
-          pid = item['product']['id'] ?? item['product']['_id'] ?? '';
-        } else {
-          pid = item['product']?.toString() ?? '';
-        }
-
-        String targetPid = '';
-        if (itemToUpdate['product'] is Map) {
-          targetPid =
-              itemToUpdate['product']['id'] ??
-              itemToUpdate['product']['_id'] ??
-              '';
-        } else {
-          targetPid = itemToUpdate['product']?.toString() ?? '';
-        }
-
-        // Clone item for API
-        Map<String, dynamic> apiItem = Map<String, dynamic>.from(item);
-
-        if (pid == targetPid) {
-          found = true;
-          // Fix Product to be ID string for the updated item
-          apiItem['product'] = pid;
-          apiItem['sendingQty'] = newSentQty;
-          apiItem['status'] = 'sending';
+      if (updateEntry.isNotEmpty) {
+        apiItem['product'] = pid;
+        apiItem['status'] = mode;
+        if (mode == 'sending') {
+          apiItem['sendingQty'] = updateEntry['sendingQty'];
           apiItem['sendingDate'] = nowStr;
-
-          itemToUpdate['status'] = 'sending';
-          itemToUpdate['sendingQty'] = newSentQty;
-          itemToUpdate['sendingDate'] = nowStr;
-        }
-
-        apiItems.add(apiItem);
-      }
-
-      if (!found) {
-        debugPrint('Item not found in order items list');
-        return;
-      }
-
-      // 3. Send PATCH Request
-      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
-      final res = await http.patch(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'items': apiItems}),
-      );
-
-      if (res.statusCode == 200) {
-        // Success
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        String msg = 'Saved successfully';
-        if (pName != null) {
-          msg = '${_formatQty(newSentQty)} $pName Sending';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: Colors.green,
-            duration: const Duration(milliseconds: 800),
-          ),
-        );
-      } else {
-        throw Exception('Failed to update: ${res.statusCode} ${res.body}');
-      }
-    } catch (e) {
-      debugPrint('Error updating item: $e');
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error saving: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _updateConfirmQty(
-    String orderId,
-    Map<String, dynamic> itemToUpdate,
-    double qty, {
-    String? pName,
-    String? userId,
-  }) async {
-    final token = await ApiService.storage.read(key: 'token');
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Confirming...'),
-        duration: Duration(milliseconds: 500),
-      ),
-    );
-
-    try {
-      final nowStr = DateTime.now().toUtc().toIso8601String();
-      final orderIndex = stockOrders.indexWhere(
-        (o) => (o['id'] ?? o['_id']) == orderId,
-      );
-      if (orderIndex == -1) return;
-      final order = stockOrders[orderIndex];
-      final currentItems = (order['items'] as List?) ?? [];
-
-      List<Map<String, dynamic>> apiItems = [];
-      bool found = false;
-
-      for (var item in currentItems) {
-        String pid = '';
-        if (item['product'] is Map) {
-          pid = item['product']['id'] ?? item['product']['_id'] ?? '';
-        } else {
-          pid = item['product']?.toString() ?? '';
-        }
-
-        String targetPid = '';
-        if (itemToUpdate['product'] is Map) {
-          targetPid =
-              itemToUpdate['product']['id'] ??
-              itemToUpdate['product']['_id'] ??
-              '';
-        } else {
-          targetPid = itemToUpdate['product']?.toString() ?? '';
-        }
-
-        Map<String, dynamic> apiItem = Map<String, dynamic>.from(item);
-
-        if (pid == targetPid) {
-          found = true;
-          apiItem['product'] = pid;
-          apiItem['confirmedQty'] = qty;
-          apiItem['status'] = itemToUpdate['status'] ?? 'confirmed';
+          apiItem['sendingUpdatedBy'] = userId;
+        } else if (mode == 'confirmed') {
+          apiItem['confirmedQty'] = updateEntry['confirmedQty'];
           apiItem['confirmedDate'] = nowStr;
-
-          if (userId != null) {
-            apiItem['confirmedBy'] = userId; // Keep for safety
-            apiItem['confirmedUpdatedBy'] = userId; // Match JSON output
-            apiItem['user'] = userId;
-          }
-
-          itemToUpdate['confirmedQty'] = qty;
-          itemToUpdate['confirmedDate'] = nowStr;
-        }
-        apiItems.add(apiItem);
-      }
-
-      if (!found) return;
-
-      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
-      final res = await http.patch(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'items': apiItems}),
-      );
-
-      if (res.statusCode == 200) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        String msg = 'Confirmed successfully';
-        if (pName != null) {
-          msg = '${_formatQty(qty)} $pName Confirmed';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: Colors.green,
-            duration: const Duration(milliseconds: 800),
-          ),
-        );
-      } else {
-        throw Exception('Failed to confirm: ${res.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('Error confirming qty: $e');
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error confirming: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  // Grouping Logic simplified / kept same but returns flat list for simplicity inside the card if needed,
-  // currently re-using existing logic is fine but we need to handle the display.
-
-  Future<void> _saveConsolidatedConfirm(Map<String, dynamic> entry) async {
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
-    try {
-      _markUpdated(entry['productId']);
-      final originalItems = entry['originalItems'] as List;
-      double newTotalConfirmed = 0;
-
-      for (var original in originalItems) {
-        final item = original['item'] as Map<String, dynamic>;
-        final orderId = original['orderId'] as String;
-        final currentSent = ((item['sendingQty'] as num?) ?? 0).toDouble();
-
-        // Confirm the current sent qty
-        item['confirmedQty'] = currentSent;
-        item['status'] = 'confirmed'; // Update status
-        newTotalConfirmed += currentSent;
-
-        await _updateConfirmQty(
-          orderId,
-          item,
-          currentSent,
-          pName: entry['productName'],
-        );
-      }
-
-      setState(() {
-        entry['confirmedQty'] = newTotalConfirmed;
-        entry['statuses'] = {'confirmed'}; // Update local aggregate status
-        _processStockOrders();
-      });
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  // Update params to accept num/double
-  Future<void> _saveStockOrder(
-    Map<String, dynamic> entry,
-    double totalQty,
-  ) async {
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
-    try {
-      double remaining = totalQty;
-      final originalItems = entry['originalItems'] as List;
-      Set<String> newStatuses = {};
-      double newTotalSent = 0;
-
-      // OPTIMIZATION: Single item case checks
-      if (originalItems.length == 1) {
-        final original = originalItems[0];
-        final item = original['item'] as Map<String, dynamic>;
-        final orderId = original['orderId'] as String;
-
-        item['status'] = 'sending';
-        item['sendingQty'] = totalQty;
-
-        await _updateItemStatus(
-          orderId,
-          item,
-          totalQty,
-          pName: entry['productName'],
-        );
-
-        newStatuses.add('sending');
-        newTotalSent = totalQty;
-
-        // SPECIAL RULE: Ettayapuram Auto-Confirm (REMOVED)
-      } else {
-        // ... existing multi-item logic
-        for (int i = 0; i < originalItems.length; i++) {
-          final original = originalItems[i];
-          final item = original['item'] as Map<String, dynamic>;
-          final orderId = original['orderId'] as String;
-          final req = ((item['requiredQty'] as num?) ?? 0).toDouble();
-
-          double allocated = 0;
-          double apply = 0;
-
-          if (remaining > 0) {
-            apply = (remaining >= req) ? req : remaining;
-            allocated = apply;
-            remaining -= apply;
-          }
-
-          // OVER-SENDING: Dump any remaining surplus into the last item
-          if (i == originalItems.length - 1 && remaining > 0) {
-            allocated += remaining;
-            remaining = 0;
-          }
-
-          // Update Local
-          item['status'] = 'sending';
-          item['sendingQty'] = allocated;
-          newTotalSent += allocated;
-          newStatuses.add('sending');
-          // API Update
-          await _updateItemStatus(
-            orderId,
-            item,
-            allocated,
-            pName: entry['productName'],
-          );
-
-          // SPECIAL RULE: Ettayapuram Auto-Confirm (REMOVED)
-        }
-      }
-
-      setState(() {
-        entry['sendingQty'] = totalQty;
-        entry['statuses'] = newStatuses;
-        _processStockOrders();
-      });
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _saveManualConsolidatedConfirm(
-    Map<String, dynamic> entry,
-    double newVal,
-  ) async {
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
-    try {
-      _markUpdated(entry['productId']);
-      final originalItems = entry['originalItems'] as List;
-      double remainingToAllocate = newVal;
-
-      for (var original in originalItems) {
-        final item = original['item'] as Map<String, dynamic>;
-        final orderId = original['orderId'] as String;
-        final currentSent = ((item['sendingQty'] as num?) ?? 0).toDouble();
-
-        double allocated = 0;
-        if (remainingToAllocate >= currentSent) {
-          allocated = currentSent;
-          remainingToAllocate -= currentSent;
-        } else {
-          allocated = remainingToAllocate;
-          remainingToAllocate = 0;
-        }
-
-        if (remainingToAllocate > 0 && original == originalItems.last) {
-          allocated += remainingToAllocate;
-          remainingToAllocate = 0;
-        }
-
-        item['confirmedQty'] = allocated;
-        item['status'] = 'confirmed'; // Update status
-        await _updateConfirmQty(
-          orderId,
-          item,
-          allocated,
-          pName: entry['productName'],
-        );
-      }
-
-      setState(() {
-        entry['confirmedQty'] = newVal;
-        if (newVal > 0) {
-          final stats = (entry['statuses'] as Set);
-          stats.add('confirmed'); // Add confirmed status
-        }
-        _processStockOrders();
-      });
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _updatePickQty(
-    String orderId,
-    Map<String, dynamic> itemToUpdate,
-    double qty, {
-    String? pName,
-    String? userId,
-  }) async {
-    final token = await ApiService.storage.read(key: 'token');
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-    try {
-      final nowStr = DateTime.now().toUtc().toIso8601String();
-      final orderIndex = stockOrders.indexWhere(
-        (o) => (o['id'] ?? o['_id']) == orderId,
-      );
-      if (orderIndex == -1) return;
-      final order = stockOrders[orderIndex];
-      // We will construct the payload for this order
-      // Assuming we need to send ALL items for this order or just the updated one?
-      // Usually checking the API: if we send a partial list, it might replace them?
-      // Let's assume we modify the specific item in the list and send the whole list back
-      // OR if the backend supports partial updates on items array.
-      // Based on previous code, we rebuild the list.
-
-      final currentItems = (order['items'] as List?) ?? [];
-
-      List<Map<String, dynamic>> apiItems = [];
-      bool found = false;
-
-      for (var item in currentItems) {
-        String pid = '';
-        if (item['product'] is Map) {
-          pid = item['product']['id'] ?? item['product']['_id'] ?? '';
-        } else {
-          pid = item['product']?.toString() ?? '';
-        }
-
-        String targetPid = '';
-        if (itemToUpdate['product'] is Map) {
-          targetPid =
-              itemToUpdate['product']['id'] ??
-              itemToUpdate['product']['_id'] ??
-              '';
-        } else {
-          targetPid = itemToUpdate['product']?.toString() ?? '';
-        }
-
-        Map<String, dynamic> apiItem = Map<String, dynamic>.from(item);
-
-        if (pid == targetPid) {
-          found = true;
-          apiItem['product'] = pid;
-          apiItem['pickedQty'] = qty;
-          apiItem['status'] = 'picked';
+          apiItem['confirmedUpdatedBy'] = userId;
+        } else if (mode == 'picked') {
+          apiItem['pickedQty'] = updateEntry['pickedQty'];
           apiItem['pickedDate'] = nowStr;
-
-          itemToUpdate['pickedQty'] = qty;
-          itemToUpdate['status'] = 'picked';
-          itemToUpdate['pickedDate'] = nowStr;
-
-          if (userId != null) {
-            apiItem['pickedBy'] = userId; // Keep for safety
-            apiItem['pickedUpdatedBy'] = userId; // Match JSON output
-            apiItem['user'] = userId;
-          }
+          apiItem['pickedUpdatedBy'] = userId;
         }
-        apiItems.add(apiItem);
+      }
+      apiItems.add(apiItem);
+    }
+
+    final url = 'https://blackforest4.vseyal.com/api/stock-orders/$orderId';
+
+    int retryCount = 0;
+    http.Response? res;
+    dynamic lastError;
+
+    while (retryCount < 2) {
+      try {
+        res = await http
+            .patch(
+              Uri.parse(url),
+              headers: {
+                'Content-Type': 'application/json',
+                if (token != null) 'Authorization': 'Bearer $token',
+              },
+              body: jsonEncode({'items': apiItems}),
+            )
+            .timeout(const Duration(seconds: 90));
+
+        if (res.statusCode == 200) return;
+
+        // If not a gateway error, don't retry
+        if (res.statusCode != 504 &&
+            res.statusCode != 502 &&
+            res.statusCode != 503) {
+          break;
+        }
+      } catch (e) {
+        lastError = e;
+        if (retryCount == 1) break;
       }
 
-      if (!found) return;
+      retryCount++;
+      await Future.delayed(Duration(seconds: 1 * retryCount));
+    }
 
-      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
-      await http.patch(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'items': apiItems}),
+    if (res != null && res.statusCode != 200) {
+      final body = res.body.trim();
+      final shortBody =
+          body.isEmpty
+              ? ''
+              : (body.length > 350 ? body.substring(0, 350) : body);
+      throw Exception(
+        'Failed to update order $orderId: ${res.statusCode}${shortBody.isEmpty ? '' : ' - $shortBody'}',
       );
-      // Success feedback
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      String msg = 'Picked successfully';
-      if (pName != null) {
-        msg = '${_formatQty(qty)} $pName Picked';
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: Colors.green,
-          duration: const Duration(milliseconds: 800),
-        ),
-      );
-    } catch (e) {
-      debugPrint('Error picking qty: $e');
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error picking: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    } else if (lastError != null) {
+      throw lastError;
     }
   }
 
-  Future<void> _saveManualConsolidatedPick(
-    Map<String, dynamic> entry,
-    double val,
-  ) async {
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
-    try {
-      _markUpdated(entry['productId']);
-      double newVal = val;
-      if (newVal < 0) newVal = 0;
+  // --- Individual Item Update Wrappers ---
 
-      final originalItems = entry['originalItems'] as List;
-      double newTotalPicked = 0;
-
-      // Distribute logic
-      double remaining = newVal;
-
-      for (var original in originalItems) {
-        final item = original['item'] as Map<String, dynamic>;
-        final orderId = original['orderId'] as String;
-        // Base allocation on confirmed qty
-        final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
-
-        double apply = 0;
-        if (remaining > 0) {
-          // Try to match confirmed first
-          apply = (remaining >= conf) ? conf : remaining;
-
-          // Let's allow over-pick on last item if needed.
-          if (original == originalItems.last) {
-            apply = remaining;
-          }
+  Future<void> _updateItemStatus({
+    required String orderId,
+    required Map<String, dynamic> itemToUpdate,
+    required double newSentQty,
+    String? pName,
+  }) async {
+    _showQueuedSnackBar('Sending update...');
+    _addToQueue(() async {
+      try {
+        await _updateStockOrderBatch(
+          orderId: orderId,
+          itemsToUpdate: [
+            {...itemToUpdate, 'sendingQty': newSentQty, 'status': 'sending'},
+          ],
+          mode: 'sending',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${_formatQty(newSentQty)} ${pName ?? "Item"} Sending',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
-
-        item['pickedQty'] = apply;
-        item['status'] = 'picked';
-
-        await _updatePickQty(orderId, item, apply, pName: entry['productName']);
-
-        remaining -= apply;
-        newTotalPicked += apply;
-      }
-
-      setState(() {
-        entry['pickedQty'] = newTotalPicked;
-        if (newTotalPicked > 0) entry['statuses'] = {'picked'};
-        _processStockOrders();
-      });
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _saveConsolidatedPick(Map<String, dynamic> entry) async {
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
-    try {
-      _markUpdated(entry['productId']);
-      final originalItems = entry['originalItems'] as List;
-      double newTotalPicked = 0;
-
-      for (var original in originalItems) {
-        final item = original['item'] as Map<String, dynamic>;
-        final orderId = original['orderId'] as String;
-        final currentConfirmed = ((item['confirmedQty'] as num?) ?? 0)
-            .toDouble();
-
-        // Pick the current confirmed qty
-        item['pickedQty'] = currentConfirmed;
-        item['status'] = 'picked';
-        newTotalPicked += currentConfirmed;
-
-        await _updatePickQty(
-          orderId,
-          item,
-          currentConfirmed,
-          pName: entry['productName'],
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
-
-      setState(() {
-        entry['pickedQty'] = newTotalPicked;
-        entry['statuses'] = {'picked'};
-        _processStockOrders();
-      });
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
+    });
   }
 
-  // Category Filter State
-  List<String> _availableCategories = ['ALL'];
-  String _selectedCategoryFilter = 'ALL';
+  Future<void> _showQuantityEditDialog(
+    Map<String, dynamic> entry,
+    double initialQty,
+  ) async {
+    final controller = TextEditingController(text: _formatQty(initialQty));
+    final double req = ((entry['requiredQty'] as num?) ?? 0).toDouble();
+
+    await showDialog(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Edit Quantity'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry['productName'],
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: isChef
+                        ? 'Sending Quantity'
+                        : (isSupervisor ? 'Confirmed Quantity' : 'Picked Quantity'),
+                    hintText: 'Required: ${_formatQty(req)}',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('CANCEL'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final val = double.tryParse(controller.text) ?? 0;
+                  setState(() {
+                    entry['val_local'] = val;
+                  });
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text('SET'),
+              ),
+            ],
+          ),
+    );
+  }
+
+
+  Future<void> _updateConfirmQty({
+    required String orderId,
+    required Map<String, dynamic> itemToUpdate,
+    required double qty,
+    String? pName,
+  }) async {
+    _showQueuedSnackBar('Confirming update...');
+    _addToQueue(() async {
+      try {
+        await _updateStockOrderBatch(
+          orderId: orderId,
+          itemsToUpdate: [
+            {...itemToUpdate, 'confirmedQty': qty, 'status': 'confirmed'},
+          ],
+          mode: 'confirmed',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${_formatQty(qty)} ${pName ?? "Item"} Confirmed'),
+              backgroundColor: Colors.green,
+              duration: const Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    });
+  }
+
+  Future<void> _updatePickQty({
+    required String orderId,
+    required Map<String, dynamic> itemToUpdate,
+    required double qty,
+    String? pName,
+  }) async {
+    _showQueuedSnackBar('Picking update...');
+    _addToQueue(() async {
+      try {
+        await _updateStockOrderBatch(
+          orderId: orderId,
+          itemsToUpdate: [
+            {...itemToUpdate, 'pickedQty': qty, 'status': 'picked'},
+          ],
+          mode: 'picked',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${_formatQty(qty)} ${pName ?? "Item"} Picked'),
+              backgroundColor: Colors.green,
+              duration: const Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    });
+  }
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
@@ -1499,28 +1277,552 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       initialDate: fromDate ?? now,
     );
     if (picked != null) {
-      setState(() {
-        fromDate = picked;
-        toDate = picked;
-        _selectedOrderId = null; // NEW: Reset bill filter
-      });
-      await _fetchStockOrders();
+      final pickedTo = await showDatePicker(
+        context: context,
+        firstDate: picked,
+        lastDate: DateTime(now.year + 1),
+        initialDate: toDate ?? picked,
+      );
+      if (pickedTo != null) {
+        if (!mounted) return;
+        setState(() {
+          fromDate = picked;
+          toDate = pickedTo;
+          _selectedOrderId = null; // Reset bill filter
+          _processStockOrders();
+        });
+        _bootstrap();
+      }
     }
   }
 
-  Widget _buildDateSelector() {
-    final safeFrom = fromDate ?? DateTime.now();
-    final dateFmt = DateFormat('MMM d');
-    final label = dateFmt.format(safeFrom);
+  // --- Supervisor / Chef / Driver Actions ---
 
-    // Sort branches
-    final displayBranches = List<Map<String, dynamic>>.from(branches);
-    displayBranches.sort(
-      (a, b) => (a['name'] as String).compareTo(b['name'] as String),
+  Future<void> _saveStockOrder(
+    Map<String, dynamic> entry,
+    double totalQty,
+  ) async {
+    final originalItems = entry['originalItems'] as List;
+    final originalSending = entry['sendingQty'];
+    final originalStatuses = Set.from(entry['statuses']);
+    final originalItemsBackup = originalItems
+        .map(
+          (o) => {
+            'item': o['item'],
+            'status': o['item']['status'],
+            'sendingQty': o['item']['sendingQty'],
+          },
+        )
+        .toList();
+
+    _markUpdated(entry['productId']);
+    double remaining = totalQty;
+    Map<String, List<Map<String, dynamic>>> groupedUpdates = {};
+
+    for (int i = 0; i < originalItems.length; i++) {
+      final original = originalItems[i];
+      final item = original['item'] as Map<String, dynamic>;
+      final orderId = (original['orderId'] ?? '').toString();
+      if (orderId.isEmpty) continue;
+      final req = ((item['requiredQty'] as num?) ?? 0).toDouble();
+      double apply = (remaining >= req) ? req : remaining;
+      if (i == originalItems.length - 1 && remaining > 0) apply = remaining;
+      item['sendingQty'] = apply;
+      item['status'] = 'sending';
+      remaining -= apply;
+      if (!groupedUpdates.containsKey(orderId)) groupedUpdates[orderId] = [];
+      groupedUpdates[orderId]!.add(item);
+    }
+
+    _showQueuedSnackBar('Sending update...');
+    setState(() {
+      entry['sendingQty'] = totalQty;
+      entry['statuses'] = {'sending'};
+      _processStockOrders();
+    });
+
+    _addToQueue(() async {
+      try {
+        for (var orderId in groupedUpdates.keys) {
+          await _updateStockOrderBatch(
+            orderId: orderId,
+            itemsToUpdate: groupedUpdates[orderId]!,
+            mode: 'sending',
+          );
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${_formatQty(totalQty)} ${entry['productName']} Sending',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        for (var b in originalItemsBackup) {
+          b['item']['status'] = b['status'];
+          b['item']['sendingQty'] = b['sendingQty'];
+        }
+        if (!mounted) return;
+        setState(() {
+          entry['sendingQty'] = originalSending;
+          entry['statuses'] = originalStatuses;
+          _processStockOrders();
+        });
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    });
+  }
+
+  Future<void> _saveConsolidatedConfirm(Map<String, dynamic> entry) async {
+    final originalItems = entry['originalItems'] as List;
+    final totalQty = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+    final originalConfirmed = entry['confirmedQty'];
+    final originalStatuses = Set.from(entry['statuses']);
+    final originalItemsBackup = originalItems
+        .map(
+          (o) => {
+            'item': o['item'],
+            'status': o['item']['status'],
+            'confirmedQty': o['item']['confirmedQty'],
+          },
+        )
+        .toList();
+
+    _markUpdated(entry['productId']);
+    Map<String, List<Map<String, dynamic>>> groupedUpdates = {};
+    for (var original in originalItems) {
+      final item = original['item'] as Map<String, dynamic>;
+      final orderId = (original['orderId'] ?? '').toString();
+      if (orderId.isEmpty) continue;
+      item['confirmedQty'] = ((item['sendingQty'] as num?) ?? 0).toDouble();
+      item['status'] = 'confirmed';
+      if (!groupedUpdates.containsKey(orderId)) groupedUpdates[orderId] = [];
+      groupedUpdates[orderId]!.add(item);
+    }
+
+    setState(() {
+      entry['confirmedQty'] = totalQty;
+      entry['statuses'].add('confirmed');
+      _processStockOrders();
+    });
+    _showQueuedSnackBar('Confirming update...');
+
+    _addToQueue(() async {
+      try {
+        for (var orderId in groupedUpdates.keys) {
+          await _updateStockOrderBatch(
+            orderId: orderId,
+            itemsToUpdate: groupedUpdates[orderId]!,
+            mode: 'confirmed',
+          );
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${_formatQty(totalQty)} ${entry['productName']} Confirmed',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        for (var b in originalItemsBackup) {
+          b['item']['status'] = b['status'];
+          b['item']['confirmedQty'] = b['confirmedQty'];
+        }
+        if (!mounted) return;
+        setState(() {
+          entry['confirmedQty'] = originalConfirmed;
+          entry['statuses'] = originalStatuses;
+          _processStockOrders();
+        });
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    });
+  }
+
+  Future<void> _saveManualConsolidatedConfirm(
+    Map<String, dynamic> entry,
+    double newVal,
+  ) async {
+    final originalItems = entry['originalItems'] as List;
+    final originalConfirmed = entry['confirmedQty'];
+    final originalStatuses = Set.from(entry['statuses']);
+    final originalItemsBackup = originalItems
+        .map(
+          (o) => {
+            'item': o['item'],
+            'status': o['item']['status'],
+            'confirmedQty': o['item']['confirmedQty'],
+          },
+        )
+        .toList();
+
+    _markUpdated(entry['productId']);
+    double remaining = newVal;
+    Map<String, List<Map<String, dynamic>>> groupedUpdates = {};
+
+    for (var original in originalItems) {
+      final item = original['item'] as Map<String, dynamic>;
+      final orderId = (original['orderId'] ?? '').toString();
+      if (orderId.isEmpty) continue;
+      final sent = ((item['sendingQty'] as num?) ?? 0).toDouble();
+      double apply = (remaining >= sent) ? sent : remaining;
+      if (original == originalItems.last && remaining > 0) apply = remaining;
+      item['confirmedQty'] = apply;
+      item['status'] = 'confirmed';
+      remaining -= apply;
+      if (!groupedUpdates.containsKey(orderId)) groupedUpdates[orderId] = [];
+      groupedUpdates[orderId]!.add(item);
+    }
+
+    setState(() {
+      entry['confirmedQty'] = newVal;
+      if (newVal > 0) entry['statuses'].add('confirmed');
+      _processStockOrders();
+    });
+    _showQueuedSnackBar('Confirming update...');
+
+    _addToQueue(() async {
+      try {
+        for (var orderId in groupedUpdates.keys) {
+          await _updateStockOrderBatch(
+            orderId: orderId,
+            itemsToUpdate: groupedUpdates[orderId]!,
+            mode: 'confirmed',
+          );
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${_formatQty(newVal)} ${entry['productName']} Confirmed',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        for (var b in originalItemsBackup) {
+          b['item']['status'] = b['status'];
+          b['item']['confirmedQty'] = b['confirmedQty'];
+        }
+        if (!mounted) return;
+        setState(() {
+          entry['confirmedQty'] = originalConfirmed;
+          entry['statuses'] = originalStatuses;
+          _processStockOrders();
+        });
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    });
+  }
+
+  void _handleCategoryDoubleTap(String categoryTitle) {
+    final safeCategoryTitle = categoryTitle.trim().isEmpty
+        ? 'this category'
+        : categoryTitle;
+
+    if (selectedBranchId == 'ALL') {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cannot update ALL Branches. Please select a specific branch.',
+          ),
+          duration: Duration(milliseconds: 1500),
+        ),
+      );
+      return;
+    }
+
+    final itemsToUpdate = _consolidatedItems.where((i) {
+      if (i['type'] != 'item') return false;
+      return i['categoryName'] == categoryTitle;
+    }).toList();
+
+    if (itemsToUpdate.isEmpty) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No items found in $safeCategoryTitle.'),
+          duration: const Duration(milliseconds: 1200),
+        ),
+      );
+      return;
+    }
+
+    int updateCount = 0;
+    for (var entry in itemsToUpdate) {
+      final statuses = entry['statuses'] as Set;
+
+      if (isChef) {
+        final confirmedQty = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
+        final isLocked =
+            statuses.contains('sending') ||
+            statuses.contains('confirmed') ||
+            statuses.contains('picked') ||
+            confirmedQty > 0;
+
+        if (!isLocked) {
+          final req = ((entry['requiredQty'] as num?) ?? 0).toDouble();
+          String? currentBranchName;
+          final found = branches.firstWhere(
+            (b) => b['id'] == selectedBranchId,
+            orElse: () => {},
+          );
+          if (found.isNotEmpty) currentBranchName = found['name'];
+          final fixedQty = _getFixedChefQty(
+            currentBranchName,
+            entry['categoryName'],
+          );
+          final val = fixedQty > 0 ? fixedQty : req;
+
+          _saveStockOrder(entry, val);
+          updateCount++;
+        }
+      } else if (isSupervisor) {
+        final isLocked =
+            statuses.contains('confirmed') || statuses.contains('picked');
+        if (!isLocked) {
+          final sent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+          if (sent > 0) {
+            _saveConsolidatedConfirm(entry);
+            updateCount++;
+          }
+        }
+      } else if (isDriver) {
+        final isLocked = statuses.contains('picked');
+        if (!isLocked) {
+          final conf = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
+          if (conf > 0) {
+            _saveConsolidatedPick(entry);
+            updateCount++;
+          }
+        }
+      }
+    }
+
+    if (updateCount > 0) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Updating $updateCount items in $safeCategoryTitle...'),
+          backgroundColor: Colors.blue,
+          duration: const Duration(milliseconds: 1000),
+        ),
+      );
+      return;
+    }
+
+    String noActionMessage =
+        'No eligible items to update in $safeCategoryTitle.';
+    if (isChef) {
+      noActionMessage = 'No pending qty to send in $safeCategoryTitle.';
+    } else if (isSupervisor) {
+      noActionMessage = 'No sent qty to confirm in $safeCategoryTitle.';
+    } else if (isDriver) {
+      noActionMessage = 'No confirmed qty to pick in $safeCategoryTitle.';
+    }
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(noActionMessage),
+        duration: const Duration(milliseconds: 1200),
+      ),
     );
+  }
 
-    // Prepare Dropdown Items
-    final List<DropdownMenuItem<String>> branchItems = [
+  Future<void> _saveManualConsolidatedPick(
+    Map<String, dynamic> entry,
+    double val,
+  ) async {
+    final originalItems = entry['originalItems'] as List;
+    final originalPicked = entry['pickedQty'];
+    final originalStatuses = Set.from(entry['statuses']);
+    final originalItemsBackup = originalItems
+        .map(
+          (o) => {
+            'item': o['item'],
+            'status': o['item']['status'],
+            'pickedQty': o['item']['pickedQty'],
+          },
+        )
+        .toList();
+
+    _markUpdated(entry['productId']);
+    double remaining = val;
+    Map<String, List<Map<String, dynamic>>> groupedUpdates = {};
+
+    for (var original in originalItems) {
+      final item = original['item'] as Map<String, dynamic>;
+      final orderId = (original['orderId'] ?? '').toString();
+      if (orderId.isEmpty) continue;
+      final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+      double apply = (remaining >= conf) ? conf : remaining;
+      if (original == originalItems.last && remaining > 0) apply = remaining;
+      item['pickedQty'] = apply;
+      item['status'] = 'picked';
+      remaining -= apply;
+      if (!groupedUpdates.containsKey(orderId)) groupedUpdates[orderId] = [];
+      groupedUpdates[orderId]!.add(item);
+    }
+
+    setState(() {
+      entry['pickedQty'] = val;
+      if (val > 0) entry['statuses'] = {'picked'};
+      _processStockOrders();
+    });
+    _showQueuedSnackBar('Picking update...');
+
+    _addToQueue(() async {
+      try {
+        for (var orderId in groupedUpdates.keys) {
+          await _updateStockOrderBatch(
+            orderId: orderId,
+            itemsToUpdate: groupedUpdates[orderId]!,
+            mode: 'picked',
+          );
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${_formatQty(val)} ${entry['productName']} Picked',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        for (var b in originalItemsBackup) {
+          b['item']['status'] = b['status'];
+          b['item']['pickedQty'] = b['pickedQty'];
+        }
+        if (!mounted) return;
+        setState(() {
+          entry['pickedQty'] = originalPicked;
+          entry['statuses'] = originalStatuses;
+          _processStockOrders();
+        });
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    });
+  }
+
+  Future<void> _saveConsolidatedPick(Map<String, dynamic> entry) async {
+    final originalItems = entry['originalItems'] as List;
+    final originalPicked = entry['pickedQty'];
+    final originalStatuses = Set.from(entry['statuses']);
+    final originalItemsBackup = originalItems
+        .map(
+          (o) => {
+            'item': o['item'],
+            'status': o['item']['status'],
+            'pickedQty': o['item']['pickedQty'],
+          },
+        )
+        .toList();
+
+    _markUpdated(entry['productId']);
+    Map<String, List<Map<String, dynamic>>> groupedUpdates = {};
+    double totalPicked = 0;
+
+    for (var original in originalItems) {
+      final item = original['item'] as Map<String, dynamic>;
+      final orderId = (original['orderId'] ?? '').toString();
+      if (orderId.isEmpty) continue;
+      final conf = ((item['confirmedQty'] as num?) ?? 0).toDouble();
+      item['pickedQty'] = conf;
+      item['status'] = 'picked';
+      totalPicked += conf;
+      if (!groupedUpdates.containsKey(orderId)) groupedUpdates[orderId] = [];
+      groupedUpdates[orderId]!.add(item);
+    }
+
+    setState(() {
+      entry['pickedQty'] = totalPicked;
+      entry['statuses'] = {'picked'};
+      _processStockOrders();
+    });
+    _showQueuedSnackBar('Picking update...');
+
+    _addToQueue(() async {
+      try {
+        for (var orderId in groupedUpdates.keys) {
+          await _updateStockOrderBatch(
+            orderId: orderId,
+            itemsToUpdate: groupedUpdates[orderId]!,
+            mode: 'picked',
+          );
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${_formatQty(totalPicked)} ${entry['productName']} Picked',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(milliseconds: 800),
+            ),
+          );
+        }
+      } catch (e) {
+        for (var b in originalItemsBackup) {
+          b['item']['status'] = b['status'];
+          b['item']['pickedQty'] = b['pickedQty'];
+        }
+        if (!mounted) return;
+        setState(() {
+          entry['pickedQty'] = originalPicked;
+          entry['statuses'] = originalStatuses;
+          _processStockOrders();
+        });
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    });
+  }
+
+  Widget _buildDateAndBranchFilter() {
+    final label = (fromDate != null && toDate != null)
+        ? (fromDate == toDate
+              ? DateFormat('dd MMM yyyy').format(fromDate!)
+              : '${DateFormat('dd MMM').format(fromDate!)} - ${DateFormat('dd MMM yyyy').format(toDate!)}')
+        : 'Select Date Range';
+
+    final displayBranches = branches
+        .where((b) => b['type'] == 'branch')
+        .toList();
+    List<DropdownMenuItem<String>> branchItems = [
       const DropdownMenuItem(
         value: 'ALL',
         child: Text(
@@ -1536,6 +1838,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         );
       }),
     ];
+
+    final bool valueExists = branchItems.any(
+      (item) => item.value == selectedBranchId,
+    );
 
     return Row(
       children: [
@@ -1593,12 +1899,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 isExpanded: true,
-                value:
-                    selectedBranchId != null &&
-                        (selectedBranchId == 'ALL' ||
-                            branches.any((b) => b['id'] == selectedBranchId))
-                    ? selectedBranchId
-                    : 'ALL',
+                value: valueExists ? selectedBranchId : 'ALL',
                 items: branchItems,
                 onChanged: (val) {
                   if (val != null) {
@@ -1831,8 +2132,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 0.75,
+                crossAxisCount: 2,
+                childAspectRatio: 0.85,
                 crossAxisSpacing: 4,
                 mainAxisSpacing: 4,
               ),
@@ -1857,8 +2158,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              childAspectRatio: 0.75,
+              crossAxisCount: 2,
+              childAspectRatio: 0.85,
               crossAxisSpacing: 4,
               mainAxisSpacing: 4,
             ),
@@ -2825,6 +3126,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                 row = InkWell(
                   onDoubleTap: () {
                     if (selectedBranchId == 'ALL') {
+                      ScaffoldMessenger.of(context).clearSnackBars();
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(
@@ -2841,9 +3143,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                       item['sendingQty'] = currentVal;
                     });
                     _updateItemStatus(
-                      orderId,
-                      item,
-                      currentVal,
+                      orderId: orderId,
+                      itemToUpdate: item,
+                      newSentQty: currentVal,
                       pName: productName,
                     );
                   },
@@ -2948,6 +3250,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                                 ),
                                 onSubmitted: (val) {
                                   if (selectedBranchId == 'ALL') {
+                                    ScaffoldMessenger.of(
+                                      context,
+                                    ).clearSnackBars();
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text(
@@ -3040,6 +3345,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                           child: InkWell(
                             onDoubleTap: () {
                               if (selectedBranchId == 'ALL') {
+                                ScaffoldMessenger.of(context).clearSnackBars();
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
@@ -3056,9 +3362,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                               // Actually instruction says: "show snt qty number there if we double tap the qty number need to store in Confirmed Qty"
                               final val = sent;
                               _updateConfirmQty(
-                                orderId,
-                                item,
-                                val.toDouble(),
+                                orderId: orderId,
+                                itemToUpdate: item,
+                                qty: val.toDouble(),
                                 pName: productName,
                               );
                               setState(() {
@@ -3098,21 +3404,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     );
   }
 
-  Widget _buildDriverGridItem(Map<String, dynamic> entry) {
-    if (entry['type'] != 'item') {
-      return const SizedBox.shrink();
-    }
-
-    final product = entry['product'];
-    final productName = entry['productName'] as String;
-    final confirmedRaw = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
-    final pickedRaw = ((entry['pickedQty'] as num?) ?? 0).toDouble();
-    final pickedDisplay = (pickedRaw > 0) ? pickedRaw : confirmedRaw;
-
-    // Image Handling
-    ImageProvider? imageProvider;
+  ImageProvider? _getImageProvider(dynamic product) {
     String? imageUrl;
-
     if (product is Map) {
       if (product['images'] != null &&
           (product['images'] is List) &&
@@ -3136,319 +3429,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest4.vseyal.com$imageUrl';
     }
 
-    if (imageUrl != null) {
-      imageProvider = NetworkImage(imageUrl);
-    }
-
-    final statuses = entry['statuses'] as Set;
-
-    // Lock if Picked or Received
-    final isLocked =
-        statuses.contains('picked') || statuses.contains('received');
-
-    final key = 'driver_pick_${entry['productId']}';
-    if (!_controllers.containsKey(key)) {
-      _controllers[key] = TextEditingController(
-        text: _formatQty(pickedDisplay),
-      );
-    }
-    final controller = _controllers[key]!;
-
-    // Unified Interaction Logic
-    void onAutoAction() {
-      if (selectedBranchId == 'ALL') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot update when ALL Branches are selected. Please select a specific branch.',
-            ),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
-        return;
-      }
-      if (_isSaving) return;
-      if (isLocked) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Item is received by Branch. Cannot edit.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-
-      // Compulsory Double Tap to Save
-      if (confirmedRaw == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nothing confirmed by Supervisor. Cannot pick.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-
-      double valToSave = pickedDisplay;
-      if (entry['isTyping'] == true) {
-        valToSave = double.tryParse(controller.text) ?? pickedDisplay;
-      } else if (entry['val_local'] != null) {
-        valToSave = entry['val_local'];
-      }
-
-      // Compulsory Double Tap to Save
-      _saveManualConsolidatedPick(entry, valToSave);
-      setState(() {
-        entry['pickedQty'] = valToSave; // COMMIT TO GREEN
-        entry['val_local'] = null;
-        entry['isTyping'] = false;
-      });
-    }
-
-    void onManualEdit() {
-      if (selectedBranchId == 'ALL') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot update when ALL Branches are selected. Please select a specific branch.',
-            ),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
-        return;
-      }
-      if (isLocked) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Item is received by Branch. Cannot edit.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-      if (confirmedRaw == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nothing confirmed by Supervisor. Cannot pick.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-      setState(() {
-        entry['isTyping'] = true;
-        if (entry['val_local'] != null) {
-          controller.text = _formatQty(entry['val_local']);
-        } else {
-          final current = ((entry['pickedQty'] as num?) ?? 0).toDouble();
-          controller.text = _formatQty(current == 0 ? confirmedRaw : current);
-        }
-      });
-    }
-
-    return Card(
-      elevation: 0,
-      color: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide.none,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          // Top Section (Flex 8)
-          Expanded(
-            flex: 8,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Image Area with Unified Gesture
-                GestureDetector(
-                  onTap: onManualEdit,
-                  onDoubleTap: onAutoAction,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageProvider != null)
-                        Image(image: imageProvider, fit: BoxFit.cover)
-                      else
-                        Container(
-                          child: const Icon(
-                            Icons.fastfood,
-                            size: 40,
-                            color: Colors.grey,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Top Left: Confirmed Qty
-                Positioned(
-                  top: 2,
-                  left: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(confirmedRaw),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Top Right: Price
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(entry['price']),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Product Name Overlay
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.35),
-                    ),
-                    child: Text(
-                      productName,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Bottom Section: Interaction Strip (Flex 2)
-          Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: onManualEdit,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      color:
-                          (entry['pickedQty'] != null && entry['pickedQty'] > 0)
-                          ? Colors.green
-                          : Colors.black87,
-                      child: entry['isTyping'] == true
-                          ? SizedBox(
-                              height: 18,
-                              child: TextField(
-                                controller: controller,
-                                autofocus: true,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                textAlignVertical: TextAlignVertical.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.0,
-                                ),
-                                cursorColor: Colors.white,
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                  isCollapsed: true,
-                                ),
-                                textInputAction: TextInputAction.done,
-                                onTapOutside: (event) {
-                                  final intVal =
-                                      double.tryParse(controller.text) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] =
-                                        intVal; // SAVE TO LOCAL
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                                onSubmitted: (val) {
-                                  final intVal = double.tryParse(val) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] =
-                                        intVal; // SAVE TO LOCAL
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                              ),
-                            )
-                          : Center(
-                              child: Text(
-                                _formatQty(
-                                  entry['val_local'] ??
-                                      ((entry['pickedQty'] == 0 ||
-                                              entry['pickedQty'] == null)
-                                          ? confirmedRaw
-                                          : entry['pickedQty']),
-                                ),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                  height: 1.0,
-                                ),
-                              ),
-                            ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    return (imageUrl != null) ? NetworkImage(imageUrl) : null;
   }
 
   Widget _buildChefGridItem(Map<String, dynamic> entry) {
@@ -3459,40 +3443,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final req = ((entry['requiredQty'] as num?) ?? 0).toDouble();
     final sent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
 
-    // Image Handling
-    ImageProvider? imageProvider;
-    String? imageUrl;
-
-    if (product is Map) {
-      if (product['images'] != null &&
-          (product['images'] is List) &&
-          (product['images'] as List).isNotEmpty) {
-        final firstImg = product['images'][0];
-        if (firstImg is Map && firstImg['image'] != null) {
-          final imgObj = firstImg['image'];
-          if (imgObj is Map && imgObj['url'] != null) {
-            imageUrl = imgObj['url'];
-          }
-        }
-      }
-
-      if (imageUrl == null && product['image'] != null) {
-        final img = product['image'];
-        if (img is Map && img['url'] != null) {
-          imageUrl = img['url'];
-        } else if (img is String && img.startsWith('http')) {
-          imageUrl = img;
-        }
-      }
-    }
-
-    if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
-    }
-
-    if (imageUrl != null) {
-      imageProvider = NetworkImage(imageUrl);
-    }
+    final imageProvider = _getImageProvider(entry['product']);
 
     final key = 'consolidated_${entry['productId']}';
     final initialVal = (sent > 0) ? _formatQty(sent) : _formatQty(req);
@@ -3523,77 +3474,69 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final fixedQty = _getFixedChefQty(currentBranchName, entry['categoryName']);
     final suggestedVal = fixedQty > 0 ? fixedQty : req;
 
-    // Unified Interaction Logic
-    void onAutoAction() {
-      if (selectedBranchId == 'ALL') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot update when ALL Branches are selected. Please select a specific branch.',
-            ),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
-        return;
-      }
-      if (isLocked) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Item is confirmed/picked. Cannot edit.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-
-      final currentSent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-      double valToSave = (currentSent > 0) ? currentSent : suggestedVal;
-
-      if (entry['isTyping'] == true) {
-        valToSave = double.tryParse(controller.text) ?? valToSave;
-      } else if (entry['val_local'] != null) {
-        valToSave = entry['val_local'];
-      }
-
-      // Compulsory Double Tap to Save
-      _saveStockOrder(entry, valToSave);
-      setState(() {
-        entry['sendingQty'] = valToSave;
-        entry['val_local'] = null;
-        entry['isTyping'] = false;
-      });
+    // Determine Status Button Label and Color
+    String statusText = 'SENT';
+    Color statusColor = Colors.green;
+    if (statuses.contains('received')) {
+      statusText = 'RECEIVED';
+      statusColor = Colors.blue;
+    } else if (statuses.contains('picked')) {
+      statusText = 'PICKED';
+      statusColor = Colors.orange;
+    } else if (statuses.contains('confirmed')) {
+      statusText = 'CONFIRMED';
+      statusColor = Colors.teal;
+    } else if (statuses.contains('sending')) {
+      statusText = 'SENT';
+      statusColor = Colors.green;
     }
 
-    void onManualEdit() {
-      if (selectedBranchId == 'ALL') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot update when ALL Branches are selected. Please select a specific branch.',
+    void onAutoAction() {
+      try {
+        if (selectedBranchId == 'ALL') {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Cannot update when ALL Branches are selected. Please select a specific branch.',
+              ),
+              duration: Duration(milliseconds: 1500),
             ),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
-        return;
-      }
-      if (isLocked) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Item is confirmed/picked. Cannot edit.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-      setState(() {
-        entry['isTyping'] = true;
-        if (entry['val_local'] != null) {
-          controller.text = _formatQty(entry['val_local']);
-        } else {
-          final current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-          controller.text = _formatQty(current == 0 ? req : current);
+          );
+          return;
         }
-      });
+        if (isLocked) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Item is confirmed/picked. Cannot edit.'),
+              duration: Duration(milliseconds: 1000),
+            ),
+          );
+          return;
+        }
+
+        final currentSent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
+        double valToSave = (currentSent > 0) ? currentSent : suggestedVal;
+
+        if (entry['val_local'] != null) {
+          valToSave = entry['val_local'];
+        }
+
+        _saveStockOrder(entry, valToSave);
+        setState(() {
+          entry['val_local'] = null;
+          entry['isTyping'] = false;
+        });
+      } catch (e) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Unable to update item: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
 
     return Card(
@@ -3606,102 +3549,92 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          // Top Section (Flex 8)
+          // Top Section: Image with Overlay (Flex 7)
           Expanded(
-            flex: 8,
+            flex: 7,
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Image Area with Unified Gesture
-                GestureDetector(
-                  onTap: onManualEdit,
-                  onDoubleTap: onAutoAction,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageProvider != null)
-                        Image(image: imageProvider, fit: BoxFit.cover)
-                      else
-                        Container(
-                          child: const Icon(
-                            Icons.fastfood,
-                            size: 40,
-                            color: Colors.grey,
-                          ),
-                        ),
-                    ],
+                // Image Area
+                if (imageProvider != null)
+                  Image(image: imageProvider, fit: BoxFit.cover)
+                else
+                  Container(
+                    color: Colors.grey[200],
+                    child: const Icon(
+                      Icons.fastfood,
+                      size: 40,
+                      color: Colors.grey,
+                    ),
                   ),
-                ),
 
-                // Top Left: Ordered Qty
-                Positioned(
-                  top: 2,
-                  left: 2,
+                // Center: Current Qty with Tap-to-Edit
+                Center(
                   child: GestureDetector(
                     onTap: () {
-                      if (selectedBranchId == 'ALL') {
+                      if (isLocked) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text(
-                              'Cannot update when ALL Branches are selected. Please select a specific branch.',
-                            ),
-                            duration: Duration(milliseconds: 1500),
+                            content: Text('Item is confirmed/picked.'),
+                            duration: Duration(milliseconds: 1000),
                           ),
                         );
                         return;
                       }
-                      if (isLocked) return;
-                      double current = ((entry['sendingQty'] as num?) ?? 0)
-                          .toDouble();
-                      if (current > 0) {
-                        setState(() {
-                          entry['sendingQty'] = (current - 1).clamp(
-                            0,
-                            double.infinity,
-                          );
-                        });
-                      }
+                      final current =
+                          (entry['val_local'] != null)
+                              ? entry['val_local']
+                              : ((entry['sendingQty'] ?? 0) == 0
+                                  ? req
+                                  : entry['sendingQty']);
+                      _showQuantityEditDialog(entry, current);
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 2,
+                        horizontal: 10,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(4),
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        _formatQty(req),
+                        (entry['val_local'] != null)
+                            ? _formatQty(entry['val_local'])
+                            : _formatQty(
+                              (entry['sendingQty'] ?? 0) == 0
+                                  ? req
+                                  : entry['sendingQty'],
+                            ),
                         style: const TextStyle(
                           color: Colors.white,
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          fontSize: 10,
                         ),
                       ),
                     ),
                   ),
                 ),
 
-                // Top Right: Price
+                // Top Left: Required Qty
                 Positioned(
                   top: 2,
-                  right: 2,
+                  left: 2,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 4,
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
+                      color: Colors.black.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      _formatQty(entry['price']),
+                      'REQ: ${_formatQty(req)}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 10,
+                        fontSize: 9,
                       ),
                     ),
                   ),
@@ -3715,17 +3648,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 4,
-                      vertical: 1,
+                      vertical: 4,
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.35),
-                    ),
+                    color: Colors.black.withValues(alpha: 0.5),
                     child: Text(
                       productName,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 8,
+                        fontSize: 10,
                         fontWeight: FontWeight.bold,
                       ),
                       maxLines: 1,
@@ -3737,85 +3668,41 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             ),
           ),
 
-          // Bottom Section: Interaction Strip (Flex 2)
-          Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: onManualEdit,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      color:
-                          (entry['sendingQty'] != null &&
-                              entry['sendingQty'] > 0)
-                          ? Colors.green
-                          : Colors.black87,
-                      child: entry['isTyping'] == true
-                          ? SizedBox(
-                              height: 18,
-                              child: TextField(
-                                controller: controller,
-                                autofocus: true,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                textAlignVertical: TextAlignVertical.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.0,
-                                ),
-                                cursorColor: Colors.white,
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                  isCollapsed: true,
-                                ),
-                                textInputAction: TextInputAction.done,
-                                onTapOutside: (event) {
-                                  final doubleVal =
-                                      double.tryParse(controller.text) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                                onSubmitted: (val) {
-                                  final doubleVal = double.tryParse(val) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                              ),
-                            )
-                          : Text(
-                              (entry['val_local'] != null)
-                                  ? _formatQty(entry['val_local'])
-                                  : ((entry['sendingQty'] == null ||
-                                            entry['sendingQty'] == 0)
-                                        ? _formatQty(suggestedVal)
-                                        : _formatQty(entry['sendingQty'])),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                                height: 1.0,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                    ),
+          // Bottom Section: READY Button (Flex 3)
+          if (!isLocked)
+            GestureDetector(
+              onTap: onAutoAction,
+              child: Container(
+                width: double.infinity,
+                height: 44,
+                color: const Color(0xFFC62828), // Kitchen Red
+                alignment: Alignment.center,
+                child: const Text(
+                  'READY',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    letterSpacing: 2.0,
                   ),
                 ),
-              ],
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              height: 44,
+              color: statusColor,
+              alignment: Alignment.center,
+              child: Text(
+                statusText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -3830,138 +3717,37 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final confirmedRaw = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
     final confirmedDisplay = (confirmedRaw > 0) ? confirmedRaw : sent;
 
-    // Image Handling
-    ImageProvider? imageProvider;
-    String? imageUrl;
-
-    if (product is Map) {
-      if (product['images'] != null &&
-          (product['images'] is List) &&
-          (product['images'] as List).isNotEmpty) {
-        final firstImg = product['images'][0];
-        if (firstImg is Map && firstImg['image'] != null) {
-          final imgObj = firstImg['image'];
-          if (imgObj is Map && imgObj['url'] != null) {
-            imageUrl = imgObj['url'];
-          }
-        }
-      }
-      if (imageUrl == null && product['image'] != null) {
-        final img = product['image'];
-        if (img is Map && img['url'] != null) {
-          imageUrl = img['url'];
-        } else if (img is String && img.startsWith('http')) {
-          imageUrl = img;
-        }
-      }
-    }
-
-    if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
-    }
-
-    if (imageUrl != null) {
-      imageProvider = NetworkImage(imageUrl);
-    }
-
+    final imageProvider = _getImageProvider(entry['product']);
+    
     final statuses = entry['statuses'] as Set;
     // Lock if Confirmed or Picked
     final isLocked =
-        statuses.contains('confirmed') || statuses.contains('picked');
+        statuses.contains('confirmed') || statuses.contains('picked') || statuses.contains('received');
 
-    final key = 'supervisor_grid_${entry['productId']}';
-    if (!_controllers.containsKey(key)) {
-      _controllers[key] = TextEditingController(
-        text: _formatQty(confirmedDisplay),
-      );
+    // Status Logic for Button
+    String statusText = 'CONFIRM';
+    Color statusColor = Colors.red;
+    if (statuses.contains('picked')) {
+      statusText = 'PICKED';
+      statusColor = Colors.orange;
+    } else if (statuses.contains('confirmed')) {
+      statusText = 'CONFIRMED';
+      statusColor = Colors.teal;
+    } else if (statuses.contains('received')) {
+      statusText = 'RECEIVED';
+      statusColor = Colors.blue;
     }
-    final controller = _controllers[key]!;
 
-    // Unified Interaction Logic
     void onAutoAction() {
-      if (selectedBranchId == 'ALL') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot update when ALL Branches are selected. Please select a specific branch.',
-            ),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
-        return;
-      }
-      if (sent == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nothing sent by Chef. Cannot confirm.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-      if (isLocked) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Item is already confirmed/picked. Cannot edit.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
+      final double valToSave = (entry['val_local'] != null)
+          ? entry['val_local']
+          : (((entry['confirmedQty'] ?? 0) == 0)
+              ? sent
+              : (entry['confirmedQty'] as num).toDouble());
 
-      double valToSave = confirmedDisplay;
-      if (entry['isTyping'] == true) {
-        valToSave = double.tryParse(controller.text) ?? confirmedDisplay;
-      } else if (entry['val_local'] != null) {
-        valToSave = entry['val_local'];
-      }
-
-      // Compulsory Double Tap to Save
       _saveManualConsolidatedConfirm(entry, valToSave);
       setState(() {
-        entry['confirmedQty'] = valToSave;
         entry['val_local'] = null;
-        entry['isTyping'] = false;
-      });
-    }
-
-    void onManualEdit() {
-      if (selectedBranchId == 'ALL') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot update when ALL Branches are selected. Please select a specific branch.',
-            ),
-            duration: Duration(milliseconds: 1500),
-          ),
-        );
-        return;
-      }
-      if (sent == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nothing sent by Chef. Cannot confirm.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-      if (isLocked) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Item is already confirmed/picked. Cannot edit.'),
-            duration: Duration(milliseconds: 1000),
-          ),
-        );
-        return;
-      }
-      setState(() {
-        entry['isTyping'] = true;
-        if (entry['val_local'] != null) {
-          controller.text = _formatQty(entry['val_local']);
-        } else {
-          controller.text = _formatQty(confirmedDisplay);
-        }
       });
     }
 
@@ -3975,30 +3761,79 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          // Top Section (Flex 8)
+          // Top Section: Image with Overlay (Flex 7)
           Expanded(
-            flex: 8,
+            flex: 7,
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Image Area with Unified Gesture
-                GestureDetector(
-                  onTap: onManualEdit,
-                  onDoubleTap: onAutoAction,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageProvider != null)
-                        Image(image: imageProvider, fit: BoxFit.cover)
-                      else
-                        Container(
-                          child: const Icon(
-                            Icons.fastfood,
-                            size: 40,
-                            color: Colors.grey,
+                // Image Area
+                if (imageProvider != null)
+                  Image(image: imageProvider, fit: BoxFit.cover)
+                else
+                  Container(
+                    color: Colors.grey[200],
+                    child: const Icon(
+                      Icons.fastfood,
+                      size: 40,
+                      color: Colors.grey,
+                    ),
+                  ),
+
+                // Center: Current Qty with Tap-to-Edit
+                Center(
+                  child: GestureDetector(
+                    onTap: () {
+                      if (isLocked) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Item is already confirmed/picked.'),
+                            duration: Duration(milliseconds: 1000),
                           ),
+                        );
+                        return;
+                      }
+                      if (sent == 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Nothing sent by Chef.'),
+                            duration: Duration(milliseconds: 1000),
+                          ),
+                        );
+                        return;
+                      }
+                      final current =
+                          (entry['val_local'] != null)
+                              ? entry['val_local']
+                              : ((entry['confirmedQty'] ?? 0) == 0
+                                  ? sent
+                                  : entry['confirmedQty']);
+                      _showQuantityEditDialog(entry, current);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        (entry['val_local'] != null)
+                            ? _formatQty(entry['val_local'])
+                            : _formatQty(
+                              (entry['confirmedQty'] ?? 0) == 0
+                                  ? sent
+                                  : entry['confirmedQty'],
+                            ),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
                         ),
-                    ],
+                      ),
+                    ),
                   ),
                 ),
 
@@ -4012,39 +3847,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
+                      color: Colors.black.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      _formatQty(sent),
+                      'SENT: ${_formatQty(sent)}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Top Right: Price
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(entry['price']),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
+                        fontSize: 9,
                       ),
                     ),
                   ),
@@ -4058,17 +3869,17 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 4,
-                      vertical: 1,
+                      vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.35),
+                      color: Colors.black.withValues(alpha: 0.4),
                     ),
                     child: Text(
                       productName,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 8,
+                        fontSize: 9,
                         fontWeight: FontWeight.bold,
                       ),
                       maxLines: 1,
@@ -4080,82 +3891,252 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             ),
           ),
 
-          // Bottom Section: Interaction Strip (Flex 2)
+          // Bottom Section: Action Button (Flex 3)
+          if (!isLocked)
+            GestureDetector(
+              onTap: onAutoAction,
+              child: Container(
+                width: double.infinity,
+                height: 44,
+                color: Colors.red,
+                alignment: Alignment.center,
+                child: const Text(
+                  'CONFIRM',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              height: 44,
+              color: statusColor,
+              alignment: Alignment.center,
+              child: Text(
+                statusText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDriverGridItem(Map<String, dynamic> entry) {
+    final imageProvider = _getImageProvider(entry['product']);
+    final productName = entry['productName'] ?? 'Unknown';
+    final conf = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
+
+    final statuses = entry['statuses'] as Set;
+    // Lock if Picked
+    final isLocked = statuses.contains('picked') || statuses.contains('received');
+
+    void onAutoAction() {
+      final double valToSave = (entry['val_local'] != null)
+          ? entry['val_local']
+          : (((entry['pickedQty'] ?? 0) == 0)
+              ? conf
+              : (entry['pickedQty'] as num).toDouble());
+
+      _saveManualConsolidatedPick(entry, valToSave);
+      setState(() {
+        entry['val_local'] = null;
+      });
+    }
+
+    // Status Logic for Button
+    String statusText = 'PICK';
+    Color statusColor = Colors.red;
+    if (statuses.contains('received')) {
+      statusText = 'RECEIVED';
+      statusColor = Colors.blue;
+    } else if (statuses.contains('picked')) {
+      statusText = 'PICKED';
+      statusColor = Colors.orange;
+    }
+
+    return Card(
+      elevation: 0,
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide.none,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // Top Section: Image with Overlay (Flex 7)
           Expanded(
-            flex: 2,
-            child: Column(
+            flex: 7,
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                Expanded(
+                // Image Area
+                if (imageProvider != null)
+                  Image(image: imageProvider, fit: BoxFit.cover)
+                else
+                  Container(
+                    color: Colors.grey[200],
+                    child: const Icon(
+                      Icons.fastfood,
+                      size: 40,
+                      color: Colors.grey,
+                    ),
+                  ),
+
+                // Center: Current Qty with Tap-to-Edit
+                Center(
                   child: GestureDetector(
-                    onTap: onManualEdit,
+                    onTap: () {
+                      if (isLocked) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Item is already picked/received.'),
+                            duration: Duration(milliseconds: 1000),
+                          ),
+                        );
+                        return;
+                      }
+                      if (conf == 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Nothing confirmed by Supervisor.'),
+                            duration: Duration(milliseconds: 1000),
+                          ),
+                        );
+                        return;
+                      }
+                      final current =
+                          (entry['val_local'] != null)
+                              ? entry['val_local']
+                              : ((entry['pickedQty'] ?? 0) == 0
+                                  ? conf
+                                  : entry['pickedQty']);
+                      _showQuantityEditDialog(entry, current);
+                    },
                     child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      color:
-                          (entry['confirmedQty'] != null &&
-                              entry['confirmedQty'] > 0)
-                          ? Colors.green
-                          : Colors.black87,
-                      child: entry['isTyping'] == true
-                          ? SizedBox(
-                              height: 18,
-                              child: TextField(
-                                controller: controller,
-                                autofocus: true,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                textAlignVertical: TextAlignVertical.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.0,
-                                ),
-                                cursorColor: Colors.white,
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                  isCollapsed: true,
-                                ),
-                                textInputAction: TextInputAction.done,
-                                onTapOutside: (event) {
-                                  final doubleVal =
-                                      double.tryParse(controller.text) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                                onSubmitted: (val) {
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                  final doubleVal = double.tryParse(val) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                },
-                              ),
-                            )
-                          : Text(
-                              _formatQty(
-                                entry['val_local'] ?? confirmedDisplay,
-                              ),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                                height: 1.0,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        (entry['val_local'] != null)
+                            ? _formatQty(entry['val_local'])
+                            : _formatQty(
+                              (entry['pickedQty'] ?? 0) == 0
+                                  ? conf
+                                  : entry['pickedQty'],
                             ),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Top Left: Confirmed Qty
+                Positioned(
+                  top: 2,
+                  left: 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'CONF: ${_formatQty(conf)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Product Name Overlay
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.4),
+                    ),
+                    child: Text(
+                      productName,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),
               ],
             ),
           ),
+
+          // Bottom Section: Action Button (Flex 3)
+          if (!isLocked)
+            GestureDetector(
+              onTap: onAutoAction,
+              child: Container(
+                width: double.infinity,
+                height: 44,
+                color: Colors.red,
+                alignment: Alignment.center,
+                child: const Text(
+                  'PICK',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              height: 44,
+              color: statusColor,
+              alignment: Alignment.center,
+              child: Text(
+                statusText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -4188,7 +4169,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDateSelector(),
+              _buildDateAndBranchFilter(),
               const SizedBox(height: 8),
               _buildCategoryChips(),
             ],
@@ -4261,80 +4242,36 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildBillScrollBar(),
-          _buildDepartmentFooter(), // Department Footer First
-          _buildStatusFilterBar(), // Status Filter Second (Bottom)
+          _buildFilterToggle(),
+          _buildUnifiedFilterFooter(), // Single footer for both Dept and Status
         ],
       ),
     );
   }
 
-  Widget _buildStatusFilterBar() {
-    final isApproved = _statusFilter == 'APPROVED';
-    final isNotApproved = _statusFilter == 'NOT_APPROVED';
-
-    // Fixed Backgrounds - distinct from Department Footer (Black)
-    final Color approvedBg = Colors.grey[900]!;
-    final Color notApprovedBg = Colors.grey[900]!;
-
-    return SizedBox(
-      height: 40, // Reduced height
-      width: double.infinity,
+  Widget _buildFilterToggle() {
+    return Container(
+      height: 35,
+      color: Colors.grey[850],
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () {
-                setState(() {
-                  _statusFilter = isApproved ? 'ALL' : 'APPROVED';
-                  _processStockOrders();
-                });
-              },
-              child: Container(
-                color: approvedBg,
-                alignment: Alignment.center,
-                child: Text(
-                  'APPROVED',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    // Active: Green, Inactive: White
-                    // If Not Approved is active, this one is dim white
-                    color: isApproved
-                        ? Colors.greenAccent
-                        : (isNotApproved
-                              ? Colors.white.withValues(alpha: 0.3)
-                              : Colors.white),
-                  ),
-                ),
-              ),
+          const Text(
+            'FILTER BY:',
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
             ),
           ),
+          const SizedBox(width: 8),
           Expanded(
-            child: GestureDetector(
-              onTap: () {
-                setState(() {
-                  _statusFilter = isNotApproved ? 'ALL' : 'NOT_APPROVED';
-                  _processStockOrders();
-                });
-              },
-              child: Container(
-                color: notApprovedBg,
-                alignment: Alignment.center,
-                child: Text(
-                  'NOT APPROVED',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    // Active: Red, Inactive: White
-                    // If Approved is active, this one is dim white
-                    color: isNotApproved
-                        ? Colors.redAccent
-                        : (isApproved
-                              ? Colors.white.withValues(alpha: 0.3)
-                              : Colors.white),
-                  ),
-                ),
-              ),
+            child: Row(
+              children: [
+                _buildFilterChip('DELIVERY', 'deliveryDate'),
+                const SizedBox(width: 8),
+                _buildFilterChip('ORDERED', 'createdAt'),
+              ],
             ),
           ),
         ],
@@ -4342,54 +4279,131 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     );
   }
 
-  Widget _buildDepartmentFooter() {
-    if (_availableDepartments.isEmpty || _availableDepartments.length <= 1) {
-      return const SizedBox.shrink();
-    }
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _filterBy == value;
+    return GestureDetector(
+      onTap: () {
+        if (!isSelected) {
+          setState(() {
+            _filterBy = value;
+            _loading = true;
+          });
+          _fetchStockOrders();
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isSelected ? Colors.blue : Colors.grey.shade700,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
 
-    final sortedDepts = _availableDepartments.toList()..sort();
-    // Ensure ALL is first
-    if (sortedDepts.contains('ALL')) {
-      sortedDepts.remove('ALL');
+  Widget _buildUnifiedFilterFooter() {
+    // 1. Prepare Departments
+    final List<String> sortedDepts = _availableDepartments.toList()..sort();
+    if (!sortedDepts.contains('ALL')) {
       sortedDepts.insert(0, 'ALL');
     }
 
+    // 2. Prepare Statuses
+    final statuses = [
+      'ALL',
+      'PENDING',
+      'SENDING',
+      'CONFIRMED',
+      'PICKED',
+      'RECEIVED',
+    ];
+
     return Container(
-      height: 60,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      color: Colors.black, // Dark Footer
-      child: ListView.separated(
+      height: 50,
+      color: Colors.black,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: ListView(
         scrollDirection: Axis.horizontal,
-        itemCount: sortedDepts.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final dept = sortedDepts[index];
-          final isSelected = _selectedDepartmentFilter == dept;
-          return ChoiceChip(
-            label: Text(dept),
-            selected: isSelected,
-            onSelected: (selected) {
-              if (selected) {
-                setState(() {
-                  _selectedDepartmentFilter = dept;
-                  _selectedCategoryFilter =
-                      'ALL'; // Reset category on department change
-                  _processStockOrders();
-                });
-              }
-            },
-            selectedColor: Colors.white,
-            labelStyle: TextStyle(
-              color: isSelected ? Colors.black : Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
-            backgroundColor: Colors.grey.shade900,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: Colors.transparent),
-            ),
-          );
-        },
+        children: [
+          // Department Chips
+          ...sortedDepts.map((dept) {
+            final isSelected = _selectedDepartmentFilter == dept;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(dept),
+                selected: isSelected,
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() {
+                      _selectedDepartmentFilter = dept;
+                      _selectedCategoryFilter = 'ALL';
+                      _processStockOrders();
+                    });
+                  }
+                },
+                selectedColor: Colors.white,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+                backgroundColor: Colors.grey.shade900,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            );
+          }),
+
+          // Visual Divider
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: VerticalDivider(color: Colors.grey[800], width: 1, thickness: 1),
+          ),
+          const SizedBox(width: 8),
+
+          // Status Chips
+          ...statuses.map((s) {
+            final isSelected = _statusFilter == s;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(s),
+                selected: isSelected,
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() {
+                      _statusFilter = s;
+                      _processStockOrders();
+                    });
+                  }
+                },
+                selectedColor: Colors.blue,
+                labelStyle: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+                backgroundColor: Colors.grey.shade900,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            );
+          }),
+        ],
       ),
     );
   }
@@ -4508,21 +4522,26 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       diffVal = _formatQty(conf - pick);
     }
 
-    return RichText(
-      text: TextSpan(
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.bold,
-          color: Colors.blueGrey[800],
-        ),
-        children: [
-          TextSpan(text: '$p1Label $p1Val   '),
-          TextSpan(text: '$p2Label $p2Val   '),
-          TextSpan(
-            text: 'Dif: $diffVal',
-            style: const TextStyle(color: Colors.red), // Red Color for Dif
+    return GestureDetector(
+      onDoubleTap: () => _handleCategoryDoubleTap(
+        (totalsRaw['categoryName'] ?? '').toString(),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: Colors.blueGrey[800],
           ),
-        ],
+          children: [
+            TextSpan(text: '$p1Label $p1Val   '),
+            TextSpan(text: '$p2Label $p2Val   '),
+            TextSpan(
+              text: 'Dif: $diffVal',
+              style: const TextStyle(color: Colors.red), // Red Color for Dif
+            ),
+          ],
+        ),
       ),
     );
   }
