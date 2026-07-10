@@ -296,10 +296,13 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Products Photos (Take one or more)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                const Expanded(
+                  child: Text(
+                    'Products Photos (Take one or more)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   '${_productPhotos.length} taken',
                   style: const TextStyle(fontSize: 13, color: Colors.grey),
