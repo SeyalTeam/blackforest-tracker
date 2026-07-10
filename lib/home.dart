@@ -1859,39 +1859,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 32),
                 Expanded(
                   child: GridView.count(
-                    crossAxisCount: 2,
+                    crossAxisCount: 3,
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
-                    childAspectRatio: 1.1,
+                    childAspectRatio: 1.0,
                     children: [
-                      _buildStoreKeeperGridItem(
-                        context,
-                        title: 'Category',
-                        icon: Icons.category_rounded,
-                        color: Colors.blueAccent,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const RawMaterialCategoryScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      _buildStoreKeeperGridItem(
-                        context,
-                        title: 'Product',
-                        icon: Icons.inventory_2_rounded,
-                        color: Colors.orangeAccent,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const CreateRawMaterialScreen(),
-                            ),
-                          );
-                        },
-                      ),
                       _buildStoreKeeperGridItem(
                         context,
                         title: 'Billing',
@@ -1916,6 +1888,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             context,
                             MaterialPageRoute(
                               builder: (context) => const CreateRawMaterialDealerScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildStoreKeeperGridItem(
+                        context,
+                        title: 'Product',
+                        icon: Icons.inventory_2_rounded,
+                        color: Colors.orangeAccent,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CreateRawMaterialScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildStoreKeeperGridItem(
+                        context,
+                        title: 'Category',
+                        icon: Icons.category_rounded,
+                        color: Colors.blueAccent,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const RawMaterialCategoryScreen(),
                             ),
                           );
                         },
