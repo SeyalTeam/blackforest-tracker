@@ -932,10 +932,13 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Total Billing Amount:',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black54),
+                              const Expanded(
+                                child: Text(
+                                  'Total Billing Amount:',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black54),
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               Text(
                                 '₹ ${_calculateTotal().toStringAsFixed(2)}',
                                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.teal.shade900),
