@@ -487,7 +487,7 @@ class RawMaterialBillingDetailScreen extends StatelessWidget {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Bill Slip ${idx + 1}', style: const TextStyle(color: Colors.black54)),
+                                Text('Inv No: ${billsList[idx]['invoiceNumber'] ?? 'N/A'}', style: const TextStyle(color: Colors.black54)),
                                 Text('₹${amt.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w500)),
                               ],
                             ),

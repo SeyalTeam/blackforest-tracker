@@ -38,6 +38,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
   bool _isSubmitting = false;
 
   final List<TextEditingController> _billControllers = [];
+  final List<TextEditingController> _invoiceNumberControllers = [];
 
   List<Map<String, dynamic>> _products = [];
   List<String> _selectedProductIds = [];
@@ -62,6 +63,9 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
     for (var controller in _billControllers) {
       controller.dispose();
     }
+    for (var controller in _invoiceNumberControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -72,14 +76,17 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
         setState(() {}); // Recalculate total dynamically
       });
       _billControllers.add(controller);
+      _invoiceNumberControllers.add(TextEditingController());
     });
   }
 
   void _removeBillField(int index) {
-    if (_billControllers.length > 1) {
+    if (_billControllers.length > 1 && _invoiceNumberControllers.length > index) {
       setState(() {
         _billControllers[index].dispose();
         _billControllers.removeAt(index);
+        _invoiceNumberControllers[index].dispose();
+        _invoiceNumberControllers.removeAt(index);
       });
     }
   }
@@ -502,9 +509,13 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
 
       // 4. Compile Bills list
       final List<Map<String, dynamic>> billsData = [];
-      for (var controller in _billControllers) {
-        final val = double.tryParse(controller.text) ?? 0.0;
-        billsData.add({'amount': val});
+      for (var i = 0; i < _billControllers.length; i++) {
+        final val = double.tryParse(_billControllers[i].text) ?? 0.0;
+        final invNum = _invoiceNumberControllers[i].text.trim();
+        billsData.add({
+          'amount': val,
+          'invoiceNumber': invNum,
+        });
       }
 
       // 5. Compile Raw Materials List
@@ -848,26 +859,43 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
                               return Row(
                                 children: [
                                   Expanded(
+                                    flex: 3,
+                                    child: TextFormField(
+                                      controller: _invoiceNumberControllers[index],
+                                      decoration: InputDecoration(
+                                        labelText: 'Inv No.',
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                      ),
+                                      validator: (val) {
+                                        if (val == null || val.trim().isEmpty) return 'Required';
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    flex: 2,
                                     child: TextFormField(
                                       controller: _billControllers[index],
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                       decoration: InputDecoration(
-                                        labelText: 'Bill #${index + 1} Amount',
+                                        labelText: 'Amount',
                                         prefixText: '₹ ',
                                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                                       ),
                                       validator: (val) {
                                         if (val == null || val.isEmpty) return 'Required';
                                         final num = double.tryParse(val);
-                                        if (num == null) return 'Invalid amount';
+                                        if (num == null) return 'Invalid';
                                         if (num <= 0) return 'Must be > 0';
                                         return null;
                                       },
                                     ),
                                   ),
                                   if (_billControllers.length > 1) ...[
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 4),
                                     IconButton(
                                       icon: const Icon(Icons.delete_outline, color: Colors.red),
                                       onPressed: () => _removeBillField(index),
