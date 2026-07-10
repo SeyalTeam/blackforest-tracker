@@ -1840,23 +1840,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Inventory Management',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Manage raw materials and categories below.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 Text(
                   'RAW MATERIAL',
                   style: TextStyle(
