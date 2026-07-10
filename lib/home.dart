@@ -6,6 +6,7 @@ import 'login.dart';
 import 'store_keeper_screens.dart';
 import 'common_scaffold.dart';
 import 'raw_material_billing.dart';
+import 'raw_material_bill_list.dart';
 import 'branch_list.dart';
 import 'stock_ticket_list.dart';
 import 'api_service.dart';
@@ -1910,6 +1911,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             context,
                             MaterialPageRoute(
                               builder: (context) => const RawMaterialCategoryScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildStoreKeeperGridItem(
+                        context,
+                        title: 'Bills',
+                        icon: Icons.receipt_rounded,
+                        color: Colors.indigoAccent,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const RawMaterialBillingsListScreen(),
                             ),
                           );
                         },

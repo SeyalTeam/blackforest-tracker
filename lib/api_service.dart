@@ -1001,4 +1001,22 @@ class ApiService {
       rethrow;
     }
   }
+
+  Future<List<dynamic>> fetchRawMaterialBillings() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/raw-material-billings?limit=1000&depth=2&sort=-date'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load raw material billings');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }
