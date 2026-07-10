@@ -859,7 +859,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
                               return Row(
                                 children: [
                                   Expanded(
-                                    flex: 2,
+                                    flex: 1,
                                     child: TextFormField(
                                       controller: _invoiceNumberControllers[index],
                                       decoration: InputDecoration(
@@ -875,7 +875,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
-                                    flex: 3,
+                                    flex: 1,
                                     child: TextFormField(
                                       controller: _billControllers[index],
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
