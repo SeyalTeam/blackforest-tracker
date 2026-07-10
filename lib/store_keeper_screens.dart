@@ -524,29 +524,31 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                                 style: TextStyle(color: Colors.grey),
                               ),
                             )
-                          : ListView.builder(
-                              itemCount: filteredProducts.length,
-                              padding: const EdgeInsets.all(16.0),
-                              itemBuilder: (context, index) {
-                                final prod = filteredProducts[index];
-                                final name = prod['name'] ?? 'Unknown';
-                                final unit = prod['unit'] ?? '';
-                                final minStock = prod['minimumStockLevel']?.toString() ?? 'N/A';
-                                
-                                final catObj = prod['category'];
-                                final catName = (catObj is Map ? catObj['name'] : 'Unknown');
+                          : Container(
+                              color: Colors.white,
+                              child: ListView.separated(
+                                itemCount: filteredProducts.length,
+                                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                separatorBuilder: (context, index) => const Divider(
+                                  height: 1,
+                                  indent: 68,
+                                  endIndent: 16,
+                                  color: Colors.black12,
+                                ),
+                                itemBuilder: (context, index) {
+                                  final prod = filteredProducts[index];
+                                  final name = prod['name'] ?? 'Unknown';
+                                  final unit = prod['unit'] ?? '';
+                                  final minStock = prod['minimumStockLevel']?.toString() ?? 'N/A';
+                                  
+                                  final catObj = prod['category'];
+                                  final catName = (catObj is Map ? catObj['name'] : 'Unknown');
 
-                                final dealerObj = prod['dealer'];
-                                final dealerName = (dealerObj is Map ? dealerObj['companyName'] : null) ?? '';
+                                  final dealerObj = prod['dealer'];
+                                  final dealerName = (dealerObj is Map ? dealerObj['companyName'] : null) ?? '';
 
-                                return Card(
-                                  margin: const EdgeInsets.only(bottom: 12.0),
-                                  elevation: 1,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16.0),
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                                     child: Row(
                                       children: [
                                         Container(
@@ -625,9 +627,9 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
                                         ),
                                       ],
                                     ),
-                                  ),
-                                );
-                              },
+                                  );
+                                },
+                              ),
                             ),
                     ),
                   ],
