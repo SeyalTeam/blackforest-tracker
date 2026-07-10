@@ -1856,7 +1856,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     color: Colors.grey[600],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
+                Text(
+                  'RAW MATERIAL',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[600],
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Expanded(
                   child: GridView.count(
                     crossAxisCount: 3,
