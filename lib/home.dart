@@ -1866,7 +1866,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     children: [
                       _buildStoreKeeperGridItem(
                         context,
-                        title: 'Raw Material Category',
+                        title: 'Category',
                         icon: Icons.category_rounded,
                         color: Colors.blueAccent,
                         onTap: () {
@@ -1880,7 +1880,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       _buildStoreKeeperGridItem(
                         context,
-                        title: 'Raw Material Product',
+                        title: 'Product',
                         icon: Icons.inventory_2_rounded,
                         color: Colors.orangeAccent,
                         onTap: () {
@@ -1894,7 +1894,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       _buildStoreKeeperGridItem(
                         context,
-                        title: 'Raw Material Billing',
+                        title: 'Billing',
                         icon: Icons.receipt_long_rounded,
                         color: Colors.teal,
                         onTap: () {
@@ -1908,7 +1908,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       _buildStoreKeeperGridItem(
                         context,
-                        title: 'Raw Material Dealer',
+                        title: 'Dealer',
                         icon: Icons.local_shipping_rounded,
                         color: Colors.purpleAccent,
                         onTap: () {
