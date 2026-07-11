@@ -73,20 +73,61 @@ class _KitchenWaiterCallPageState extends State<KitchenWaiterCallPage> {
           : 'Table Call';
 
       // 1. Try to find from kitchenOrders parameter
-      final targetBill = widget.kitchenOrders.firstWhere(
+      var targetBill = widget.kitchenOrders.firstWhere(
         (order) => order['tableDetails']?['tableNumber']?.toString() == tableNumber,
         orElse: () => null,
       );
 
-      final billId = targetBill != null ? (targetBill['id'] ?? targetBill['_id'])?.toString() : '';
-      final resolvedSectionName = targetBill?['tableDetails']?['section']?.toString() ?? sectionName;
+      // 2. If not found in kitchenOrders (or it is table 0), search recent bills in this branch
+      if (targetBill == null) {
+        try {
+          final recentBills = await ApiService.instance.fetchBillings(
+            branchId: widget.branchId,
+            limit: 50,
+          );
+          // Look for matching table number
+          targetBill = recentBills.firstWhere(
+            (b) => b['tableDetails']?['tableNumber']?.toString() == tableNumber,
+            orElse: () => null,
+          );
+          // Fallback to any recent bill under this branch
+          if (targetBill == null && recentBills.isNotEmpty) {
+            targetBill = recentBills.first;
+          }
+        } catch (e) {
+          debugPrint('Failed to fetch recent branch bills: $e');
+        }
+      }
+
+      // 3. If still null, create a system dummy bill for this branch
+      if (targetBill == null) {
+        try {
+          targetBill = await ApiService.instance.createBilling(
+            billingData: {
+              'branch': widget.branchId,
+              'status': 'pending',
+              'tableDetails': {
+                'tableNumber': tableNumber,
+                'section': sectionName,
+              },
+              'items': [],
+              'subTotal': 0,
+              'grandTotal': 0,
+            },
+          );
+        } catch (e) {
+          throw Exception('Could not find or create a billing document for waiter calling: $e');
+        }
+      }
+
+      final resolvedSectionName = targetBill['tableDetails']?['section']?.toString() ?? sectionName;
       final callerName = widget.userRole.toLowerCase() == 'chef'
           ? 'Chef'
           : (widget.userRole.toLowerCase() == 'supervisor' ? 'Supervisor' : 'Kitchen Staff');
 
       await ApiService.instance.callWaiter(
         branchId: widget.branchId,
-        billId: billId,
+        billId: (targetBill['id'] ?? targetBill['_id']).toString(),
         tableNumber: tableNumber,
         section: resolvedSectionName,
         waiterId: waiterId,

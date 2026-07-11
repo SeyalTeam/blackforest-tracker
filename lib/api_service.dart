@@ -1100,7 +1100,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> callWaiter({
     required String branchId,
-    String? billId,
+    required String billId,
     required String tableNumber,
     required String section,
     String? waiterId,
@@ -1116,7 +1116,7 @@ class ApiService {
         },
         body: jsonEncode({
           'branchId': branchId,
-          if (billId != null && billId.isNotEmpty) 'billId': billId,
+          'billId': billId,
           'tableNumber': tableNumber,
           'section': section,
           if (waiterId != null && waiterId.isNotEmpty) 'waiterId': waiterId,
