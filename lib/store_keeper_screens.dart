@@ -1554,7 +1554,7 @@ class _CreateRawMaterialDealerFormScreenState extends State<CreateRawMaterialDea
                                 controller: _panController,
                                 label: 'PAN Number',
                                 hint: 'e.g. ABCDE1234F',
-                                required: true,
+                                required: false,
                                 validator: (val) {
                                   if (val == null || val.trim().isEmpty) return null;
                                   if (!_panRegex.hasMatch(val.trim().toUpperCase())) {
