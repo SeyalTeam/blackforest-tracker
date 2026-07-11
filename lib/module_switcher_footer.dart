@@ -66,12 +66,12 @@ class _SwitcherItem extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: isActive ? Colors.blue : Colors.white,
+          color: isActive ? Colors.black : Colors.white,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             if (isActive)
               BoxShadow(
-                color: Colors.blue.withOpacity(0.2),
+                color: Colors.black.withOpacity(0.2),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),

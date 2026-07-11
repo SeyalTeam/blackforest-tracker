@@ -735,7 +735,7 @@ class _BranchListPageState extends State<BranchListPage> {
                   initialToDate: initialTo,
                   initialOrderId: orderId,
                   initialIsReportView: false, // Force Grid
-                  onlyTodayOrdered: false,
+                  onlyTodayOrdered: true,
                 ),
               ),
             );

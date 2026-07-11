@@ -11,13 +11,9 @@ class RawMaterialBillingsListScreen extends StatefulWidget {
 
 class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListScreen> {
   List<dynamic> _billings = [];
-  List<dynamic> _dealers = [];
-  List<dynamic> _products = [];
   bool _isLoading = true;
   String _errorMsg = '';
-  String _selectedFilterDealerId = 'all';
-  String _selectedFilterProductId = 'all';
-  DateTime? _selectedDateFilter;
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -32,13 +28,9 @@ class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListS
     });
     try {
       final bills = await ApiService.instance.fetchRawMaterialBillings();
-      final dealers = await ApiService.instance.fetchRawMaterialDealers();
-      final products = await ApiService.instance.fetchRawMaterials();
       if (mounted) {
         setState(() {
           _billings = bills;
-          _dealers = dealers;
-          _products = products;
           _isLoading = false;
         });
       }
@@ -49,20 +41,6 @@ class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListS
           _isLoading = false;
         });
       }
-    }
-  }
-
-  Future<void> _pickDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDateFilter ?? DateTime.now(),
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(() {
-        _selectedDateFilter = picked;
-      });
     }
   }
 
@@ -82,35 +60,9 @@ class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListS
   @override
   Widget build(BuildContext context) {
     final filtered = _billings.where((bill) {
-      if (_selectedFilterDealerId != 'all') {
-        final dealer = bill['dealer'];
-        final dealerId = (dealer is Map ? dealer['id'] : dealer)?.toString();
-        if (dealerId != _selectedFilterDealerId) return false;
-      }
-      if (_selectedFilterProductId != 'all') {
-        final list = bill['rawMaterialsList'] as List? ?? [];
-        final hasProduct = list.any((item) {
-          final prodObj = item['rawMaterial'];
-          final prodId = (prodObj is Map ? prodObj['id'] : prodObj)?.toString();
-          return prodId == _selectedFilterProductId;
-        });
-        if (!hasProduct) return false;
-      }
-      if (_selectedDateFilter != null) {
-        if (bill['date'] == null) return false;
-        try {
-          final billDate = DateTime.parse(bill['date']).toLocal();
-          final filterDate = _selectedDateFilter!;
-          if (billDate.year != filterDate.year ||
-              billDate.month != filterDate.month ||
-              billDate.day != filterDate.day) {
-            return false;
-          }
-        } catch (_) {
-          return false;
-        }
-      }
-      return true;
+      final dealer = bill['dealer'];
+      final dealerName = (dealer is Map ? dealer['companyName'] : 'Unknown Dealer').toString().toLowerCase();
+      return dealerName.contains(_searchQuery.toLowerCase());
     }).toList();
 
     return Scaffold(
@@ -129,117 +81,19 @@ class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListS
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 1,
-                      child: InkWell(
-                        onTap: _pickDate,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          height: 52,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade400),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.calendar_today_outlined, color: Colors.black54, size: 20),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _selectedDateFilter == null
-                                      ? 'All Dates'
-                                      : DateFormat('MMM dd').format(_selectedDateFilter!),
-                                  style: const TextStyle(fontSize: 14, color: Colors.black87),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (_selectedDateFilter != null)
-                                GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedDateFilter = null;
-                                    });
-                                  },
-                                  child: const Icon(Icons.close, color: Colors.black54, size: 18),
-                                )
-                              else
-                                const Icon(Icons.arrow_drop_down, color: Colors.black54),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 1,
-                      child: DropdownButtonFormField<String>(
-                        key: ValueKey(_selectedFilterProductId),
-                        initialValue: _selectedFilterProductId,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: 'Filter Product',
-                          prefixIcon: const Icon(Icons.inventory_2_outlined, size: 20),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                        ),
-                        items: [
-                          const DropdownMenuItem<String>(
-                            value: 'all',
-                            child: Text('All Products'),
-                          ),
-                          ..._products.map((p) {
-                            return DropdownMenuItem<String>(
-                              value: p['id']?.toString(),
-                              child: Text(p['name'] ?? 'Unknown Product', overflow: TextOverflow.ellipsis),
-                            );
-                          }),
-                        ],
-                        onChanged: (val) {
-                          setState(() {
-                            _selectedFilterProductId = val ?? 'all';
-                          });
-                        },
-                      ),
-                    ),
-                  ],
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Search by dealer company name...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(10.0)),
                 ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  key: ValueKey(_selectedFilterDealerId),
-                  initialValue: _selectedFilterDealerId,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: 'Filter Dealer',
-                    prefixIcon: const Icon(Icons.business_outlined, size: 20),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  ),
-                  items: [
-                    const DropdownMenuItem<String>(
-                      value: 'all',
-                      child: Text('All Dealers'),
-                    ),
-                    ..._dealers.map((dl) {
-                      final dealerName = dl['companyName']?.toString() ?? dl['name']?.toString() ?? 'Unknown Dealer';
-                      return DropdownMenuItem<String>(
-                        value: dl['id']?.toString(),
-                        child: Text(dealerName, overflow: TextOverflow.ellipsis),
-                      );
-                    }),
-                  ],
-                  onChanged: (val) {
-                    setState(() {
-                      _selectedFilterDealerId = val ?? 'all';
-                    });
-                  },
-                ),
-              ],
+              ),
+              onChanged: (val) {
+                setState(() {
+                  _searchQuery = val;
+                });
+              },
             ),
           ),
           Expanded(
@@ -266,55 +120,30 @@ class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListS
                         ? const Center(child: Text('No bills found.'))
                         : RefreshIndicator(
                             onRefresh: _loadBillings,
-                            child: Container(
-                              color: Colors.white,
-                              child: ListView.separated(
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                itemCount: filtered.length,
-                                separatorBuilder: (context, index) => const Divider(
-                                  height: 1,
-                                  indent: 68,
-                                  endIndent: 16,
-                                  color: Colors.black12,
-                                ),
-                                itemBuilder: (context, index) {
-                                  final bill = filtered[index];
-                                  final dealerObj = bill['dealer'];
-                                  final dealerName = dealerObj is Map ? (dealerObj['companyName'] ?? 'Unknown') : 'Unknown';
-                                  final total = bill['total'] ?? 0.0;
-                                  final paidAmount = bill['paidAmount'] ?? 0.0;
-                                  String status = bill['status'] ?? 'pending';
-                                  if (paidAmount >= total && total > 0) {
-                                    status = 'paid';
-                                  }
-                                  
-                                  String dateStr = '';
-                                  if (bill['date'] != null) {
-                                    try {
-                                      final parsed = DateTime.parse(bill['date']);
-                                      dateStr = DateFormat('MMM dd, yyyy hh:mm a').format(parsed.toLocal());
-                                    } catch (_) {}
-                                  }
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final bill = filtered[index];
+                                final dealerObj = bill['dealer'];
+                                final dealerName = dealerObj is Map ? (dealerObj['companyName'] ?? 'Unknown') : 'Unknown';
+                                final total = bill['total'] ?? 0.0;
+                                final status = bill['status'] ?? 'pending';
+                                
+                                String dateStr = '';
+                                if (bill['date'] != null) {
+                                  try {
+                                    final parsed = DateTime.parse(bill['date']);
+                                    dateStr = DateFormat('MMM dd, yyyy hh:mm a').format(parsed.toLocal());
+                                  } catch (_) {}
+                                }
 
-                                  return ListTile(
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  elevation: 2,
+                                  child: ListTile(
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                    leading: Container(
-                                      width: 36,
-                                      height: 36,
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.05),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Text(
-                                        '${index + 1}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ),
                                     title: Text(
                                       dealerName,
                                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -360,9 +189,9 @@ class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListS
                                         ),
                                       );
                                     },
-                                  );
-                                },
-                              ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
           ),
@@ -484,13 +313,8 @@ class RawMaterialBillingDetailScreen extends StatelessWidget {
     final dealerPhone = dealerObj is Map ? (dealerObj['phoneNumber'] ?? 'N/A') : 'N/A';
     final dealerContact = dealerObj is Map ? (dealerObj['contactName'] ?? 'N/A') : 'N/A';
     
+    final status = bill['status'] ?? 'pending';
     final total = bill['total'] ?? 0.0;
-    final paidAmount = bill['paidAmount'] ?? 0.0;
-    final pendingAmount = total - paidAmount;
-    String status = bill['status'] ?? 'pending';
-    if (paidAmount >= total && total > 0) {
-      status = 'paid';
-    }
     
     final billsList = bill['bills'] as List? ?? [];
     final rawMaterialsList = bill['rawMaterialsList'] as List? ?? [];
@@ -679,32 +503,6 @@ class RawMaterialBillingDetailScreen extends StatelessWidget {
                         Text(
                           '₹${total.toStringAsFixed(2)}',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.teal),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Paid Amount', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-                        Text(
-                          '₹${paidAmount.toStringAsFixed(2)}',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.green.shade700),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Pending Amount', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-                        Text(
-                          '₹${pendingAmount.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 20,
-                            color: pendingAmount > 0 ? Colors.orange.shade800 : Colors.grey,
-                          ),
                         ),
                       ],
                     ),

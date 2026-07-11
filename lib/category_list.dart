@@ -242,7 +242,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
                                 child: GridView.builder(
                                   padding: const EdgeInsets.only(top: 8, bottom: 20),
                                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
+                                    crossAxisCount: widget.departmentId != null ? 2 : 3,
                                     crossAxisSpacing: 16.0,
                                     mainAxisSpacing: 16.0,
                                   ),

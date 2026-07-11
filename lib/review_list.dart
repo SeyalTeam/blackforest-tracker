@@ -15,7 +15,6 @@ class ReviewListScreen extends StatefulWidget {
   final int liveBadgeCount;
   final int reviewBadgeCount;
   final String footerMode; // 'KITCHEN' or 'STOCK'
-  final String? branchId;
 
   const ReviewListScreen({
     super.key,
@@ -26,7 +25,6 @@ class ReviewListScreen extends StatefulWidget {
     this.liveBadgeCount = 0,
     this.reviewBadgeCount = 0,
     this.footerMode = 'KITCHEN',
-    this.branchId,
   });
 
   @override
@@ -36,7 +34,6 @@ class ReviewListScreen extends StatefulWidget {
 class _ReviewListScreenState extends State<ReviewListScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _reviews = []; // Flattened list of review items
-  List<Map<String, dynamic>> _branches = [];
 
   @override
   void initState() {
@@ -45,82 +42,19 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
   }
 
   Future<void> _initData() async {
-    await _fetchBranches();
     await _fetchReviews();
-  }
-
-  Future<void> _fetchBranches() async {
-    try {
-      final branches = await ApiService.instance.fetchBranches();
-      if (mounted) {
-        setState(() {
-          _branches = branches.cast<Map<String, dynamic>>();
-          _branches.sort(
-            (a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''),
-          );
-        });
-      }
-    } catch (e) {
-      debugPrint('Error fetching branches: $e');
-    }
   }
 
   Future<void> _fetchReviews() async {
     try {
       if (mounted) setState(() => _isLoading = true);
-
-      // Find company ID for widget.branchId
-      String? companyId;
-      List<String> companyBranchIds = [];
-
-      if (widget.branchId != null && widget.branchId!.isNotEmpty) {
-        final currentBranch = _branches.firstWhere(
-          (b) => (b['id'] ?? b['_id'])?.toString() == widget.branchId,
-          orElse: () => <String, dynamic>{},
-        );
-        if (currentBranch.isNotEmpty) {
-          final companyObj = currentBranch['company'];
-          companyId = companyObj is Map
-              ? (companyObj['id'] ?? companyObj['_id'])?.toString()
-              : companyObj?.toString();
-
-          if (companyId != null && companyId.isNotEmpty) {
-            companyBranchIds = _branches
-                .where((b) {
-                  final cObj = b['company'];
-                  final cId = cObj is Map
-                      ? (cObj['id'] ?? cObj['_id'])?.toString()
-                      : cObj?.toString();
-                  return cId == companyId;
-                })
-                .map((b) => (b['id'] ?? b['_id'])?.toString())
-                .where((id) => id != null)
-                .cast<String>()
-                .toList();
-          }
-        }
-      }
-
-      // Fetch all (recent 100) reviews without branch filter (since we filter by company branches)
-      final docs = await ApiService.instance.fetchReviews(
-        branchId: 'ALL',
-      );
+      // Fetch all (recent 100) reviews without date filter
+      final docs = await ApiService.instance.fetchReviews();
 
       // Flatten the structure: Review -> Items -> Item
       final List<Map<String, dynamic>> flattened = [];
 
       for (var review in docs) {
-        // Filter in-memory by company branch IDs if we have them
-        if (companyBranchIds.isNotEmpty) {
-          final reviewBranchObj = review['branch'];
-          final reviewBranchId = reviewBranchObj is Map
-              ? (reviewBranchObj['id'] ?? reviewBranchObj['_id'])?.toString()
-              : reviewBranchObj?.toString();
-          if (!companyBranchIds.contains(reviewBranchId)) {
-            continue;
-          }
-        }
-
         final items = (review['items'] as List?) ?? [];
         final da =
             DateTime.tryParse(review['createdAt'] ?? '') ?? DateTime.now();
@@ -227,9 +161,7 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
       final reviewId = item['parentReviewId'];
       final itemId = item['id'] ?? item['_id']; // Item ID within the array
 
-      debugPrint('DEBUG: Submitting reply for review $reviewId, item $itemId');
       await ApiService.instance.replyToReview(reviewId, itemId, reply);
-      debugPrint('DEBUG: Reply submitted successfully');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

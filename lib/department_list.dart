@@ -57,7 +57,7 @@ class _DepartmentListPageState extends State<DepartmentListPage> {
                   padding: const EdgeInsets.all(16.0),
                   child: GridView.builder(
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
+                      crossAxisCount: 3,
                       crossAxisSpacing: 16.0,
                       mainAxisSpacing: 16.0,
                     ),
