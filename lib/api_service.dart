@@ -10,7 +10,7 @@ class ApiService {
   ApiService._internal();
   static ApiService get instance => _instance;
 
-  static const String _baseUrl = 'https://blackforest4.vseyal.com/api';
+  static const String _baseUrl = 'https://blackforest.vseyal.com/api';
   static String get baseUrl => _baseUrl;
   static const storage = FlutterSecureStorage();
 
@@ -802,6 +802,7 @@ class ApiService {
     required String unit,
     double? minimumStockLevel,
     String? dealerId,
+    List<String>? images,
   }) async {
     try {
       final token = await _getToken();
@@ -817,6 +818,8 @@ class ApiService {
           'unit': unit,
           if (minimumStockLevel != null) 'minimumStockLevel': minimumStockLevel,
           if (dealerId != null) 'dealer': dealerId,
+          if (images != null && images.isNotEmpty)
+            'images': images.map((id) => {'image': id}).toList(),
         }),
       );
       if (res.statusCode == 200 || res.statusCode == 201) {

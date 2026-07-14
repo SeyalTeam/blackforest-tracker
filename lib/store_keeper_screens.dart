@@ -1,6 +1,15 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'api_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:camera/camera.dart';
+import 'package:image/image.dart' as img_lib;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
+import 'camera_page.dart';
 
 class RawMaterialCategoryScreen extends StatefulWidget {
   const RawMaterialCategoryScreen({super.key});
@@ -680,6 +689,85 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
   String? _selectedDealerId;
   String _selectedUnit = 'kg';
   bool _isSaving = false;
+  final List<File> _productPhotos = [];
+
+  Future<void> _captureProductPhoto() async {
+    if (await Permission.camera.request().isDenied) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission required')),
+        );
+      }
+      return;
+    }
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No camera found')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    final XFile? photo = await Navigator.push<XFile>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CameraPage(cameras: cameras),
+        fullscreenDialog: true,
+      ),
+    );
+    if (photo == null) return;
+
+    final bytes = await photo.readAsBytes();
+    final image = img_lib.decodeImage(bytes);
+    if (image == null) return;
+    final compressed = img_lib.encodeJpg(image, quality: 70);
+
+    final tempDir = await getTemporaryDirectory();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final tempFile = File('${tempDir.path}/rawmaterial_$timestamp.jpg');
+    await tempFile.writeAsBytes(compressed);
+
+    setState(() {
+      _productPhotos.add(tempFile);
+    });
+  }
+
+  Future<String?> _uploadPhoto(File file, String altText, String prefix) async {
+    try {
+      const storage = FlutterSecureStorage();
+      final token = await storage.read(key: 'token');
+      if (token == null) return null;
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${ApiService.baseUrl}/media?prefix=$prefix'),
+      );
+      request.headers['Authorization'] = 'Bearer $token';
+      request.fields['alt'] = altText;
+      request.files.add(http.MultipartFile(
+        'file',
+        file.readAsBytes().asStream(),
+        file.lengthSync(),
+        filename: file.path.split('/').last,
+        contentType: MediaType('image', 'jpeg'),
+      ));
+
+      final response = await request.send();
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        final body = await response.stream.bytesToString();
+        final data = jsonDecode(body);
+        return data['doc']['id'];
+      } else {
+        final body = await response.stream.bytesToString();
+        debugPrint('Upload error: ${response.statusCode} - $body');
+      }
+    } catch (e) {
+      debugPrint('Upload exception: $e');
+    }
+    return null;
+  }
 
   final List<Map<String, String>> _unitOptions = [
     {'label': 'Pieces (pcs)', 'value': 'pcs'},
@@ -705,12 +793,34 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
       );
       return;
     }
+    if (_productPhotos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please add at least one product photo.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isSaving = true;
     });
 
     try {
+      final List<String> uploadedImageIds = [];
+      for (int i = 0; i < _productPhotos.length; i++) {
+        final photoId = await _uploadPhoto(
+          _productPhotos[i],
+          'Raw Material Product Photo ${i + 1}',
+          'raw-materials',
+        );
+        if (photoId == null) {
+          throw Exception('Failed to upload Product Photo ${i + 1}.');
+        }
+        uploadedImageIds.add(photoId);
+      }
+
       double? minStock;
       if (_minStockController.text.trim().isNotEmpty) {
         minStock = double.tryParse(_minStockController.text.trim());
@@ -722,7 +832,17 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
         unit: _selectedUnit,
         minimumStockLevel: minStock,
         dealerId: _selectedDealerId,
+        images: uploadedImageIds,
       );
+
+      // Clean up local temp files on success
+      for (var file in _productPhotos) {
+        try {
+          if (file.existsSync()) {
+            file.deleteSync();
+          }
+        } catch (_) {}
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -886,6 +1006,84 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
                         }
                         return null;
                       },
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Product Photos (Minimum 1 Required)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_productPhotos.isNotEmpty) ...[
+                            SizedBox(
+                              height: 100,
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: _productPhotos.length,
+                                itemBuilder: (context, index) {
+                                  return Stack(
+                                    children: [
+                                      Container(
+                                        margin: const EdgeInsets.only(right: 12),
+                                        width: 100,
+                                        height: 100,
+                                        decoration: BoxDecoration(
+                                          border: Border.all(color: Colors.grey.shade300),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: Image.file(
+                                            _productPhotos[index],
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        right: 4,
+                                        top: -4,
+                                        child: CircleAvatar(
+                                          radius: 12,
+                                          backgroundColor: Colors.red.withValues(alpha: 0.9),
+                                          child: IconButton(
+                                            padding: EdgeInsets.zero,
+                                            icon: const Icon(Icons.close, size: 14, color: Colors.white),
+                                            onPressed: () {
+                                              setState(() {
+                                                try {
+                                                  _productPhotos[index].deleteSync();
+                                                } catch (_) {}
+                                                _productPhotos.removeAt(index);
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          OutlinedButton.icon(
+                            onPressed: _captureProductPhoto,
+                            icon: const Icon(Icons.add_a_photo, color: Colors.black),
+                            label: const Text('Add Product Photo', style: TextStyle(color: Colors.black)),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.black),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 32),
                     SizedBox(

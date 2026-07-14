@@ -5109,7 +5109,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest4.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -5140,7 +5140,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest4.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -5160,7 +5160,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest4.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
