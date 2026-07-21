@@ -42,7 +42,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
 
   List<Map<String, dynamic>> _products = [];
   List<String> _selectedProductIds = [];
-  Map<String, double> _selectedRawMaterialQuantities = {};
+  Map<String, Map<String, double>> _selectedRawMaterialQuantities = {};
   bool _isLoadingProducts = false;
 
   late final _PhotoSlot _billCopySlot;
@@ -106,13 +106,42 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
       final token = await storage.read(key: 'token');
       if (token == null) throw Exception('No token found');
 
+      final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
+      List<String> companyIds = [];
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+
+      if (companyIds.isEmpty) {
+        final branchId = await storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
       final headers = {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       };
 
       final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/raw-material-dealers?limit=200&depth=0'),
+        Uri.parse('${ApiService.baseUrl}/raw-material-dealers?limit=200&depth=1'),
         headers: headers,
       );
 
@@ -121,11 +150,27 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
         final List<dynamic> docs = body['docs'] ?? [];
         final List<Map<String, dynamic>> loadedDealers = [];
         for (var doc in docs) {
-          final id = doc['id']?.toString() ?? '';
-          final name = doc['companyName']?.toString() ??
-              doc['name']?.toString() ??
-              'Unknown Dealer';
-          loadedDealers.add({'id': id, 'name': name});
+          final allowedComps = doc['allowedCompanies'];
+          bool isAllowed = false;
+          if (allowedComps is List) {
+            isAllowed = allowedComps.any((comp) {
+              String? compId;
+              if (comp is Map) {
+                compId = comp['id']?.toString();
+              } else if (comp is String) {
+                compId = comp;
+              }
+              return compId != null && companyIds.contains(compId);
+            });
+          }
+
+          if (isAllowed) {
+            final id = doc['id']?.toString() ?? '';
+            final name = doc['companyName']?.toString() ??
+                doc['name']?.toString() ??
+                'Unknown Dealer';
+            loadedDealers.add({'id': id, 'name': name});
+          }
         }
         // Sort alphabetically by name
         loadedDealers.sort((a, b) => a['name'].toString().toLowerCase().compareTo(b['name'].toString().toLowerCase()));
@@ -520,10 +565,11 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
 
       // 5. Compile Raw Materials List
       final List<Map<String, dynamic>> rawMaterialsListData = [];
-      _selectedRawMaterialQuantities.forEach((id, qty) {
+      _selectedRawMaterialQuantities.forEach((id, data) {
         rawMaterialsListData.add({
           'rawMaterial': id,
-          'quantity': qty,
+          'quantity': data['quantity'] ?? 0.0,
+          'totalAmount': data['totalAmount'] ?? 0.0,
         });
       });
 
@@ -642,12 +688,12 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
   }
 
   Future<void> _navigateToRawMaterialSelection() async {
-    final Map<String, double>? result = await Navigator.push<Map<String, double>>(
+    final Map<String, Map<String, double>>? result = await Navigator.push<Map<String, Map<String, double>>>(
       context,
       MaterialPageRoute(
         builder: (context) => RawMaterialSelectionPage(
           products: _products,
-          initialQuantities: _selectedRawMaterialQuantities,
+          initialData: _selectedRawMaterialQuantities,
         ),
       ),
     );
@@ -729,11 +775,13 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
                         child: Row(
                           children: _selectedProductIds.map((id) {
                             final product = _products.firstWhere((p) => p['id'] == id, orElse: () => {'name': 'Unknown'});
-                            final qty = _selectedRawMaterialQuantities[id] ?? 0.0;
+                            final data = _selectedRawMaterialQuantities[id];
+                            final qty = data?['quantity'] ?? 0.0;
+                            final amt = data?['totalAmount'] ?? 0.0;
                             return Padding(
                               padding: const EdgeInsets.only(right: 8.0),
                               child: Chip(
-                                label: Text('${product['name']} (Qty: $qty)'),
+                                label: Text('${product['name']} (Qty: $qty, ₹$amt)'),
                                 onDeleted: () {
                                   setState(() {
                                     _selectedProductIds.remove(id);
@@ -1000,12 +1048,12 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
 
 class RawMaterialSelectionPage extends StatefulWidget {
   final List<dynamic> products;
-  final Map<String, double> initialQuantities;
+  final Map<String, Map<String, double>> initialData;
 
   const RawMaterialSelectionPage({
     super.key,
     required this.products,
-    required this.initialQuantities,
+    required this.initialData,
   });
 
   @override
@@ -1014,23 +1062,37 @@ class RawMaterialSelectionPage extends StatefulWidget {
 
 class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
   final Map<String, double> _quantities = {};
-  final Map<String, TextEditingController> _controllers = {};
+  final Map<String, double> _amounts = {};
+  final Map<String, TextEditingController> _qtyControllers = {};
+  final Map<String, TextEditingController> _amtControllers = {};
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _quantities.addAll(widget.initialQuantities);
+    // Restore previously selected data
+    for (var entry in widget.initialData.entries) {
+      final id = entry.key;
+      final data = entry.value;
+      _quantities[id] = data['quantity'] ?? 0.0;
+      _amounts[id] = data['totalAmount'] ?? 0.0;
+    }
+    // Create controllers for all products
     for (var p in widget.products) {
       final id = p['id'] as String;
       final qty = _quantities[id];
-      _controllers[id] = TextEditingController(text: qty != null && qty > 0 ? qty.toString() : '');
+      final amt = _amounts[id];
+      _qtyControllers[id] = TextEditingController(text: qty != null && qty > 0 ? qty.toString() : '');
+      _amtControllers[id] = TextEditingController(text: amt != null && amt > 0 ? amt.toString() : '');
     }
   }
 
   @override
   void dispose() {
-    for (var ctrl in _controllers.values) {
+    for (var ctrl in _qtyControllers.values) {
+      ctrl.dispose();
+    }
+    for (var ctrl in _amtControllers.values) {
       ctrl.dispose();
     }
     super.dispose();
@@ -1052,14 +1114,18 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
           IconButton(
             icon: const Icon(Icons.check),
             onPressed: () {
-              final result = <String, double>{};
+              final result = <String, Map<String, double>>{};
               bool hasInvalid = false;
-              
+
               _quantities.forEach((id, qty) {
+                final amt = _amounts[id] ?? 0.0;
                 if (qty <= 0.0) {
                   hasInvalid = true;
                 } else {
-                  result[id] = qty;
+                  result[id] = {
+                    'quantity': qty,
+                    'totalAmount': amt,
+                  };
                 }
               });
 
@@ -1111,47 +1177,82 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
 
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: Row(
+                        child: Column(
                           children: [
-                            Checkbox(
-                              value: isSelected,
-                              onChanged: (bool? checked) {
-                                setState(() {
-                                  if (checked == true) {
-                                    _quantities[id] = 0.0;
-                                    _controllers[id]?.text = '';
-                                  } else {
-                                    _quantities.remove(id);
-                                    _controllers[id]?.clear();
-                                  }
-                                });
-                              },
-                            ),
-                            Expanded(
-                              child: Text(
-                                product['name'],
-                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                            if (isSelected)
-                              SizedBox(
-                                width: 100,
-                                child: TextField(
-                                  controller: _controllers[id],
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: const InputDecoration(
-                                    hintText: 'Qty',
-                                    labelText: 'Quantity',
-                                    isDense: true,
-                                    border: OutlineInputBorder(),
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                  ),
-                                  onChanged: (val) {
-                                    final qty = double.tryParse(val) ?? 0.0;
+                            Row(
+                              children: [
+                                Checkbox(
+                                  value: isSelected,
+                                  onChanged: (bool? checked) {
                                     setState(() {
-                                      _quantities[id] = qty;
+                                      if (checked == true) {
+                                        _quantities[id] = 0.0;
+                                        _amounts[id] = 0.0;
+                                        _qtyControllers[id]?.text = '';
+                                        _amtControllers[id]?.text = '';
+                                      } else {
+                                        _quantities.remove(id);
+                                        _amounts.remove(id);
+                                        _qtyControllers[id]?.clear();
+                                        _amtControllers[id]?.clear();
+                                      }
                                     });
                                   },
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    product['name'],
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (isSelected)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 48.0, right: 8.0, top: 4.0, bottom: 4.0),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _qtyControllers[id],
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: const InputDecoration(
+                                          hintText: 'Qty',
+                                          labelText: 'Quantity',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                        ),
+                                        onChanged: (val) {
+                                          final qty = double.tryParse(val) ?? 0.0;
+                                          setState(() {
+                                            _quantities[id] = qty;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _amtControllers[id],
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: const InputDecoration(
+                                          hintText: 'Amount',
+                                          labelText: 'Total Amount',
+                                          isDense: true,
+                                          prefixText: '₹ ',
+                                          border: OutlineInputBorder(),
+                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                        ),
+                                        onChanged: (val) {
+                                          final amt = double.tryParse(val) ?? 0.0;
+                                          setState(() {
+                                            _amounts[id] = amt;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                           ],
