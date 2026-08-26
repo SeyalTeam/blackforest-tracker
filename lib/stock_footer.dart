@@ -84,9 +84,7 @@ class StockFooter extends StatelessWidget {
             ValueListenableBuilder<int>(
               valueListenable: ChatPage.unreadChatNotifier,
               builder: (context, unreadCount, _) {
-                final count = selectedTab == StockFooterTab.chat
-                    ? 0
-                    : (chatBadgeCount > 0 ? chatBadgeCount : unreadCount);
+                final count = unreadCount > 0 ? unreadCount : chatBadgeCount;
                 return Expanded(
                   child: _StockFooterItem(
                     icon: Icons.forum_rounded,

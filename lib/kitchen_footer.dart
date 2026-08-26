@@ -74,9 +74,7 @@ class KitchenFooter extends StatelessWidget {
             ValueListenableBuilder<int>(
               valueListenable: ChatPage.unreadChatNotifier,
               builder: (context, unreadCount, _) {
-                final count = selectedTab == KitchenFooterTab.chat
-                    ? 0
-                    : (chatBadgeCount > 0 ? chatBadgeCount : unreadCount);
+                final count = unreadCount > 0 ? unreadCount : chatBadgeCount;
                 return Expanded(
                   child: _KitchenFooterItem(
                     icon: Icons.forum_rounded,
