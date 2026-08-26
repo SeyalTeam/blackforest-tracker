@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_service.dart';
 import 'home.dart';
+import 'geofence_util.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -41,7 +42,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _fetchDynamicRanges() async {
     try {
       final res = await http.get(
-        Uri.parse('https://blackforest.vseyal.com/api/branches?limit=1000'),
+        Uri.parse('https://dev1-blacforest.vseyal.com/api/branches?limit=1000'),
       );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -141,6 +142,14 @@ class _LoginPageState extends State<LoginPage> {
         _isLoading = true;
       });
 
+      // GPS Geofence Check
+      final isInside = await GeofenceUtil.isInsideAnyBranch(context);
+      if (!isInside && mounted) {
+        setState(() => _isLoading = false);
+        return; // Block login if not inside branch circle
+      }
+
+
       // Ensure Private IP is fetched before proceeding
       if (_privateIp == null) {
         await _fetchIp();
@@ -164,21 +173,41 @@ class _LoginPageState extends State<LoginPage> {
         // Assuming 'email' is the identifier. The UI says 'Branch', but payload default is email.
         // We try sending the input as email.
 
-        final res = await http.post(
-          Uri.parse('https://blackforest.vseyal.com/api/users/login'),
+        final rawInput = _branchController.text.trim();
+        final emailToUse = rawInput.contains('@') ? rawInput : '$rawInput@bf.com';
+
+        var res = await http.post(
+          Uri.parse('https://dev1-blacforest.vseyal.com/api/users/login'),
           headers: {
             'Content-Type': 'application/json',
             'x-private-ip': _privateIp ?? '',
           },
           body: jsonEncode({
-            'email': _branchController.text.trim().contains('@')
-                ? _branchController.text.trim()
-                : '${_branchController.text.trim()}@bf.com',
+            'email': emailToUse,
             'password': _passwordController.text,
             'privateIp':
                 _privateIp, // Send private IP for server-side validation
           }),
         );
+
+        // Fallback: If @bf.com failed and input had no @, try sending rawInput directly as identifier
+        if (res.statusCode != 200 && !rawInput.contains('@')) {
+          final fallbackRes = await http.post(
+            Uri.parse('https://dev1-blacforest.vseyal.com/api/users/login'),
+            headers: {
+              'Content-Type': 'application/json',
+              'x-private-ip': _privateIp ?? '',
+            },
+            body: jsonEncode({
+              'email': rawInput,
+              'password': _passwordController.text,
+              'privateIp': _privateIp,
+            }),
+          );
+          if (fallbackRes.statusCode == 200) {
+            res = fallbackRes;
+          }
+        }
 
         if (!mounted) {
           setState(() => _isLoading = false);
@@ -209,14 +238,16 @@ class _LoginPageState extends State<LoginPage> {
             'DEBUG: Login success. Role: $userRole, Name: $userName, ID: $userId',
           );
 
-          final isKitchen =
-              fullUser['isKitchen'] == true || userRole == 'kitchen';
-          final isStock =
-              fullUser['isStock'] == true ||
-              userRole == 'chef' ||
-              userRole == 'supervisor' ||
-              userRole == 'driver' ||
-              userRole == 'factory';
+          final isKitchen = fullUser['isKitchen'] is bool
+              ? fullUser['isKitchen'] as bool
+              : (fullUser['isKitchen'] == true || userRole == 'kitchen');
+          final isStock = fullUser['isStock'] is bool
+              ? fullUser['isStock'] as bool
+              : (fullUser['isStock'] == true ||
+                  userRole == 'chef' ||
+                  userRole == 'supervisor' ||
+                  userRole == 'driver' ||
+                  userRole == 'factory');
 
           const storage = FlutterSecureStorage();
           await storage.write(key: 'isLoggedIn', value: 'true');
@@ -236,16 +267,9 @@ class _LoginPageState extends State<LoginPage> {
             String kitchenId = '';
             List<String> categories = [];
 
-            if (kitchenObj is Map) {
+             if (kitchenObj is Map) {
               kitchenId =
                   (kitchenObj['id'] ?? kitchenObj['_id'])?.toString() ?? '';
-              if (kitchenObj['categories'] is List) {
-                for (var c in kitchenObj['categories']) {
-                  final cId =
-                      (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-                  if (cId.isNotEmpty) categories.add(cId);
-                }
-              }
             } else if (kitchenObj is String) {
               kitchenId = kitchenObj;
             }
@@ -258,6 +282,25 @@ class _LoginPageState extends State<LoginPage> {
                 kitchenId = (empK['id'] ?? empK['_id'])?.toString() ?? '';
               } else if (empK is String) {
                 kitchenId = empK;
+              }
+            }
+
+            if (kitchenId.isNotEmpty) {
+              try {
+                final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
+                final cats = (kitchenDetails['categories'] as List?) ?? [];
+                for (var c in cats) {
+                  final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                  if (cId.isNotEmpty) categories.add(cId);
+                }
+              } catch (e) {
+                debugPrint('DEBUG: Failed to fetch kitchen details on login: $e');
+                if (kitchenObj is Map && kitchenObj['categories'] is List) {
+                  for (var c in kitchenObj['categories']) {
+                    final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                    if (cId.isNotEmpty) categories.add(cId);
+                  }
+                }
               }
             }
 
@@ -304,14 +347,26 @@ class _LoginPageState extends State<LoginPage> {
           );
         } else {
           // Login Failed - Improved error handling
+          debugPrint('DEBUG: Login failed status ${res.statusCode}: ${res.body}');
           String errorMessage =
               'Login Failed: ${res.statusCode}. Check credentials.';
           try {
             final errorData = jsonDecode(res.body);
-            if (errorData['errors'] != null &&
-                errorData['errors'] is List &&
-                errorData['errors'].isNotEmpty) {
-              errorMessage = errorData['errors'][0]['message'] ?? errorMessage;
+            if (errorData is Map) {
+              if (errorData['errors'] != null &&
+                  errorData['errors'] is List &&
+                  (errorData['errors'] as List).isNotEmpty) {
+                final firstErr = errorData['errors'][0];
+                if (firstErr is Map && firstErr['message'] != null) {
+                  errorMessage = firstErr['message'].toString();
+                } else if (firstErr is String) {
+                  errorMessage = firstErr;
+                }
+              } else if (errorData['message'] != null) {
+                errorMessage = errorData['message'].toString();
+              } else if (errorData['error'] != null) {
+                errorMessage = errorData['error'].toString();
+              }
             }
           } catch (e) {
             debugPrint('Error parsing login failure response: $e');
