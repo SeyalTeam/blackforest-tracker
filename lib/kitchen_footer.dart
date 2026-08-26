@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'chat_page.dart';
 
-enum KitchenFooterTab { kot, stock, review, chats }
+enum KitchenFooterTab { home, kot, stock, review, chat }
 
 class KitchenFooter extends StatelessWidget {
   final KitchenFooterTab selectedTab;
@@ -8,6 +9,9 @@ class KitchenFooter extends StatelessWidget {
   final int stockBadgeCount;
   final int liveBadgeCount;
   final int reviewBadgeCount;
+  final int chatBadgeCount;
+  final bool isDriver;
+  final bool isStoreKeeper;
 
   const KitchenFooter({
     super.key,
@@ -16,6 +20,9 @@ class KitchenFooter extends StatelessWidget {
     this.stockBadgeCount = 0,
     this.liveBadgeCount = 0,
     this.reviewBadgeCount = 0,
+    this.chatBadgeCount = 0,
+    this.isDriver = false,
+    this.isStoreKeeper = false,
   });
 
   @override
@@ -38,38 +45,48 @@ class KitchenFooter extends StatelessWidget {
           children: [
             Expanded(
               child: _KitchenFooterItem(
-                icon: Icons.receipt_long_rounded,
-                label: 'KOT',
-                isSelected: selectedTab == KitchenFooterTab.kot,
-                onTap: () => onSelected(KitchenFooterTab.kot),
-                badgeCount: liveBadgeCount,
+                icon: Icons.home_rounded,
+                label: 'Home',
+                isSelected: selectedTab == KitchenFooterTab.home,
+                onTap: () => onSelected(KitchenFooterTab.home),
               ),
             ),
-            Expanded(
-              child: _KitchenFooterItem(
-                icon: Icons.inventory_2_rounded,
-                label: 'STOCK',
-                isSelected: selectedTab == KitchenFooterTab.stock,
-                onTap: () => onSelected(KitchenFooterTab.stock),
-                badgeCount: stockBadgeCount,
+            if (!isStoreKeeper)
+              Expanded(
+                child: _KitchenFooterItem(
+                  icon: Icons.receipt_long_rounded,
+                  label: 'KOT',
+                  isSelected: selectedTab == KitchenFooterTab.kot,
+                  onTap: () => onSelected(KitchenFooterTab.kot),
+                  badgeCount: liveBadgeCount,
+                ),
               ),
-            ),
-            Expanded(
-              child: _KitchenFooterItem(
-                icon: Icons.reviews_outlined,
-                label: 'Review',
-                isSelected: selectedTab == KitchenFooterTab.review,
-                onTap: () => onSelected(KitchenFooterTab.review),
-                badgeCount: reviewBadgeCount,
+            if (!isDriver && !isStoreKeeper)
+              Expanded(
+                child: _KitchenFooterItem(
+                  icon: Icons.reviews_outlined,
+                  label: 'Review',
+                  isSelected: selectedTab == KitchenFooterTab.review,
+                  onTap: () => onSelected(KitchenFooterTab.review),
+                  badgeCount: reviewBadgeCount,
+                ),
               ),
-            ),
-            Expanded(
-              child: _KitchenFooterItem(
-                icon: Icons.chat_bubble_outline_rounded,
-                label: 'Chats',
-                isSelected: selectedTab == KitchenFooterTab.chats,
-                onTap: () => onSelected(KitchenFooterTab.chats),
-              ),
+            ValueListenableBuilder<int>(
+              valueListenable: ChatPage.unreadChatNotifier,
+              builder: (context, unreadCount, _) {
+                final count = selectedTab == KitchenFooterTab.chat
+                    ? 0
+                    : (chatBadgeCount > 0 ? chatBadgeCount : unreadCount);
+                return Expanded(
+                  child: _KitchenFooterItem(
+                    icon: Icons.forum_rounded,
+                    label: 'Chat',
+                    isSelected: selectedTab == KitchenFooterTab.chat,
+                    onTap: () => onSelected(KitchenFooterTab.chat),
+                    badgeCount: count,
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -119,19 +136,31 @@ class _KitchenFooterItem extends StatelessWidget {
                     right: -6,
                     top: -4,
                     child: Container(
-                      padding: const EdgeInsets.all(2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.orange,
+                        color: const Color(0xFFEF4444),
                         borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white, width: 1),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x33000000),
+                            blurRadius: 3,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
                       ),
                       constraints:
                           const BoxConstraints(minWidth: 16, minHeight: 16),
                       child: Text(
-                        '$badgeCount',
+                        badgeCount > 99 ? '99+' : '$badgeCount',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 10,
+                          fontSize: 9,
                           fontWeight: FontWeight.bold,
+                          height: 1.1,
                         ),
                         textAlign: TextAlign.center,
                       ),

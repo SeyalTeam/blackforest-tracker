@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'common_scaffold.dart';
 import 'api_service.dart';
-import 'kitchen_chats_screen.dart';
 import 'kitchen_footer.dart';
 import 'stock_footer.dart';
 import 'smooth_navigation.dart';
+import 'home.dart';
+import 'chat_page.dart';
 
 class ReviewListScreen extends StatefulWidget {
   final bool showKitchenFooter;
@@ -14,6 +15,7 @@ class ReviewListScreen extends StatefulWidget {
   final int stockBadgeCount;
   final int liveBadgeCount;
   final int reviewBadgeCount;
+  final int chatBadgeCount;
   final String footerMode; // 'KITCHEN' or 'STOCK'
   final String? branchId;
 
@@ -25,6 +27,7 @@ class ReviewListScreen extends StatefulWidget {
     this.stockBadgeCount = 0,
     this.liveBadgeCount = 0,
     this.reviewBadgeCount = 0,
+    this.chatBadgeCount = 0,
     this.footerMode = 'KITCHEN',
     this.branchId,
   });
@@ -199,12 +202,16 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
                     stockBadgeCount: widget.stockBadgeCount,
                     liveBadgeCount: widget.liveBadgeCount,
                     reviewBadgeCount: widget.reviewBadgeCount,
+                    chatBadgeCount: widget.chatBadgeCount,
+                    isChef: true,
                   )
                 : KitchenFooter(
                     selectedTab: KitchenFooterTab.review,
                     onSelected: _handleKitchenFooterSelection,
                     stockBadgeCount: widget.stockBadgeCount,
+                    liveBadgeCount: widget.liveBadgeCount,
                     reviewBadgeCount: widget.reviewBadgeCount,
+                    chatBadgeCount: widget.chatBadgeCount,
                   ))
             : null,
         body: Column(
@@ -242,7 +249,12 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
 
   void _handleStockFooterSelection(StockFooterTab tab) {
     switch (tab) {
+      case StockFooterTab.home:
+        HomeScreen.activeStockTab = 2;
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        break;
       case StockFooterTab.live:
+        HomeScreen.activeStockTab = 1;
         if (widget.onKotTap != null) {
           widget.onKotTap!();
         } else {
@@ -258,30 +270,20 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
         break;
       case StockFooterTab.review:
         break;
-      case StockFooterTab.chats:
+      case StockFooterTab.chat:
         Navigator.pushReplacement(
           context,
           smoothPageRoute(
-            KitchenChatsScreen(
-              onKotTap:
-                  widget.onKotTap ??
-                  () {
-                    Navigator.of(
-                      context,
-                    ).popUntil((route) => route.isFirst);
-                  },
-              onStockTap:
-                  widget.onStockTap ??
-                  () {
-                    Navigator.of(
-                      context,
-                    ).popUntil((route) => route.isFirst);
-                  },
-              onReviewTap: () {},
+            ChatPage(
+              showKitchenFooter: true,
+              onKotTap: widget.onKotTap,
+              onStockTap: widget.onStockTap,
               stockBadgeCount: widget.stockBadgeCount,
               liveBadgeCount: widget.liveBadgeCount,
               reviewBadgeCount: widget.reviewBadgeCount,
+              chatBadgeCount: widget.chatBadgeCount,
               footerMode: 'STOCK',
+              branchId: widget.branchId,
             ),
           ),
         );
@@ -291,6 +293,9 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
 
   void _handleKitchenFooterSelection(KitchenFooterTab tab) {
     switch (tab) {
+      case KitchenFooterTab.home:
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        break;
       case KitchenFooterTab.kot:
         if (widget.onKotTap != null) {
           widget.onKotTap!();
@@ -307,20 +312,20 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
         break;
       case KitchenFooterTab.review:
         break;
-      case KitchenFooterTab.chats:
+      case KitchenFooterTab.chat:
         Navigator.pushReplacement(
           context,
           smoothPageRoute(
-            KitchenChatsScreen(
-              onKotTap: widget.onKotTap ??
-                  () => Navigator.of(context).popUntil((r) => r.isFirst),
-              onStockTap: widget.onStockTap ??
-                  () => Navigator.of(context).popUntil((r) => r.isFirst),
-              onReviewTap: () {},
+            ChatPage(
+              showKitchenFooter: true,
+              onKotTap: widget.onKotTap,
+              onStockTap: widget.onStockTap,
               stockBadgeCount: widget.stockBadgeCount,
               liveBadgeCount: widget.liveBadgeCount,
               reviewBadgeCount: widget.reviewBadgeCount,
+              chatBadgeCount: widget.chatBadgeCount,
               footerMode: 'KITCHEN',
+              branchId: widget.branchId,
             ),
           ),
         );

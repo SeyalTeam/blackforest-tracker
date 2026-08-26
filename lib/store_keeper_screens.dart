@@ -10,6 +10,7 @@ import 'package:image/image.dart' as img_lib;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'camera_page.dart';
+import 'raw_material_billing.dart';
 
 class RawMaterialCategoryScreen extends StatefulWidget {
   const RawMaterialCategoryScreen({super.key});
@@ -381,8 +382,23 @@ class _CreateRawMaterialScreenState extends State<CreateRawMaterialScreen> {
         return catId != null && filteredCategories.any((c) => c['id']?.toString() == catId);
       }).toList();
 
-      // 4. Fetch all raw material dealers (without company filter)
-      final filteredDealers = await ApiService.instance.fetchRawMaterialDealers();
+      // 4. Fetch all raw material dealers and filter by company
+      final allDealers = await ApiService.instance.fetchRawMaterialDealers();
+      final filteredDealers = allDealers.where((dl) {
+        final compList = dl['allowedCompanies'];
+        if (compList is List) {
+          return compList.any((comp) {
+            String? compId;
+            if (comp is Map) {
+              compId = comp['id']?.toString();
+            } else if (comp is String) {
+              compId = comp;
+            }
+            return compId != null && companyIds.contains(compId);
+          });
+        }
+        return false;
+      }).toList();
 
       if (mounted) {
         setState(() {
@@ -710,6 +726,7 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
       return;
     }
     if (!mounted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     final XFile? photo = await Navigator.push<XFile>(
       context,
       MaterialPageRoute(
@@ -717,6 +734,7 @@ class _CreateRawMaterialFormScreenState extends State<CreateRawMaterialFormScree
         fullscreenDialog: true,
       ),
     );
+    FocusManager.instance.primaryFocus?.unfocus();
     if (photo == null) return;
 
     final bytes = await photo.readAsBytes();
@@ -1119,11 +1137,19 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
   List<dynamic> _dealers = [];
   List<String> _companyIds = [];
   String? _errorMsg;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _loadInitialData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadInitialData() async {
@@ -1164,7 +1190,29 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
         }
       }
 
-      final filteredDealers = await ApiService.instance.fetchRawMaterialDealers();
+      final allDealers = await ApiService.instance.fetchRawMaterialDealers();
+      final filteredDealers = allDealers.where((dl) {
+        final compList = dl['allowedCompanies'];
+        if (compList is List) {
+          return compList.any((comp) {
+            String? compId;
+            if (comp is Map) {
+              compId = comp['id']?.toString();
+            } else if (comp is String) {
+              compId = comp;
+            }
+            return compId != null && companyIds.contains(compId);
+          });
+        }
+        return false;
+      }).toList();
+
+      filteredDealers.sort(
+        (a, b) => (a['companyName'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo((b['companyName'] ?? '').toString().toLowerCase()),
+      );
 
       if (mounted) {
         setState(() {
@@ -1185,10 +1233,25 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
 
   @override
   Widget build(BuildContext context) {
+    final query = _searchQuery.trim().toLowerCase();
+    final displayedDealers = _dealers.where((dl) {
+      if (query.isEmpty) return true;
+      final companyName = (dl['companyName'] ?? '').toString().toLowerCase();
+      final phone = (dl['phoneNumber'] ?? '').toString().toLowerCase();
+      final contactObj = dl['contactPerson'];
+      final contactName =
+          (contactObj is Map ? (contactObj['name'] ?? '') : '')
+              .toString()
+              .toLowerCase();
+      return companyName.contains(query) ||
+          phone.contains(query) ||
+          contactName.contains(query);
+    }).toList();
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Raw Material Dealers'),
+        title: Text('Raw Material Dealers (${displayedDealers.length})'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
       ),
@@ -1211,24 +1274,67 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
                     ),
                   ),
                 )
-              : _dealers.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No dealers found.',
-                        style: TextStyle(color: Colors.grey),
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (val) {
+                          setState(() {
+                            _searchQuery = val;
+                          });
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Search dealer by name or phone...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchController.clear();
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                        ),
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: _dealers.length,
-                      padding: const EdgeInsets.all(16.0),
-                      itemBuilder: (context, index) {
-                        final dl = _dealers[index];
-                        final companyName = dl['companyName'] ?? 'Unknown Company';
-                        final address = dl['address'] ?? '';
-                        final phone = dl['phoneNumber'] ?? '';
-                        
-                        final contactObj = dl['contactPerson'];
-                        final contactName = contactObj is Map ? contactObj['name'] : 'N/A';
+                    ),
+                    Expanded(
+                      child: displayedDealers.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'No dealers found.',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: displayedDealers.length,
+                              padding: const EdgeInsets.all(16.0),
+                              itemBuilder: (context, index) {
+                                final dl = displayedDealers[index];
+                                final companyName = dl['companyName'] ?? 'Unknown Company';
+                                final address = dl['address'] ?? '';
+                                final phone = dl['phoneNumber'] ?? '';
+                                
+                                final contactObj = dl['contactPerson'];
+                                final contactName = contactObj is Map ? contactObj['name'] : 'N/A';
 
                         return Card(
                           margin: const EdgeInsets.only(bottom: 12.0),
@@ -1309,6 +1415,9 @@ class _CreateRawMaterialDealerScreenState extends State<CreateRawMaterialDealerS
                         );
                       },
                     ),
+                  ),
+                ],
+              ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           final result = await Navigator.push(
@@ -2008,6 +2117,338 @@ class RawMaterialDealerDetailScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class RawMaterialDealerSelectionScreen extends StatefulWidget {
+  const RawMaterialDealerSelectionScreen({super.key});
+
+  @override
+  State<RawMaterialDealerSelectionScreen> createState() =>
+      _RawMaterialDealerSelectionScreenState();
+}
+
+class _RawMaterialDealerSelectionScreenState
+    extends State<RawMaterialDealerSelectionScreen> {
+  bool _isLoading = false;
+  List<dynamic> _dealers = [];
+  String? _errorMsg;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDealers();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDealers() async {
+    setState(() {
+      _isLoading = true;
+      _errorMsg = null;
+    });
+
+    try {
+      const storage = FlutterSecureStorage();
+      final skCompaniesStr =
+          await storage.read(key: 'userStorekeeperCompanies');
+
+      List<String> companyIds = [];
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds =
+            skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+
+      if (companyIds.isEmpty) {
+        final branchId = await storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
+      final allDealers = await ApiService.instance.fetchRawMaterialDealers();
+      final filteredDealers = allDealers.where((dl) {
+        final compList = dl['allowedCompanies'];
+        if (compList is List) {
+          return compList.any((comp) {
+            String? compId;
+            if (comp is Map) {
+              compId = comp['id']?.toString();
+            } else if (comp is String) {
+              compId = comp;
+            }
+            return compId != null && companyIds.contains(compId);
+          });
+        }
+        return false;
+      }).toList();
+
+      filteredDealers.sort(
+        (a, b) => (a['companyName'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo((b['companyName'] ?? '').toString().toLowerCase()),
+      );
+
+      if (mounted) {
+        setState(() {
+          _dealers = filteredDealers;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMsg = 'Failed to load dealers: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _searchQuery.trim().toLowerCase();
+    final displayedDealers = _dealers.where((dl) {
+      if (query.isEmpty) return true;
+      final companyName = (dl['companyName'] ?? '').toString().toLowerCase();
+      final phone = (dl['phoneNumber'] ?? '').toString().toLowerCase();
+      final contactObj = dl['contactPerson'];
+      final contactName =
+          (contactObj is Map ? (contactObj['name'] ?? '') : '')
+              .toString()
+              .toLowerCase();
+      return companyName.contains(query) ||
+          phone.contains(query) ||
+          contactName.contains(query);
+    }).toList();
+
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: Text('Select Dealer (${displayedDealers.length})'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: _isLoading && _dealers.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMsg != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _errorMsg!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadDealers,
+                        child: const Text('Retry'),
+                      )
+                    ],
+                  ),
+                )
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (val) {
+                          setState(() {
+                            _searchQuery = val;
+                          });
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Search dealer by name or phone...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchController.clear();
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: displayedDealers.isEmpty
+                          ? const Center(
+                              child: Text(
+                                'No dealers found.',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : RefreshIndicator(
+                              onRefresh: _loadDealers,
+                              child: ListView.builder(
+                                itemCount: displayedDealers.length,
+                                padding: const EdgeInsets.all(16.0),
+                                itemBuilder: (context, index) {
+                                  final dl = displayedDealers[index];
+                                  final id = dl['id']?.toString() ?? '';
+                                  final companyName =
+                                      dl['companyName'] ?? 'Unknown Company';
+                                  final address = dl['address'] ?? '';
+                                  final phone = dl['phoneNumber'] ?? '';
+
+                                  final contactObj = dl['contactPerson'];
+                                  final contactName = contactObj is Map
+                                      ? contactObj['name']
+                                      : 'N/A';
+
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 12.0),
+                                    elevation: 1,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(10),
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                RawMaterialBillingPage(
+                                              initialDealerId: id,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(16.0),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 40,
+                                              height: 40,
+                                              alignment: Alignment.center,
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.05,
+                                                ),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Text(
+                                                '${index + 1}',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                  color: Colors.black87,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 16),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    companyName,
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 16,
+                                                      color: Colors.black87,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    'Contact: $contactName | Phone: $phone',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                  ),
+                                                  if (address.isNotEmpty) ...[
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      address,
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey[500],
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                            const Icon(
+                                              Icons.chevron_right_rounded,
+                                              color: Colors.grey,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const RawMaterialBillingPage(),
+            ),
+          );
+        },
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        child: const Icon(Icons.add),
       ),
     );
   }

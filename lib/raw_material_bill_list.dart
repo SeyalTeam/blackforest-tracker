@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class RawMaterialBillingsListScreen extends StatefulWidget {
   const RawMaterialBillingsListScreen({super.key});
@@ -27,10 +28,47 @@ class _RawMaterialBillingsListScreenState extends State<RawMaterialBillingsListS
       _errorMsg = '';
     });
     try {
+      const storage = FlutterSecureStorage();
+      final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
+
+      List<String> companyIds = [];
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+
+      if (companyIds.isEmpty) {
+        final branchId = await storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
       final bills = await ApiService.instance.fetchRawMaterialBillings();
+      final filteredBills = bills.where((bill) {
+        final compObj = bill['company'];
+        final compId = (compObj is Map ? compObj['id'] : compObj)?.toString();
+        return compId != null && companyIds.contains(compId);
+      }).toList();
+
       if (mounted) {
         setState(() {
-          _billings = bills;
+          _billings = filteredBills;
           _isLoading = false;
         });
       }
@@ -438,17 +476,65 @@ class RawMaterialBillingDetailScreen extends StatelessWidget {
                             unit = materialObj['unit'].toString().toUpperCase();
                           }
 
-                          return Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(materialName, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15)),
-                              ),
-                              Text(
-                                '$quantity $unit',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
-                              ),
-                            ],
+                          final photoObj = item['photo'];
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4.0),
+                            child: Row(
+                              children: [
+                                if (photoObj != null) ...[
+                                  Builder(
+                                    builder: (context) {
+                                      String? mediaUrl;
+                                      if (photoObj is Map) {
+                                        mediaUrl = photoObj['url'];
+                                      } else if (photoObj is String) {
+                                        mediaUrl = photoObj;
+                                      }
+                                      if (mediaUrl == null || mediaUrl.isEmpty) return const SizedBox.shrink();
+                                      final fullUrl = mediaUrl.startsWith('http') ? mediaUrl : '${ApiService.baseUrl}$mediaUrl';
+                                      return GestureDetector(
+                                        onTap: () => _viewFullScreenImage(context, fullUrl, materialName),
+                                        child: Container(
+                                          width: 44,
+                                          height: 44,
+                                          margin: const EdgeInsets.only(right: 12),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Colors.grey.shade300),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(8),
+                                            child: Image.network(
+                                              fullUrl,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 20, color: Colors.grey),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(materialName, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15)),
+                                      if (item['totalAmount'] != null && (item['totalAmount'] as num) > 0)
+                                        Text(
+                                          'Total: ₹${(item['totalAmount'] as num).toStringAsFixed(2)}',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  '$quantity $unit',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87),
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),

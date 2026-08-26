@@ -10,7 +10,7 @@ class ApiService {
   ApiService._internal();
   static ApiService get instance => _instance;
 
-  static const String _baseUrl = 'https://blackforest.vseyal.com/api';
+  static const String _baseUrl = 'https://dev1-blacforest.vseyal.com/api';
   static String get baseUrl => _baseUrl;
   static const storage = FlutterSecureStorage();
 
@@ -1017,6 +1017,48 @@ class ApiService {
         return (data['docs'] as List?) ?? [];
       } else {
         throw Exception('Failed to load raw material billings');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createStockOrder(Map<String, dynamic> payload) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/stock-orders'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create stock order: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createRawMaterialBilling(Map<String, dynamic> payload) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/raw-material-billings'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create raw material billing: ${res.body}');
       }
     } catch (e) {
       rethrow;

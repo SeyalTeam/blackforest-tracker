@@ -7,8 +7,9 @@ import 'api_service.dart';
 import 'stockorder_report.dart';
 import 'stock_footer.dart';
 import 'review_list.dart';
-import 'kitchen_chats_screen.dart';
 import 'smooth_navigation.dart';
+import 'home.dart';
+import 'chat_page.dart';
 
 class StockTicketListScreen extends StatefulWidget {
   const StockTicketListScreen({super.key});
@@ -27,6 +28,7 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
   List<dynamic> _recentOrders = [];
   bool _isLoading = true;
   String _userRole = '';
+  int _chatUnreadCount = 0;
   DateTime _selectedDate = DateTime.now();
   int _stockCount = 0;
   int _branchCount = 0;
@@ -249,9 +251,11 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
           }
         }
       }
+      final chatCount = await ChatPage.checkUnreadChatCount();
       if (mounted) {
         setState(() {
           _reviewCount = count;
+          _chatUnreadCount = chatCount;
         });
       }
     } catch (e) {
@@ -592,13 +596,20 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
         stockBadgeCount: _stockCount,
         liveBadgeCount: _branchCount,
         reviewBadgeCount: _reviewCount,
+        chatBadgeCount: _chatUnreadCount,
+        isChef: _userRole == 'chef',
       ),
     );
   }
 
   void _handleStockFooterSelection(StockFooterTab tab) {
     switch (tab) {
+      case StockFooterTab.home:
+        HomeScreen.activeStockTab = 2;
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        break;
       case StockFooterTab.live:
+        HomeScreen.activeStockTab = 1;
         Navigator.of(context).popUntil((route) => route.isFirst);
         break;
       case StockFooterTab.stock:
@@ -619,47 +630,33 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
               stockBadgeCount: _stockCount,
               liveBadgeCount: _branchCount,
               reviewBadgeCount: _reviewCount,
+              chatBadgeCount: _chatUnreadCount,
               footerMode: 'STOCK',
             ),
           ),
         );
         break;
-      case StockFooterTab.chats:
+      case StockFooterTab.chat:
         Navigator.push(
           context,
           smoothPageRoute(
-            KitchenChatsScreen(
+            ChatPage(
+              showKitchenFooter: true,
               onKotTap: () => Navigator.of(context).popUntil((r) => r.isFirst),
               onStockTap: () {
                 Navigator.pop(context);
-                // Already on stock tickets
-              },
-              onReviewTap: () {
-                Navigator.pushReplacement(
-                  context,
-                  smoothPageRoute(
-                    ReviewListScreen(
-                      showKitchenFooter: true,
-                      onKotTap:
-                          () => Navigator.of(context).popUntil((r) => r.isFirst),
-                      onStockTap: () {
-                        Navigator.pop(context);
-                      },
-                      stockBadgeCount: _stockCount,
-                      liveBadgeCount: _branchCount,
-                      reviewBadgeCount: _reviewCount,
-                      footerMode: 'STOCK',
-                    ),
-                  ),
-                );
+                _fetchCounts(forceRefresh: true);
               },
               stockBadgeCount: _stockCount,
               liveBadgeCount: _branchCount,
               reviewBadgeCount: _reviewCount,
+              chatBadgeCount: _chatUnreadCount,
               footerMode: 'STOCK',
             ),
           ),
-        );
+        ).then((_) {
+          _fetchReviewsCount();
+        });
         break;
     }
   }

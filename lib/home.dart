@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:http_parser/http_parser.dart';
 import 'login.dart';
 import 'store_keeper_screens.dart';
 import 'common_scaffold.dart';
@@ -15,16 +19,19 @@ import 'review_list.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'notification_service.dart';
 import 'kitchen_notifications_page.dart';
-import 'kitchen_chats_screen.dart';
 import 'kitchen_footer.dart';
 import 'dart:convert';
 import 'module_switcher_footer.dart';
 import 'stock_footer.dart';
 import 'smooth_navigation.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'profile_page.dart';
+import 'chat_page.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  static int activeStockTab = 2;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -39,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _stockCount = 0;
   int _branchCount = 0;
   int _reviewCount = 0;
+  int _chatUnreadCount = 0;
   List<Map<String, dynamic>> _departments = [];
   List<Map<String, dynamic>> _branches = [];
   String _selectedDepartmentFilter = 'ALL';
@@ -94,6 +102,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Map<String, int> _stockOutOrderByProductId = {};
   int _stockOutOrderCounter = 0;
   final Set<String> _stockAlertingProductIds = {};
+  int _stockTabSelected = 1; // 0 = Stock Add, 1 = Stock Live, 2 = Raw Material
+  KitchenFooterTab _kitchenTabSelected = KitchenFooterTab.kot;
+  String? _selectedStockAddCategoryId;
+  String _selectedStockAddCategoryName = '';
+  String? _selectedRawMaterialCategoryId;
+  String _selectedRawMaterialCategoryName = '';
+
+  // Carts mapping productId -> quantity
+  final Map<String, double> _stockAddCart = {};
+  final Map<String, double> _rawMaterialCart = {};
+
+  List<dynamic>? _rawMaterialCategories;
+  List<dynamic>? _rawMaterials;
+  List<dynamic>? _rawMaterialDealers;
+  String? _selectedRawMaterialDealerId;
+  String? _cachedPlaceholderMediaId;
+  String? _profilePhotoUrl;
+
+
+  bool _isLoadingRawMaterial = false;
+  bool _isLoadingStockAdd = false;
+  bool _isSubmittingRMOrder = false;
+  bool _isSubmittingStockOrder = false;
+  String _rmSearchQuery = '';
+  String _stockAddSearchQuery = '';
+
   final Map<String, Map<String, dynamic>> _kitchenProductCacheById = {};
   final Set<String> _kitchenProductHydrationInFlight = {};
   final Map<String, Map<String, dynamic>> _kitchenMediaCacheById = {};
@@ -105,6 +139,82 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return normalized == 'storekeeper';
   }
 
+  bool get _isChef {
+    final normalized = _userRole.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase();
+    return normalized == 'chef';
+  }
+
+  Widget _buildStoreKeeperListItem(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.grey[400],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStoreKeeperGridItem(
     BuildContext context, {
     required String title,
@@ -114,25 +224,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.grey.shade200),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
             ),
           ],
-          border: Border.all(color: Colors.grey[200]!),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
@@ -140,17 +251,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Icon(
                 icon,
                 color: color,
-                size: 28,
+                size: 22,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Text(
               title,
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
                 color: Colors.black87,
               ),
@@ -198,7 +309,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _fetchDepartments();
 
     // Initial fetch for shared footer components
-    await Future.wait([_fetchCounts(), _fetchReviewsCount()]);
+    await Future.wait([
+      _fetchCounts(),
+      _fetchReviewsCount(),
+      _fetchChatUnreadCount(),
+    ]);
 
     // Initial fetch based on module
     if (_activeModule == 'KITCHEN') {
@@ -243,6 +358,117 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final isStk = values[5];
     String uId = values[6] ?? values[7] ?? '';
 
+    String syncedRole = role ?? '';
+    String syncedIsKit = isKit ?? 'false';
+    String syncedIsStk = isStk ?? 'false';
+    String syncedKitchenId = kId ?? '';
+    List<String> syncedKitchenCategoryIds =
+        catIds?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
+
+    // Immediately update local role state from cached storage to prevent UI flash
+    if (mounted && syncedRole.isNotEmpty) {
+      setState(() {
+        _userRole = syncedRole.toLowerCase();
+        _isKitchenEnabled = syncedIsKit == 'true';
+        _isStockEnabled = syncedIsStk == 'true';
+        if (_userRole == 'chef') {
+          _stockTabSelected = 2;
+          HomeScreen.activeStockTab = 2;
+        }
+      });
+    }
+
+    // Sync user profile to ensure updated permissions take effect immediately
+    try {
+      final profile = await ApiService.instance.fetchUserProfile();
+      if (profile.isNotEmpty) {
+        uId = (profile['id'] ?? profile['_id'])?.toString() ?? '';
+        final profileRole = profile['role']?.toString().toLowerCase() ?? '';
+        final profileIsKitchen = profile['isKitchen'] is bool
+            ? profile['isKitchen'] as bool
+            : (profile['isKitchen'] == true || profileRole == 'kitchen');
+        final profileIsStock = profile['isStock'] is bool
+            ? profile['isStock'] as bool
+            : (profile['isStock'] == true ||
+                profileRole == 'chef' ||
+                profileRole == 'supervisor' ||
+                profileRole == 'driver' ||
+                profileRole == 'factory');
+
+        syncedRole = profileRole;
+        syncedIsKit = profileIsKitchen.toString();
+        syncedIsStk = profileIsStock.toString();
+
+        await _storage.write(key: 'userId', value: uId);
+        await _storage.write(key: 'userRole', value: profileRole);
+        await _storage.write(key: 'userIsKitchen', value: profileIsKitchen.toString());
+        await _storage.write(key: 'userIsStock', value: profileIsStock.toString());
+
+        // Extract employee photo for app bar avatar
+        final employeeData = profile['employee'];
+        if (employeeData is Map) {
+          final photo = employeeData['photo'];
+          String? rawPhotoUrl;
+          if (photo is Map) {
+            rawPhotoUrl = photo['thumbnailURL']?.toString() ??
+                photo['thumbnailUrl']?.toString() ??
+                photo['url']?.toString();
+          } else if (photo is String && photo.isNotEmpty) {
+            rawPhotoUrl = photo;
+          }
+          if (rawPhotoUrl != null && rawPhotoUrl.isNotEmpty) {
+            final resolved = rawPhotoUrl.startsWith('http')
+                ? rawPhotoUrl
+                : 'https://dev1-blacforest.vseyal.com$rawPhotoUrl';
+            if (mounted) {
+              setState(() {
+                _profilePhotoUrl = resolved;
+              });
+            }
+          }
+        }
+
+
+        if (profileIsKitchen) {
+          final kitchenObj = profile['kitchen'];
+          String kitchenId = '';
+          List<String> categories = [];
+          if (kitchenObj is Map) {
+            kitchenId = (kitchenObj['id'] ?? kitchenObj['_id'])?.toString() ?? '';
+          } else if (kitchenObj is String) {
+            kitchenId = kitchenObj;
+          }
+
+          if (kitchenId.isNotEmpty) {
+            try {
+              final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
+              final cats = (kitchenDetails['categories'] as List?) ?? [];
+              for (var c in cats) {
+                final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                if (cId.isNotEmpty) categories.add(cId);
+              }
+            } catch (e) {
+              debugPrint('DEBUG: Failed to sync kitchen details in _fetchUserRole: $e');
+              if (kitchenObj is Map && kitchenObj['categories'] is List) {
+                for (var c in kitchenObj['categories']) {
+                  final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                  if (cId.isNotEmpty) categories.add(cId);
+                }
+              }
+            }
+          }
+
+          syncedKitchenId = kitchenId;
+          syncedKitchenCategoryIds = categories;
+
+          await _storage.write(key: 'userKitchenId', value: kitchenId);
+          await _storage.write(key: 'userKitchenCategoryIds', value: categories.join(','));
+        }
+      }
+    } catch (e) {
+      debugPrint('DEBUG: Live profile sync failed: $e');
+    }
+
     // Fallback: If userId is missing (e.g. session from before update), fetch it
     if (uId.isEmpty) {
       try {
@@ -257,8 +483,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     // Fallback: If userStorekeeperCompanies is missing for a store keeper, fetch and save it
-    if (role != null &&
-        role.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase() == 'storekeeper') {
+    final checkRole = syncedRole.isNotEmpty ? syncedRole : role;
+    if (checkRole != null &&
+        checkRole.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase() == 'storekeeper') {
       try {
         final skCompaniesStr = await _storage.read(key: 'userStorekeeperCompanies');
         if (skCompaniesStr == null) {
@@ -281,19 +508,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (mounted) {
       setState(() {
-        _userRole = role?.toLowerCase() ?? '';
+        _userRole = syncedRole.isNotEmpty ? syncedRole.toLowerCase() : (role?.toLowerCase() ?? '');
         _userBranchId = bId ?? '';
-        _userKitchenId = kId ?? '';
+        _userKitchenId = syncedKitchenId;
         _userId = uId;
-        _userKitchenCategoryIds =
-            catIds?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
-        _isKitchenEnabled = isKit == 'true';
-        _isStockEnabled = isStk == 'true';
+        _userKitchenCategoryIds = syncedKitchenCategoryIds;
+        _isKitchenEnabled = syncedIsKit == 'true';
+        _isStockEnabled = syncedIsStk == 'true';
         _selectedDepartmentFilter = 'ALL';
+        if (_userRole == 'chef') {
+          _stockTabSelected = 2;
+          HomeScreen.activeStockTab = 2;
+        }
 
         // Set default module ONLY ONCE during initial app load
         if (_isFirstLoad) {
-          if (_isKitchenEnabled && role?.toLowerCase() == 'kitchen') {
+          if (_isKitchenEnabled && _userRole == 'kitchen') {
             _activeModule = 'KITCHEN';
           } else if (_isStockEnabled) {
             _activeModule = 'STOCK';
@@ -319,8 +549,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _fetchReviewsCount();
     });
 
-    // 2. Sync notifications and kitchen orders (every 10 seconds)
+    // 2. Sync notifications, kitchen orders, and unread chat (every 10 seconds)
     _syncTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _fetchChatUnreadCount();
       if (_isKitchenEnabled) {
         if (_isKitchenSyncInProgress) return;
         _isKitchenSyncInProgress = true;
@@ -1696,6 +1931,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _fetchChatUnreadCount() async {
+    try {
+      final count = await ChatPage.checkUnreadChatCount();
+      if (mounted) {
+        setState(() {
+          _chatUnreadCount = count;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching chat unread count: $e');
+    }
+  }
+
   Future<void> _fetchDepartments() async {
     try {
       final docs = await ApiService.instance.fetchDepartments();
@@ -1809,8 +2057,189 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return 1; // Working
   }
 
+  Widget _buildChefGridItemWithBadge(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+    int badgeCount = 0,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: double.infinity,
+            height: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.02),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (badgeCount > 0)
+            Positioned(
+              top: -6,
+              right: -6,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+                constraints: const BoxConstraints(
+                  minWidth: 20,
+                  minHeight: 20,
+                ),
+                child: Center(
+                  child: Text(
+                    '$badgeCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChefRawMaterialTabBody() {
+    return Container(
+      color: Colors.grey[50],
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: AspectRatio(
+                    aspectRatio: 1.0,
+                    child: _buildChefGridItemWithBadge(
+                      context,
+                      title: 'Raw Material',
+                      icon: Icons.inventory_2_rounded,
+                      color: Colors.teal,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ChefRawMaterialScreen(),
+                          ),
+                        );
+                      },
+                      badgeCount: 0,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: AspectRatio(
+                    aspectRatio: 1.0,
+                    child: _buildChefGridItemWithBadge(
+                      context,
+                      title: 'Live',
+                      icon: Icons.receipt_long_rounded,
+                      color: Colors.redAccent,
+                      onTap: () {
+                        setState(() {
+                          _stockTabSelected = 1;
+                          HomeScreen.activeStockTab = 1;
+                        });
+                      },
+                      badgeCount: _branchCount,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: AspectRatio(
+                    aspectRatio: 1.0,
+                    child: _buildChefGridItemWithBadge(
+                      context,
+                      title: 'Stock',
+                      icon: Icons.inventory_2_rounded,
+                      color: Colors.orange,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const StockTicketListScreen(),
+                          ),
+                        ).then((_) {
+                          if (mounted && _isChef) {
+                            setState(() {
+                              _stockTabSelected = HomeScreen.activeStockTab;
+                            });
+                          }
+                        });
+                      },
+                      badgeCount: _stockCount,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_userRole.isEmpty) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
     if (_isStoreKeeper) {
       return Scaffold(
         backgroundColor: Colors.grey[50],
@@ -1853,71 +2282,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: GridView.count(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 1.0,
+                  child: ListView(
+                    padding: const EdgeInsets.only(top: 8, bottom: 24),
                     children: [
-                      _buildStoreKeeperGridItem(
+                      _buildStoreKeeperListItem(
                         context,
-                        title: 'Billing',
+                        title: 'Create New Bill',
+                        subtitle: 'Select dealer to create a bill',
                         icon: Icons.receipt_long_rounded,
                         color: Colors.teal,
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const RawMaterialBillingPage(),
+                              builder: (context) => const RawMaterialDealerSelectionScreen(),
                             ),
                           );
                         },
                       ),
-                      _buildStoreKeeperGridItem(
+                      _buildStoreKeeperListItem(
                         context,
-                        title: 'Dealer',
-                        icon: Icons.local_shipping_rounded,
-                        color: Colors.purpleAccent,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const CreateRawMaterialDealerScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      _buildStoreKeeperGridItem(
-                        context,
-                        title: 'Product',
-                        icon: Icons.inventory_2_rounded,
-                        color: Colors.orangeAccent,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const CreateRawMaterialScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      _buildStoreKeeperGridItem(
-                        context,
-                        title: 'Category',
-                        icon: Icons.category_rounded,
-                        color: Colors.blueAccent,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const RawMaterialCategoryScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      _buildStoreKeeperGridItem(
-                        context,
-                        title: 'Bills',
+                        title: 'Bill List',
+                        subtitle: 'View submitted raw material bills',
                         icon: Icons.receipt_rounded,
                         color: Colors.indigoAccent,
                         onTap: () {
@@ -1929,6 +2315,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           );
                         },
                       ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildStoreKeeperGridItem(
+                              context,
+                              title: 'Dealer',
+                              icon: Icons.local_shipping_rounded,
+                              color: Colors.purpleAccent,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const CreateRawMaterialDealerScreen(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildStoreKeeperGridItem(
+                              context,
+                              title: 'Product',
+                              icon: Icons.inventory_2_rounded,
+                              color: Colors.orangeAccent,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const CreateRawMaterialScreen(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildStoreKeeperGridItem(
+                              context,
+                              title: 'Category',
+                              icon: Icons.category_rounded,
+                              color: Colors.blueAccent,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const RawMaterialCategoryScreen(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1936,60 +2377,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
         ),
+        bottomNavigationBar: KitchenFooter(
+          selectedTab: KitchenFooterTab.home, // Home is always selected on dashboard
+          onSelected: _handleKitchenFooterSelection,
+          stockBadgeCount: _stockCount,
+          liveBadgeCount: _branchCount,
+          reviewBadgeCount: _reviewCount,
+          chatBadgeCount: _chatUnreadCount,
+          isStoreKeeper: true,
+        ),
       );
     }
 
     if (_activeModule == 'KITCHEN') {
       return _buildKitchenDashboard();
     }
-    final dateStr = DateFormat('MMM dd').format(_selectedDate).toUpperCase();
 
-    // Calculate Counts
-    int newCount = 0;
-    int workingCount = 0;
-    int completedCount = 0;
-
-    for (var order in _recentOrders) {
-      // Branch Filter Check
-      if (_selectedBranch != 'ALL') {
-        final bId =
-            (order['branch'] is Map
-                    ? (order['branch']['id'] ?? order['branch']['_id'])
-                    : null)
-                ?.toString() ??
-            '';
-        if (bId != _selectedBranch) continue;
-      }
-
-      final status = _getOrderStatus(order);
-      if (status == 0) {
-        newCount++;
-      } else if (status == 1) {
-        workingCount++;
-      } else if (status == 2) {
-        completedCount++;
-      }
-    }
 
     // Filter Logic
     final filteredOrders = _recentOrders.where((order) {
-      if (_getOrderStatus(order) != _selectedTab) return false;
-
-      if (_selectedBranch != 'ALL') {
-        final bId =
-            (order['branch'] is Map
-                    ? (order['branch']['id'] ?? order['branch']['_id'])
-                    : null)
-                ?.toString() ??
-            '';
-        if (bId != _selectedBranch) return false;
-      }
-
-      if (_selectedDepartmentFilter != 'ALL') {
-        return _doesOrderContainDepartment(order, _selectedDepartmentFilter);
-      }
+      if (_getOrderStatus(order) == 2) return false;
       return true;
     }).toList();
+
+    Widget stockBody;
+    if (_stockTabSelected == 0) {
+      stockBody = _buildStockAddView();
+    } else if (_stockTabSelected == 2) {
+      stockBody = _isChef ? _buildChefRawMaterialTabBody() : _buildRawMaterialView();
+    } else {
+      stockBody = RefreshIndicator(
+        onRefresh: () => _fetchCounts(forceRefresh: true),
+        child: ListView(
+          padding: const EdgeInsets.all(16.0),
+          children: [
+            if (filteredOrders.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 32.0),
+                child: Center(
+                  child: Text(
+                    'No orders found.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              )
+            else
+              ...filteredOrders.map(_buildTicketItem),
+          ],
+        ),
+      );
+    }
 
     return CommonScaffold(
       title: '',
@@ -2008,154 +2445,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             });
             _fetchCounts(forceRefresh: true);
             _fetchReviewsCount();
+            if (_stockTabSelected == 0) {
+              _loadStockAddData();
+            } else if (_stockTabSelected == 2) {
+              _loadRawMaterialData();
+            }
           },
         ),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ProfilePage()),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            child: CircleAvatar(
+              radius: 17,
+              backgroundColor: Colors.white24,
+              backgroundImage: _profilePhotoUrl != null && _profilePhotoUrl!.isNotEmpty
+                  ? NetworkImage(_profilePhotoUrl!)
+                  : null,
+              child: _profilePhotoUrl == null || _profilePhotoUrl!.isEmpty
+                  ? const Icon(Icons.person, size: 20, color: Colors.white)
+                  : null,
+            ),
+          ),
+        ),
+
       ],
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: () => _fetchCounts(forceRefresh: true),
-              child: ListView(
-                padding: const EdgeInsets.all(16.0),
-                children: [
-                  // Date & Branch Filter Row
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    child: Row(
-                      children: [
-                        // Date Picker
-                        Expanded(
-                          flex: 2,
-                          child: InkWell(
-                            onTap: _pickDate,
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              height: 48,
-                              alignment: Alignment.centerLeft,
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.start,
-                                children: [
-                                  const Icon(
-                                    Icons.calendar_today,
-                                    size: 16,
-                                    color: Colors.white,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    dateStr,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 2),
-                                  const Icon(
-                                    Icons.arrow_drop_down,
-                                    color: Colors.white,
-                                    size: 18,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Branch Dropdown
-                        Expanded(
-                          flex: 3,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            height: 48,
-                            alignment: Alignment.centerLeft,
-                            decoration: BoxDecoration(
-                              color: Colors.black,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _selectedBranch,
-                                dropdownColor: Colors.grey[900],
-                                icon: const Icon(
-                                  Icons.arrow_drop_down,
-                                  color: Colors.white,
-                                ),
-                                isExpanded: true,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: 'ALL',
-                                    child: Text('All Branches'),
-                                  ),
-                                  ..._branches.map((b) {
-                                    return DropdownMenuItem(
-                                      value: b['id'].toString(),
-                                      child: Text(
-                                        b['name'] ?? 'Unknown',
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    );
-                                  }),
-                                ],
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    setState(() {
-                                      _selectedBranch = val;
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      _buildChip('New', newCount, 0),
-                      const SizedBox(width: 8),
-                      _buildChip('PREPARING', workingCount, 1),
-                      const SizedBox(width: 8),
-                      _buildChip('Completed', completedCount, 2),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (filteredOrders.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32.0),
-                      child: Center(
-                        child: Text(
-                          'No orders found.',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ),
-                    )
-                  else
-                    ...filteredOrders.map(_buildTicketItem),
-                ],
-              ),
-            ),
+          : stockBody,
       bottomNavigationBar: StockFooter(
-        selectedTab: StockFooterTab.live,
+        selectedTab: _isChef
+            ? (_stockTabSelected == 1 ? StockFooterTab.live : StockFooterTab.home)
+            : StockFooterTab.home,
         onSelected: _handleStockFooterSelection,
         stockBadgeCount: _stockCount,
         liveBadgeCount: _branchCount,
         reviewBadgeCount: _reviewCount,
+        chatBadgeCount: _chatUnreadCount,
+        isChef: _isChef,
+        isDriver: _userRole == 'driver',
       ),
     );
   }
@@ -2179,54 +2512,110 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           icon: const Icon(Icons.refresh),
           onPressed: _fetchKitchenOrders,
         ),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ProfilePage()),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            child: CircleAvatar(
+              radius: 17,
+              backgroundColor: Colors.white24,
+              backgroundImage: _profilePhotoUrl != null && _profilePhotoUrl!.isNotEmpty
+                  ? NetworkImage(_profilePhotoUrl!)
+                  : null,
+              child: _profilePhotoUrl == null || _profilePhotoUrl!.isEmpty
+                  ? const Icon(Icons.person, size: 20, color: Colors.white)
+                  : null,
+            ),
+          ),
+        ),
+
       ],
       body: Container(
         color: const Color(0xFFF6F6F1),
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  if (_selectedKitchenDate != null)
-                    _buildKitchenHistoryHeader(),
-                  _buildKitchenTableQuickLinkList(),
-                  Expanded(
-                    child: _kitchenOrders.isEmpty
-                        ? RefreshIndicator(
-                            onRefresh: _fetchKitchenOrders,
-                            child: _buildKitchenEmptyOrdersView(),
-                          )
-                        : PageView(
-                            controller: _kitchenPageController,
-                            onPageChanged: (index) {
-                              if (!mounted) return;
-                              setState(() {
-                                _kitchenViewIndex = index;
-                              });
-                            },
-                            children: [
-                              RefreshIndicator(
-                                onRefresh: _fetchKitchenOrders,
-                                child: _buildKitchenTablesPage(),
+            : _kitchenTabSelected == KitchenFooterTab.home
+                ? Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AspectRatio(
+                              aspectRatio: 1.0,
+                              child: _buildChefGridItemWithBadge(
+                                context,
+                                title: 'Stock',
+                                icon: Icons.inventory_2_rounded,
+                                color: Colors.orange,
+                                onTap: () {
+                                  _showKitchenStockProducts();
+                                },
+                                badgeCount: _stockCount,
                               ),
-                              RefreshIndicator(
-                                onRefresh: _fetchKitchenOrders,
-                                child: _buildKitchenCombinedOrdersPage(),
-                              ),
-                            ],
+                            ),
                           ),
+                          const SizedBox(width: 12),
+                          const Expanded(child: SizedBox.shrink()),
+                          const SizedBox(width: 12),
+                          const Expanded(child: SizedBox.shrink()),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
-      ),
-      bottomNavigationBar: KitchenFooter(
-        selectedTab: KitchenFooterTab.kot,
-        onSelected: _handleKitchenFooterSelection,
-        stockBadgeCount: _stockCount,
-        liveBadgeCount: _branchCount,
-        reviewBadgeCount: _reviewCount,
-      ),
-    );
-  }
+                )
+              : Column(
+                  children: [
+                    if (_selectedKitchenDate != null)
+                      _buildKitchenHistoryHeader(),
+                    _buildKitchenTableQuickLinkList(),
+                    Expanded(
+                      child: _kitchenOrders.isEmpty
+                          ? RefreshIndicator(
+                              onRefresh: _fetchKitchenOrders,
+                              child: _buildKitchenEmptyOrdersView(),
+                            )
+                          : PageView(
+                              controller: _kitchenPageController,
+                              onPageChanged: (index) {
+                                if (!mounted) return;
+                                setState(() {
+                                  _kitchenViewIndex = index;
+                                });
+                              },
+                              children: [
+                                RefreshIndicator(
+                                  onRefresh: _fetchKitchenOrders,
+                                  child: _buildKitchenTablesPage(),
+                                ),
+                                RefreshIndicator(
+                                  onRefresh: _fetchKitchenOrders,
+                                  child: _buildKitchenCombinedOrdersPage(),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ],
+                ),
+    ),
+    bottomNavigationBar: KitchenFooter(
+      selectedTab: _kitchenTabSelected,
+      onSelected: _handleKitchenFooterSelection,
+      stockBadgeCount: _stockCount,
+      liveBadgeCount: _branchCount,
+      reviewBadgeCount: _reviewCount,
+      chatBadgeCount: _chatUnreadCount,
+      isDriver: _userRole == 'driver',
+    ),
+  );
+}
 
   Future<void> _pickKitchenDate() async {
     final DateTime? picked = await showDatePicker(
@@ -3939,8 +4328,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _handleStockFooterSelection(StockFooterTab tab) {
     switch (tab) {
+      case StockFooterTab.home:
+        if (_isChef) {
+          setState(() {
+            _stockTabSelected = 2;
+            HomeScreen.activeStockTab = 2;
+          });
+        }
+        break;
       case StockFooterTab.live:
-        // Already on live
+        if (_isChef) {
+          setState(() {
+            _stockTabSelected = 1;
+            HomeScreen.activeStockTab = 1;
+          });
+        }
         break;
       case StockFooterTab.stock:
         Navigator.push(
@@ -3948,7 +4350,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           MaterialPageRoute(
             builder: (context) => const StockTicketListScreen(),
           ),
-        );
+        ).then((_) {
+          if (mounted && _isChef) {
+            setState(() {
+              _stockTabSelected = HomeScreen.activeStockTab;
+            });
+          }
+        });
         break;
       case StockFooterTab.review:
         Navigator.push(
@@ -3961,51 +4369,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               stockBadgeCount: _stockCount,
               liveBadgeCount: _branchCount,
               reviewBadgeCount: _reviewCount,
+              chatBadgeCount: _chatUnreadCount,
               footerMode: 'STOCK',
               branchId: _userBranchId,
             ),
           ),
-        );
+        ).then((_) {
+          if (mounted && _isChef) {
+            setState(() {
+              _stockTabSelected = HomeScreen.activeStockTab;
+            });
+          }
+        });
         break;
-      case StockFooterTab.chats:
+      case StockFooterTab.chat:
         Navigator.push(
           context,
           smoothPageRoute(
-            KitchenChatsScreen(
+            ChatPage(
+              showKitchenFooter: true,
               onKotTap: _returnToKitchenKotFromNestedScreen,
               onStockTap: _openKitchenStockFromNestedScreen,
-              onReviewTap: () {
-                Navigator.pushReplacement(
-                  context,
-                  smoothPageRoute(
-                    ReviewListScreen(
-                      showKitchenFooter: true,
-                      onKotTap: _returnToKitchenKotFromNestedScreen,
-                      onStockTap: _openKitchenStockFromNestedScreen,
-                      stockBadgeCount: _stockCount,
-                      liveBadgeCount: _branchCount,
-                      reviewBadgeCount: _reviewCount,
-                      footerMode: 'STOCK',
-                      branchId: _userBranchId,
-                    ),
-                  ),
-                );
-              },
               stockBadgeCount: _stockCount,
               liveBadgeCount: _branchCount,
               reviewBadgeCount: _reviewCount,
+              chatBadgeCount: _chatUnreadCount,
               footerMode: 'STOCK',
+              branchId: _userBranchId,
             ),
           ),
-        );
+        ).then((_) {
+          _fetchChatUnreadCount();
+          if (mounted && _isChef) {
+            setState(() {
+              _stockTabSelected = HomeScreen.activeStockTab;
+            });
+          }
+        });
         break;
     }
   }
 
   void _handleKitchenFooterSelection(KitchenFooterTab tab) {
     switch (tab) {
+      case KitchenFooterTab.home:
+        setState(() {
+          _kitchenTabSelected = KitchenFooterTab.home;
+        });
+        break;
       case KitchenFooterTab.kot:
-        _toggleKitchenKotView();
+        if (_kitchenTabSelected == KitchenFooterTab.kot) {
+          _toggleKitchenKotView();
+        } else {
+          setState(() {
+            _kitchenTabSelected = KitchenFooterTab.kot;
+          });
+        }
         break;
       case KitchenFooterTab.stock:
         _showKitchenStockProducts();
@@ -4021,45 +4440,1169 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               stockBadgeCount: _stockCount,
               liveBadgeCount: _branchCount,
               reviewBadgeCount: _reviewCount,
+              chatBadgeCount: _chatUnreadCount,
               footerMode: 'KITCHEN',
               branchId: _userBranchId,
             ),
           ),
         );
         break;
-      case KitchenFooterTab.chats:
+      case KitchenFooterTab.chat:
         Navigator.push(
           context,
           smoothPageRoute(
-            KitchenChatsScreen(
+            ChatPage(
+              showKitchenFooter: true,
               onKotTap: _returnToKitchenKotFromNestedScreen,
               onStockTap: _openKitchenStockFromNestedScreen,
-              onReviewTap: () {
-                Navigator.pushReplacement(
-                  context,
-                  smoothPageRoute(
-                    ReviewListScreen(
-                      showKitchenFooter: true,
-                      onKotTap: _returnToKitchenKotFromNestedScreen,
-                      onStockTap: _openKitchenStockFromNestedScreen,
-                      stockBadgeCount: _stockCount,
-                      liveBadgeCount: _branchCount,
-                      reviewBadgeCount: _reviewCount,
-                      footerMode: 'KITCHEN',
-                      branchId: _userBranchId,
-                    ),
-                  ),
-                );
-              },
               stockBadgeCount: _stockCount,
               liveBadgeCount: _branchCount,
               reviewBadgeCount: _reviewCount,
+              chatBadgeCount: _chatUnreadCount,
               footerMode: 'KITCHEN',
+              isStoreKeeper: _isStoreKeeper,
+              branchId: _userBranchId,
             ),
           ),
-        );
+        ).then((_) {
+          _fetchChatUnreadCount();
+        });
         break;
     }
+  }
+
+  Future<void> _loadStockAddData() async {
+    if (_cachedStockCategories != null && _cachedStockProductsByCategory.isNotEmpty) {
+      return;
+    }
+    setState(() => _isLoadingStockAdd = true);
+    try {
+      final kitchens = await ApiService.instance.fetchKitchens();
+      List<dynamic> targetKitchens = [];
+      if (_userKitchenId.isNotEmpty) {
+        targetKitchens = kitchens.where((k) {
+          final kId = (k['id'] ?? k['_id'])?.toString();
+          return kId == _userKitchenId;
+        }).toList();
+      }
+      if (targetKitchens.isEmpty && _userBranchId.isNotEmpty) {
+        targetKitchens = kitchens.where((k) {
+          final bId = (k['branch'] is Map ? (k['branch']['id'] ?? k['branch']['_id']) : k['branch'])?.toString();
+          return bId == _userBranchId;
+        }).toList();
+      }
+      if (targetKitchens.isEmpty) {
+        targetKitchens = kitchens;
+      }
+
+      final List<String> categoryIds = [];
+      for (var kitchen in targetKitchens) {
+        final categories = (kitchen['categories'] as List?) ?? [];
+        for (var cat in categories) {
+          final id = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)?.toString();
+          if (id != null && !categoryIds.contains(id)) {
+            categoryIds.add(id);
+          }
+        }
+      }
+
+      if (categoryIds.isEmpty) return;
+
+      final categoryDocs = await ApiService.instance.fetchCategories(onlyStock: true);
+      final products = await ApiService.instance.fetchProducts(categoryIds: categoryIds);
+
+      final filteredCategories = categoryDocs.where((rawCategory) {
+        if (rawCategory is! Map) return false;
+        final categoryId = (rawCategory['id'] ?? rawCategory['_id'])?.toString();
+        return categoryId != null && categoryIds.contains(categoryId);
+      }).toList();
+
+      filteredCategories.sort((a, b) {
+        final aName = (a['name'] ?? '').toString().toLowerCase();
+        final bName = (b['name'] ?? '').toString().toLowerCase();
+        return aName.compareTo(bName);
+      });
+
+      final groupedProducts = <String, List<dynamic>>{};
+      for (final rawProduct in products) {
+        if (rawProduct is! Map) continue;
+        String categoryId = '';
+        final category = rawProduct['category'];
+        if (category is Map) {
+          categoryId = (category['id'] ?? category['_id'] ?? category['value'])?.toString().trim() ?? '';
+        } else if (category != null) {
+          categoryId = category.toString().trim();
+        }
+        if (categoryId.isEmpty) continue;
+        groupedProducts.putIfAbsent(categoryId, () => []);
+        groupedProducts[categoryId]!.add(rawProduct);
+      }
+
+      for (final entries in groupedProducts.values) {
+        entries.sort((a, b) {
+          final aName = ((a is Map ? a['name'] : null) ?? '').toString().toLowerCase();
+          final bName = ((b is Map ? b['name'] : null) ?? '').toString().toLowerCase();
+          return aName.compareTo(bName);
+        });
+      }
+
+      setState(() {
+        _cachedStockCategories = filteredCategories;
+        _cachedStockProductsByCategory.clear();
+        _cachedStockProductsByCategory.addAll(groupedProducts);
+      });
+    } catch (e) {
+      debugPrint('Error loading Stock Add data: $e');
+    } finally {
+      setState(() => _isLoadingStockAdd = false);
+    }
+  }
+
+  Future<void> _loadRawMaterialData() async {
+    if (_rawMaterialCategories != null && _rawMaterials != null && _rawMaterialDealers != null) {
+      return;
+    }
+    setState(() => _isLoadingRawMaterial = true);
+    try {
+      final categories = await ApiService.instance.fetchRawMaterialCategories();
+      final products = await ApiService.instance.fetchRawMaterials();
+      final dealers = await ApiService.instance.fetchRawMaterialDealers();
+      
+      const storage = FlutterSecureStorage();
+      final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
+      List<String> companyIds = [];
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+      if (companyIds.isEmpty) {
+        final branchId = await storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
+      setState(() {
+        _rawMaterialCategories = categories;
+        _rawMaterials = products;
+        _rawMaterialDealers = dealers;
+        if (dealers.isNotEmpty) {
+          _selectedRawMaterialDealerId = dealers.first['id']?.toString();
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading Raw Material data: $e');
+    } finally {
+      setState(() => _isLoadingRawMaterial = false);
+    }
+  }
+
+  Future<String?> _getPlaceholderMediaId() async {
+    if (_cachedPlaceholderMediaId != null) return _cachedPlaceholderMediaId;
+    try {
+      const storage = FlutterSecureStorage();
+      final token = await storage.read(key: 'token');
+      if (token == null) return null;
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/placeholder.png');
+      if (!await file.exists()) {
+        await file.writeAsBytes([
+          137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+          0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84,
+          120, 156, 99, 96, 64, 0, 0, 0, 2, 0, 1, 73, 175, 168, 116, 0, 0, 0, 0,
+          73, 69, 78, 68, 174, 66, 96, 130
+        ]);
+      }
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${ApiService.baseUrl}/media?prefix=dummy_rm'),
+      );
+      request.headers['Authorization'] = 'Bearer $token';
+      request.fields['alt'] = 'System Placement Placeholder';
+      request.files.add(http.MultipartFile(
+        'file',
+        file.readAsBytes().asStream(),
+        file.lengthSync(),
+        filename: 'placeholder.png',
+        contentType: MediaType('image', 'png'),
+      ));
+
+      final response = await request.send();
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        final body = await response.stream.bytesToString();
+        final data = jsonDecode(body);
+        _cachedPlaceholderMediaId = data['doc']['id'];
+        return _cachedPlaceholderMediaId;
+      }
+    } catch (e) {
+      debugPrint('Error uploading placeholder: $e');
+    }
+    return null;
+  }
+
+  Future<void> _placeRawMaterialOrder() async {
+    if (_selectedRawMaterialDealerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a dealer first'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    if (_rawMaterialCart.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cart is empty'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isSubmittingRMOrder = true);
+
+    try {
+      final mediaId = await _getPlaceholderMediaId();
+      if (mediaId == null) {
+        throw Exception('Failed to upload placeholder photos to media collection.');
+      }
+
+      const storage = FlutterSecureStorage();
+      final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
+      List<String> companyIds = [];
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+      if (companyIds.isEmpty) {
+        final branchId = await storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
+      if (companyIds.isEmpty) {
+        throw Exception('No company code associated with your account.');
+      }
+      final companyId = companyIds.first;
+
+      final List<Map<String, dynamic>> rawMaterialsListData = [];
+      for (var entry in _rawMaterialCart.entries) {
+        rawMaterialsListData.add({
+          'rawMaterial': entry.key,
+          'quantity': entry.value,
+          'totalAmount': 0.0,
+        });
+      }
+
+      final payload = {
+        'dealer': _selectedRawMaterialDealerId,
+        'company': companyId,
+        'bills': [
+          {
+            'amount': 0.0,
+            'invoiceNumber': 'RM-${DateTime.now().millisecondsSinceEpoch}',
+          }
+        ],
+        'total': 0.0,
+        'billCopyPhoto': mediaId,
+        'deliveryPersonPhoto': mediaId,
+        'productsPhoto': [mediaId],
+        'rawMaterialsList': rawMaterialsListData,
+        'date': DateTime.now().toUtc().toIso8601String(),
+        'createdBy': _userId,
+        'createdByName': (await storage.read(key: 'userName')) ?? 'Unknown',
+        'createdByRole': (await storage.read(key: 'userRole')) ?? 'storekeeper',
+      };
+
+      await ApiService.instance.createRawMaterialBilling(payload);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Raw Material order placed successfully!'), backgroundColor: Colors.green),
+      );
+
+      setState(() {
+        _rawMaterialCart.clear();
+        _selectedRawMaterialCategoryId = null;
+        _selectedRawMaterialCategoryName = '';
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to place order: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      setState(() => _isSubmittingRMOrder = false);
+    }
+  }
+
+  Future<void> _placeStockOrder() async {
+    if (_userBranchId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No branch associated with your user'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    if (_stockAddCart.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cart is empty'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isSubmittingStockOrder = true);
+
+    try {
+      final List<Map<String, dynamic>> itemsData = [];
+      for (var entry in _stockAddCart.entries) {
+        final productId = entry.key;
+        final qty = entry.value;
+
+        String pName = 'Unknown Product';
+        if (_cachedStockProductsByCategory.isNotEmpty) {
+          for (var list in _cachedStockProductsByCategory.values) {
+            final found = list.firstWhere(
+              (p) => (p['id'] ?? p['_id'])?.toString() == productId,
+              orElse: () => null,
+            );
+            if (found != null) {
+              pName = (found['name'] ?? 'Unknown').toString();
+              break;
+            }
+          }
+        }
+
+        itemsData.add({
+          'product': productId,
+          'name': pName,
+          'inStock': 0.0,
+          'requiredQty': qty,
+        });
+      }
+
+      final payload = {
+        'branch': _userBranchId,
+        'deliveryDate': DateTime.now().add(const Duration(days: 1)).toUtc().toIso8601String(),
+        'items': itemsData,
+      };
+
+      await ApiService.instance.createStockOrder(payload);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Stock order submitted successfully!'), backgroundColor: Colors.green),
+      );
+
+      setState(() {
+        _stockAddCart.clear();
+        _selectedStockAddCategoryId = null;
+        _selectedStockAddCategoryName = '';
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to submit stock order: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      setState(() => _isSubmittingStockOrder = false);
+    }
+  }
+
+  Future<double?> _showWeightDialog(String productName, String unit) async {
+    final TextEditingController controller = TextEditingController();
+    return await showDialog<double>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: Text(
+            'Enter Quantity for $productName ($unit)',
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          content: TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(color: Colors.white),
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'e.g. 1.5',
+              hintStyle: const TextStyle(color: Colors.grey),
+              labelText: 'Quantity ($unit)',
+              labelStyle: const TextStyle(color: Colors.white70),
+              enabledBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.white54),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.white),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final val = double.tryParse(controller.text.trim());
+                if (val != null && val > 0) {
+                  Navigator.pop(context, val);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a valid quantity'), backgroundColor: Colors.red),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+              child: const Text('Add', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String? _resolveProductImageUrl(dynamic product) {
+    if (product == null) return null;
+    if (product is Map) {
+      final imageUrl = _resolveKitchenProductImageUrl(product);
+      if (imageUrl != null) return imageUrl;
+    }
+    return null;
+  }
+
+  String? _resolveRawMaterialImageUrl(dynamic rm) {
+    if (rm == null) return null;
+    if (rm is Map) {
+      final images = rm['images'];
+      if (images is List && images.isNotEmpty) {
+        final firstImageObj = images.first;
+        if (firstImageObj is Map) {
+          final imageVal = firstImageObj['image'];
+          final extracted = _extractKitchenImageUrl(imageVal);
+          if (extracted != null) {
+            if (extracted.startsWith('http')) {
+              return extracted;
+            }
+            return 'https://dev1-blacforest.vseyal.com$extracted';
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  Widget _buildStockHeader() {
+    final isChef = _isChef;
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      child: Row(
+        children: [
+          if (!isChef) ...[
+            Expanded(child: _buildStockHeaderButton('STOCK ORDER', 0)),
+            const SizedBox(width: 8),
+            Expanded(child: _buildStockHeaderButton('STOCK LIVE', 1)),
+            const SizedBox(width: 8),
+          ],
+          Expanded(child: _buildStockHeaderButton('RAW MATERIAL', 2)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStockHeaderButton(String title, int tabIndex) {
+    final isSelected = _stockTabSelected == tabIndex;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _stockTabSelected = tabIndex;
+        });
+        if (tabIndex == 0) {
+          _loadStockAddData();
+        } else if (tabIndex == 2) {
+          _loadRawMaterialData();
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.black : Colors.grey[100],
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? Colors.black : Colors.grey.shade300,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStockAddView() {
+    if (_isLoadingStockAdd) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final categories = (_cachedStockCategories ?? []).cast<Map<String, dynamic>>();
+
+    if (_selectedStockAddCategoryId == null) {
+      if (categories.isEmpty) {
+        return const Center(
+          child: Text('No categories found.', style: TextStyle(color: Colors.grey)),
+        );
+      }
+      return GridView.builder(
+        padding: const EdgeInsets.all(16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: 1.0,
+        ),
+        itemCount: categories.length,
+        itemBuilder: (context, index) {
+          final cat = categories[index];
+          final catId = (cat['id'] ?? cat['_id'])?.toString() ?? '';
+          final catName = (cat['name'] ?? 'Unknown').toString();
+          final imageUrl = _resolveKitchenCategoryImageUrl(cat);
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedStockAddCategoryId = catId;
+                _selectedStockAddCategoryName = catName;
+              });
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: imageUrl != null
+                          ? Image.network(imageUrl, fit: BoxFit.cover)
+                          : Container(
+                              color: Colors.grey[100],
+                              child: const Icon(Icons.category, color: Colors.grey, size: 40),
+                            ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                      color: Colors.white,
+                      child: Text(
+                        catName.toUpperCase(),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                          letterSpacing: 0.5,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      final allProducts = _cachedStockProductsByCategory[_selectedStockAddCategoryId!] ?? [];
+      final filtered = allProducts.where((p) {
+        if (_stockAddSearchQuery.isEmpty) return true;
+        final name = (p['name'] ?? '').toString().toLowerCase();
+        return name.contains(_stockAddSearchQuery.toLowerCase());
+      }).toList();
+
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                  onPressed: () {
+                    setState(() {
+                      _selectedStockAddCategoryId = null;
+                      _selectedStockAddCategoryName = '';
+                    });
+                  },
+                ),
+                Text(
+                  _selectedStockAddCategoryName.toUpperCase(),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: TextField(
+              onChanged: (val) {
+                setState(() {
+                  _stockAddSearchQuery = val;
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Search stock products...',
+                prefixIcon: const Icon(Icons.search),
+                isDense: true,
+                filled: true,
+                fillColor: Colors.grey[100],
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: filtered.isEmpty
+                ? const Center(child: Text('No products found.'))
+                : GridView.builder(
+                    padding: const EdgeInsets.all(16),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 1.0,
+                    ),
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) {
+                      final product = filtered[index];
+                      final productId = (product['id'] ?? product['_id'])?.toString() ?? '';
+                      final pName = (product['name'] ?? 'Unknown').toString();
+                      final unit = product['defaultPriceDetails']?['unit']?.toString() ?? 'pcs';
+                      final isKg = unit.toLowerCase().contains('kg');
+                      final cartQty = _stockAddCart[productId] ?? 0.0;
+                      
+                      return GestureDetector(
+                        onTap: () async {
+                          if (isKg) {
+                            final qty = await _showWeightDialog(pName, unit);
+                            if (qty != null) {
+                              setState(() {
+                                _stockAddCart[productId] = qty;
+                              });
+                            }
+                          } else {
+                            setState(() {
+                              _stockAddCart[productId] = cartQty + 1.0;
+                            });
+                          }
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: cartQty > 0 ? Colors.green.shade400 : Colors.grey.shade200,
+                              width: cartQty > 0 ? 2 : 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.02),
+                                blurRadius: 6,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Stack(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Builder(
+                                      builder: (context) {
+                                        final imgUrl = _resolveProductImageUrl(product);
+                                        return imgUrl != null
+                                            ? ClipRRect(
+                                                borderRadius: BorderRadius.circular(8),
+                                                child: Image.network(
+                                                  imgUrl,
+                                                  width: 44,
+                                                  height: 44,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, __, ___) => const Icon(
+                                                    Icons.shopping_bag_outlined,
+                                                    color: Colors.grey,
+                                                    size: 28,
+                                                  ),
+                                                ),
+                                              )
+                                            : const Icon(
+                                                Icons.shopping_bag_outlined,
+                                                color: Colors.grey,
+                                                size: 28,
+                                              );
+                                      },
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      pName,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      unit,
+                                      style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (cartQty > 0)
+                                Positioned(
+                                  top: 6,
+                                  right: 6,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      cartQty == cartQty.floorToDouble() ? '${cartQty.toInt()}' : cartQty.toStringAsFixed(1),
+                                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          if (_stockAddCart.isNotEmpty)
+            SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, -3),
+                    ),
+                  ],
+                ),
+                child: ElevatedButton(
+                  onPressed: _isSubmittingStockOrder ? null : _placeStockOrder,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isSubmittingStockOrder
+                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
+                      : Text('SUBMIT STOCK ORDER (${_stockAddCart.length} ITEMS)', style: const TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+        ],
+      );
+    }
+  }
+
+  Widget _buildRawMaterialView() {
+    if (_isLoadingRawMaterial) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final categories = (_rawMaterialCategories ?? []).cast<Map<String, dynamic>>();
+
+    final width = MediaQuery.of(context).size.width;
+    final categoryCrossAxisCount = width > 960 ? 5 : width > 600 ? 4 : 3;
+
+    return Column(
+      children: [
+        if (!_isChef && _rawMaterialDealers != null && _rawMaterialDealers!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedRawMaterialDealerId,
+                  isExpanded: true,
+                  style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                  items: _rawMaterialDealers!.map((dealer) {
+                    final name = dealer['companyName'] ?? dealer['name'] ?? 'Unknown';
+                    return DropdownMenuItem<String>(
+                      value: dealer['id']?.toString(),
+                      child: Text(name.toString()),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    setState(() {
+                      _selectedRawMaterialDealerId = val;
+                    });
+                  },
+                ),
+              ),
+            ),
+          ),
+
+        Expanded(
+          child: _selectedRawMaterialCategoryId == null
+              ? (categories.isEmpty
+                  ? const Center(child: Text('No categories found for your company.', style: TextStyle(color: Colors.grey)))
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: categoryCrossAxisCount,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 1.0,
+                      ),
+                      itemCount: categories.length,
+                      itemBuilder: (context, index) {
+                        final cat = categories[index];
+                        final catId = (cat['id'] ?? cat['_id'])?.toString() ?? '';
+                        final catName = (cat['name'] ?? 'Unknown').toString();
+                        final imageUrl = _resolveKitchenCategoryImageUrl(cat);
+
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedRawMaterialCategoryId = catId;
+                              _selectedRawMaterialCategoryName = catName;
+                            });
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: const Color(0xFFE5E7EB)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.04),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(
+                                    child: imageUrl != null
+                                        ? Image.network(imageUrl, fit: BoxFit.cover)
+                                        : Container(
+                                            color: Colors.grey[100],
+                                            child: const Icon(Icons.category, color: Colors.grey, size: 40),
+                                          ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    color: Colors.white,
+                                    child: Text(
+                                      catName.toUpperCase(),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 12,
+                                        letterSpacing: 0.5,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ))
+              : _buildRawMaterialProductsView(),
+        ),
+
+        if (_rawMaterialCart.isNotEmpty)
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: _isSubmittingRMOrder ? null : _placeRawMaterialOrder,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal[700],
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _isSubmittingRMOrder
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
+                    : Text('PLACE RAW MATERIAL ORDER (${_rawMaterialCart.length} ITEMS)', style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRawMaterialProductsView() {
+    final rawList = (_rawMaterials ?? []).where((p) {
+      final category = p['category'];
+      String catId = '';
+      if (category is Map) {
+        catId = (category['id'] ?? category['_id'])?.toString() ?? '';
+      } else if (category != null) {
+        catId = category.toString();
+      }
+      return catId == _selectedRawMaterialCategoryId;
+    }).toList();
+
+    final filtered = rawList.where((p) {
+      if (_rmSearchQuery.isEmpty) return true;
+      final name = (p['name'] ?? '').toString().toLowerCase();
+      return name.contains(_rmSearchQuery.toLowerCase());
+    }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                onPressed: () {
+                  setState(() {
+                    _selectedRawMaterialCategoryId = null;
+                    _selectedRawMaterialCategoryName = '';
+                  });
+                },
+              ),
+              Text(
+                _selectedRawMaterialCategoryName.toUpperCase(),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: TextField(
+            onChanged: (val) {
+              setState(() {
+                _rmSearchQuery = val;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'Search raw materials...',
+              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              filled: true,
+              fillColor: Colors.grey[100],
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: filtered.isEmpty
+              ? const Center(child: Text('No products found.'))
+              : GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 1.0,
+                  ),
+                  itemCount: filtered.length,
+                  itemBuilder: (context, index) {
+                    final product = filtered[index];
+                    final productId = (product['id'] ?? product['_id'])?.toString() ?? '';
+                    final pName = (product['name'] ?? 'Unknown').toString();
+                    final unit = (product['unit'] ?? '').toString();
+                    final isKg = unit.toLowerCase().contains('kg');
+                    final cartQty = _rawMaterialCart[productId] ?? 0.0;
+
+                    return GestureDetector(
+                      onTap: () async {
+                        if (isKg) {
+                          final qty = await _showWeightDialog(pName, unit);
+                          if (qty != null) {
+                            setState(() {
+                              _rawMaterialCart[productId] = qty;
+                            });
+                          }
+                        } else {
+                          setState(() {
+                            _rawMaterialCart[productId] = cartQty + 1.0;
+                          });
+                        }
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: cartQty > 0 ? Colors.teal : Colors.grey.shade200,
+                            width: cartQty > 0 ? 2 : 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.02),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Builder(
+                                    builder: (context) {
+                                      final imgUrl = _resolveRawMaterialImageUrl(product);
+                                      return imgUrl != null
+                                          ? ClipRRect(
+                                              borderRadius: BorderRadius.circular(8),
+                                              child: Image.network(
+                                                imgUrl,
+                                                width: 44,
+                                                height: 44,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) => const Icon(
+                                                  Icons.restaurant,
+                                                  color: Colors.grey,
+                                                  size: 28,
+                                                ),
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.restaurant,
+                                              color: Colors.grey,
+                                              size: 28,
+                                            );
+                                    },
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    pName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    unit,
+                                    style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (cartQty > 0)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.teal,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    cartQty == cartQty.floorToDouble() ? '${cartQty.toInt()}' : cartQty.toStringAsFixed(1),
+                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
   }
 
   void _returnToKitchenKotFromNestedScreen() {
@@ -4096,20 +5639,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 try {
                   final kitchens = await ApiService.instance.fetchKitchens();
 
-                  // Filter kitchens that match the user's branch
-                  final branchKitchens = kitchens.where((k) {
-                    final bId =
-                        (k['branch'] is Map
-                                ? (k['branch']['id'] ?? k['branch']['_id'])
-                                : k['branch'])
-                            ?.toString();
-                    return bId == _userBranchId;
-                  }).toList();
+                  // Filter kitchens that match the user's specific kitchen first,
+                  // then fallback to branch, then finally to all kitchens.
+                  List<dynamic> targetKitchens = [];
+                  if (_userKitchenId.isNotEmpty) {
+                    targetKitchens = kitchens.where((k) {
+                      final kId = (k['id'] ?? k['_id'])?.toString();
+                      return kId == _userKitchenId;
+                    }).toList();
+                  }
 
-                  // Use branch kitchens if found, otherwise fallback to all kitchens
-                  final targetKitchens = branchKitchens.isEmpty
-                      ? kitchens
-                      : branchKitchens;
+                  if (targetKitchens.isEmpty && _userBranchId.isNotEmpty) {
+                    targetKitchens = kitchens.where((k) {
+                      final bId =
+                          (k['branch'] is Map
+                                  ? (k['branch']['id'] ?? k['branch']['_id'])
+                                  : k['branch'])
+                              ?.toString();
+                      return bId == _userBranchId;
+                    }).toList();
+                  }
+
+                  if (targetKitchens.isEmpty) {
+                    targetKitchens = kitchens;
+                  }
 
                   final List<String> categoryIds = [];
                   for (var kitchen in targetKitchens) {
@@ -4128,6 +5681,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     return;
                   }
 
+                  // Resolve company IDs (same pattern as store keeper screens)
+                  List<String> companyIds = [];
+                  final skCompaniesStr = await _storage.read(key: 'userStorekeeperCompanies');
+                  if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+                    companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+                  }
+
+                  if (companyIds.isEmpty && _userBranchId.isNotEmpty) {
+                    final List<Map<String, dynamic>> branchesList = _branches.isNotEmpty
+                        ? _branches
+                        : (await ApiService.instance.fetchBranches()).cast<Map<String, dynamic>>();
+                    final currentBranch = branchesList.firstWhere(
+                      (b) => (b['id'] ?? b['_id'])?.toString() == _userBranchId,
+                      orElse: () => {},
+                    );
+                    if (currentBranch.isNotEmpty) {
+                      final companyObj = currentBranch['company'];
+                      String? defaultCompanyId;
+                      if (companyObj is Map) {
+                        defaultCompanyId = (companyObj['id'] ?? companyObj['_id'])?.toString();
+                      } else if (companyObj is String) {
+                        defaultCompanyId = companyObj;
+                      }
+                      if (defaultCompanyId != null && defaultCompanyId.isNotEmpty) {
+                        companyIds.add(defaultCompanyId);
+                      }
+                    }
+                  }
+
                   final categoryDocs = await ApiService.instance
                       .fetchCategories(onlyStock: true);
                   final products = await ApiService.instance.fetchProducts(
@@ -4138,8 +5720,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     if (rawCategory is! Map) return false;
                     final categoryId = (rawCategory['id'] ?? rawCategory['_id'])
                         ?.toString();
-                    return categoryId != null &&
-                        categoryIds.contains(categoryId);
+                    if (categoryId == null || !categoryIds.contains(categoryId)) {
+                      return false;
+                    }
+
+                    // Filter by company if resolved
+                    if (companyIds.isNotEmpty) {
+                      final compList = rawCategory['company'];
+                      if (compList is List) {
+                        final hasMatch = compList.any((comp) {
+                          final compId = (comp is Map ? (comp['id'] ?? comp['_id']) : comp)?.toString();
+                          return compId != null && companyIds.contains(compId);
+                        });
+                        if (!hasMatch) return false;
+                      } else if (compList != null) {
+                        final compId = (compList is Map ? (compList['id'] ?? compList['_id']) : compList)?.toString();
+                        if (compId == null || !companyIds.contains(compId)) {
+                          return false;
+                        }
+                      } else {
+                        return false;
+                      }
+                    }
+
+                    return true;
                   }).toList();
 
                   filteredCategories.sort((a, b) {
@@ -5109,7 +6713,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
+      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -5140,7 +6744,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
+      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -5160,7 +6764,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
+      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -8025,6 +9629,659 @@ class _KitchenInstructionMarqueeState extends State<KitchenInstructionMarquee>
           ),
         );
       },
+    );
+  }
+}
+
+// ============================================
+// ChefRawMaterialScreen implementation
+// ============================================
+
+class ChefRawMaterialScreen extends StatefulWidget {
+  const ChefRawMaterialScreen({super.key});
+
+  @override
+  State<ChefRawMaterialScreen> createState() => _ChefRawMaterialScreenState();
+}
+
+class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
+  final _storage = const FlutterSecureStorage();
+  bool _isLoading = false;
+  List<dynamic>? _rawMaterialCategories;
+  List<dynamic>? _rawMaterials;
+  List<dynamic>? _rawMaterialDealers;
+  String? _selectedRawMaterialCategoryId;
+  String _selectedRawMaterialCategoryName = '';
+  String? _selectedRawMaterialDealerId;
+  final Map<String, double> _rawMaterialCart = {};
+  bool _isSubmittingRMOrder = false;
+  String _rmSearchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRawMaterialData();
+  }
+
+  Future<void> _loadRawMaterialData() async {
+    setState(() => _isLoading = true);
+    try {
+      final categories = await ApiService.instance.fetchRawMaterialCategories();
+      final products = await ApiService.instance.fetchRawMaterials();
+      final dealers = await ApiService.instance.fetchRawMaterialDealers();
+      
+      List<String> companyIds = [];
+      final skCompaniesStr = await _storage.read(key: 'userStorekeeperCompanies');
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+      if (companyIds.isEmpty) {
+        final branchId = await _storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
+      setState(() {
+        _rawMaterialCategories = categories;
+        _rawMaterials = products;
+        _rawMaterialDealers = dealers;
+        if (dealers.isNotEmpty) {
+          _selectedRawMaterialDealerId = dealers.first['id']?.toString();
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading Raw Material data: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  String? _cachedPlaceholderMediaId;
+  Future<String?> _getPlaceholderMediaId() async {
+    if (_cachedPlaceholderMediaId != null) return _cachedPlaceholderMediaId;
+    try {
+      final token = await _storage.read(key: 'token');
+      if (token == null) return null;
+
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/placeholder.png');
+      if (!await file.exists()) {
+        await file.writeAsBytes([
+          137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+          0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84,
+          120, 156, 99, 96, 64, 0, 0, 0, 2, 0, 1, 73, 175, 168, 116, 0, 0, 0, 0,
+          73, 69, 78, 68, 174, 66, 96, 130
+        ]);
+      }
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${ApiService.baseUrl}/media?prefix=dummy_rm'),
+      );
+      request.headers['Authorization'] = 'Bearer $token';
+      request.fields['alt'] = 'System Placement Placeholder';
+      request.files.add(http.MultipartFile(
+        'file',
+        file.readAsBytes().asStream(),
+        file.lengthSync(),
+        filename: 'placeholder.png',
+        contentType: MediaType('image', 'png'),
+      ));
+
+      final response = await request.send();
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        final body = await response.stream.bytesToString();
+        final data = jsonDecode(body);
+        _cachedPlaceholderMediaId = data['doc']['id'];
+        return _cachedPlaceholderMediaId;
+      }
+    } catch (e) {
+      debugPrint('Error uploading placeholder: $e');
+    }
+    return null;
+  }
+
+  Future<void> _placeRawMaterialOrder() async {
+    if (_selectedRawMaterialDealerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a dealer first'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    if (_rawMaterialCart.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cart is empty'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isSubmittingRMOrder = true);
+
+    try {
+      final mediaId = await _getPlaceholderMediaId();
+      if (mediaId == null) {
+        throw Exception('Failed to upload placeholder photos.');
+      }
+
+      List<String> companyIds = [];
+      final skCompaniesStr = await _storage.read(key: 'userStorekeeperCompanies');
+      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      }
+      if (companyIds.isEmpty) {
+        final branchId = await _storage.read(key: 'userBranchId');
+        if (branchId != null && branchId.isNotEmpty) {
+          final branches = await ApiService.instance.fetchBranches();
+          final currentBranch = branches.firstWhere(
+            (b) => b['id']?.toString() == branchId,
+            orElse: () => null,
+          );
+          if (currentBranch != null) {
+            final companyObj = currentBranch['company'];
+            String? defaultCompanyId;
+            if (companyObj is Map) {
+              defaultCompanyId = companyObj['id']?.toString();
+            } else if (companyObj is String) {
+              defaultCompanyId = companyObj;
+            }
+            if (defaultCompanyId != null) {
+              companyIds.add(defaultCompanyId);
+            }
+          }
+        }
+      }
+
+      if (companyIds.isEmpty) {
+        throw Exception('No company code associated with your account.');
+      }
+      final companyId = companyIds.first;
+
+      final List<Map<String, dynamic>> rawMaterialsListData = [];
+      for (var entry in _rawMaterialCart.entries) {
+        rawMaterialsListData.add({
+          'rawMaterial': entry.key,
+          'quantity': entry.value,
+          'totalAmount': 0.0,
+        });
+      }
+
+      final payload = {
+        'dealer': _selectedRawMaterialDealerId,
+        'company': companyId,
+        'bills': [
+          {
+            'amount': 0.0,
+            'invoiceNumber': 'RM-${DateTime.now().millisecondsSinceEpoch}',
+            'photo': mediaId,
+          }
+        ],
+        'rawMaterials': rawMaterialsListData,
+        'status': 'pending',
+      };
+
+      await ApiService.instance.createRawMaterialBilling(payload);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Raw material order placed successfully!'), backgroundColor: Colors.green),
+        );
+        setState(() {
+          _rawMaterialCart.clear();
+          _selectedRawMaterialCategoryId = null;
+          _selectedRawMaterialCategoryName = '';
+        });
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Order failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmittingRMOrder = false);
+      }
+    }
+  }
+
+  String? _resolveKitchenCategoryImageUrl(dynamic category) {
+    if (category is! Map) return null;
+    String? imageUrl;
+    final img = category['image'];
+    if (img is Map) {
+      imageUrl = img['url']?.toString();
+    } else if (img is String) {
+      imageUrl = img;
+    }
+    if (imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('http')) {
+      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
+    }
+    return imageUrl;
+  }
+
+  String? _resolveRawMaterialImageUrl(dynamic rm) {
+    if (rm == null) return null;
+    if (rm is Map) {
+      final images = rm['images'];
+      if (images is List && images.isNotEmpty) {
+        final firstImageObj = images.first;
+        if (firstImageObj is Map) {
+          final imageVal = firstImageObj['image'];
+          String? extracted;
+          if (imageVal is Map) {
+            extracted = imageVal['url']?.toString();
+          } else if (imageVal is String) {
+            extracted = imageVal;
+          }
+          if (extracted != null) {
+            if (extracted.startsWith('http')) {
+              return extracted;
+            }
+            return 'https://dev1-blacforest.vseyal.com$extracted';
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<double?> _showWeightDialog(String productName, String unit) async {
+    final controller = TextEditingController();
+    return showDialog<double>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Enter Weight ($unit)'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(productName, style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  hintText: '0.00',
+                  suffixText: unit,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCEL'),
+            ),
+            TextButton(
+              onPressed: () {
+                final val = double.tryParse(controller.text);
+                if (val != null && val > 0) {
+                  Navigator.pop(context, val);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a valid weight')),
+                  );
+                }
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _buildRawMaterialView(),
+      ),
+    );
+  }
+
+  Widget _buildRawMaterialView() {
+    final categories = (_rawMaterialCategories ?? []).cast<Map<String, dynamic>>();
+
+    final width = MediaQuery.of(context).size.width;
+    final categoryCrossAxisCount = width > 960 ? 5 : width > 600 ? 4 : 3;
+
+    return Column(
+      children: [
+        if (_selectedRawMaterialCategoryId == null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                const Text(
+                  'RAW MATERIAL CATEGORIES',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: _selectedRawMaterialCategoryId == null
+              ? (categories.isEmpty
+                  ? const Center(child: Text('No categories found for your company.', style: TextStyle(color: Colors.grey)))
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: categoryCrossAxisCount,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 1.0,
+                      ),
+                      itemCount: categories.length,
+                      itemBuilder: (context, index) {
+                        final cat = categories[index];
+                        final catId = (cat['id'] ?? cat['_id'])?.toString() ?? '';
+                        final catName = (cat['name'] ?? 'Unknown').toString();
+                        final imageUrl = _resolveKitchenCategoryImageUrl(cat);
+
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedRawMaterialCategoryId = catId;
+                              _selectedRawMaterialCategoryName = catName;
+                            });
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: const Color(0xFFE5E7EB)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.04),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(
+                                    child: imageUrl != null
+                                        ? Image.network(imageUrl, fit: BoxFit.cover)
+                                        : Container(
+                                            color: Colors.grey[100],
+                                            child: const Icon(Icons.category, color: Colors.grey, size: 40),
+                                          ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    color: Colors.white,
+                                    child: Text(
+                                      catName.toUpperCase(),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 12,
+                                        letterSpacing: 0.5,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ))
+              : _buildRawMaterialProductsView(),
+        ),
+
+        if (_rawMaterialCart.isNotEmpty)
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: _isSubmittingRMOrder ? null : _placeRawMaterialOrder,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal[700],
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _isSubmittingRMOrder
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
+                    : Text('PLACE RAW MATERIAL ORDER (${_rawMaterialCart.length} ITEMS)', style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRawMaterialProductsView() {
+    final rawList = (_rawMaterials ?? []).where((p) {
+      final category = p['category'];
+      String catId = '';
+      if (category is Map) {
+        catId = (category['id'] ?? category['_id'])?.toString() ?? '';
+      } else if (category != null) {
+        catId = category.toString();
+      }
+      return catId == _selectedRawMaterialCategoryId;
+    }).toList();
+
+    final filtered = rawList.where((p) {
+      if (_rmSearchQuery.isEmpty) return true;
+      final name = (p['name'] ?? '').toString().toLowerCase();
+      return name.contains(_rmSearchQuery.toLowerCase());
+    }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                onPressed: () {
+                  setState(() {
+                    _selectedRawMaterialCategoryId = null;
+                    _selectedRawMaterialCategoryName = '';
+                  });
+                },
+              ),
+              Text(
+                _selectedRawMaterialCategoryName.toUpperCase(),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: TextField(
+            onChanged: (val) {
+              setState(() {
+                _rmSearchQuery = val;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'Search raw materials...',
+              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              filled: true,
+              fillColor: Colors.grey[100],
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: filtered.isEmpty
+              ? const Center(child: Text('No products found.'))
+              : GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 1.0,
+                  ),
+                  itemCount: filtered.length,
+                  itemBuilder: (context, index) {
+                    final product = filtered[index];
+                    final productId = (product['id'] ?? product['_id'])?.toString() ?? '';
+                    final pName = (product['name'] ?? 'Unknown').toString();
+                    final unit = (product['unit'] ?? '').toString();
+                    final isKg = unit.toLowerCase().contains('kg');
+                    final cartQty = _rawMaterialCart[productId] ?? 0.0;
+
+                    return GestureDetector(
+                      onTap: () async {
+                        if (isKg) {
+                          final qty = await _showWeightDialog(pName, unit);
+                          if (qty != null) {
+                            setState(() {
+                              _rawMaterialCart[productId] = qty;
+                            });
+                          }
+                        } else {
+                          setState(() {
+                            _rawMaterialCart[productId] = cartQty + 1.0;
+                          });
+                        }
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: cartQty > 0 ? Colors.teal : Colors.grey.shade200,
+                            width: cartQty > 0 ? 2 : 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.02),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Builder(
+                                    builder: (context) {
+                                      final imgUrl = _resolveRawMaterialImageUrl(product);
+                                      return imgUrl != null
+                                          ? ClipRRect(
+                                              borderRadius: BorderRadius.circular(8),
+                                              child: Image.network(
+                                                imgUrl,
+                                                width: 44,
+                                                height: 44,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) => const Icon(
+                                                  Icons.restaurant,
+                                                  color: Colors.grey,
+                                                  size: 28,
+                                                ),
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.restaurant,
+                                              color: Colors.grey,
+                                              size: 28,
+                                            );
+                                    },
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    pName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    unit,
+                                    style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (cartQty > 0)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.teal,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    cartQty == cartQty.floorToDouble() ? '${cartQty.toInt()}' : cartQty.toStringAsFixed(1),
+                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }

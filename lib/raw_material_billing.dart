@@ -23,7 +23,8 @@ class _PhotoSlot {
 }
 
 class RawMaterialBillingPage extends StatefulWidget {
-  const RawMaterialBillingPage({super.key});
+  final String? initialDealerId;
+  const RawMaterialBillingPage({super.key, this.initialDealerId});
 
   @override
   State<RawMaterialBillingPage> createState() => _RawMaterialBillingPageState();
@@ -42,7 +43,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
 
   List<Map<String, dynamic>> _products = [];
   List<String> _selectedProductIds = [];
-  Map<String, Map<String, double>> _selectedRawMaterialQuantities = {};
+  Map<String, Map<String, dynamic>> _selectedRawMaterialQuantities = {};
   bool _isLoadingProducts = false;
 
   late final _PhotoSlot _billCopySlot;
@@ -52,6 +53,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
   @override
   void initState() {
     super.initState();
+    _selectedDealerId = widget.initialDealerId;
     _billCopySlot = _PhotoSlot(label: 'Dealer Bill Copy', prefix: 'dealerbill');
     _deliveryPersonSlot = _PhotoSlot(label: 'Delivery Person Photo', prefix: 'deliveryperson');
     _addBillField(); // Start with one field
@@ -177,6 +179,10 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
         setState(() {
           _dealers = loadedDealers;
         });
+
+        if (_selectedDealerId != null && _selectedDealerId!.isNotEmpty) {
+          _fetchProducts(_selectedDealerId!);
+        }
       } else {
         throw Exception('Failed to load dealers: ${response.statusCode}');
       }
@@ -254,6 +260,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
       return;
     }
     if (!mounted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     final XFile? photo = await Navigator.push<XFile>(
       context,
       MaterialPageRoute(
@@ -261,6 +268,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
         fullscreenDialog: true,
       ),
     );
+    FocusManager.instance.primaryFocus?.unfocus();
     if (photo == null) return;
 
     final bytes = await photo.readAsBytes();
@@ -312,6 +320,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
       return;
     }
     if (!mounted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     final XFile? photo = await Navigator.push<XFile>(
       context,
       MaterialPageRoute(
@@ -319,6 +328,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
         fullscreenDialog: true,
       ),
     );
+    FocusManager.instance.primaryFocus?.unfocus();
     if (photo == null) return;
 
     final bytes = await photo.readAsBytes();
@@ -496,6 +506,9 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
     try {
       const storage = FlutterSecureStorage();
       final token = await storage.read(key: 'token');
+      final userId = await storage.read(key: 'userId');
+      final userName = await storage.read(key: 'userName');
+      final userRole = await storage.read(key: 'userRole');
       if (token == null) throw Exception('No session token found. Please login again.');
 
       // Resolve Company ID
@@ -565,13 +578,28 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
 
       // 5. Compile Raw Materials List
       final List<Map<String, dynamic>> rawMaterialsListData = [];
-      _selectedRawMaterialQuantities.forEach((id, data) {
-        rawMaterialsListData.add({
+      for (var entry in _selectedRawMaterialQuantities.entries) {
+        final id = entry.key;
+        final data = entry.value;
+
+        String? itemPhotoMediaId;
+        final File? itemPhotoFile = data['photoFile'] as File?;
+        if (itemPhotoFile != null && itemPhotoFile.existsSync()) {
+          final altText = 'Raw Material Item Photo for product $id';
+          itemPhotoMediaId = await _uploadPhoto(itemPhotoFile, altText, 'rawmaterialitem');
+        }
+
+        final itemMap = <String, dynamic>{
           'rawMaterial': id,
           'quantity': data['quantity'] ?? 0.0,
           'totalAmount': data['totalAmount'] ?? 0.0,
-        });
-      });
+        };
+        if (itemPhotoMediaId != null) {
+          itemMap['photo'] = itemPhotoMediaId;
+        }
+
+        rawMaterialsListData.add(itemMap);
+      }
 
       // 6. Submit Raw Material Billing Document
       final payload = {
@@ -584,6 +612,9 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
         'productsPhoto': productsPhotoIds,
         'rawMaterialsList': rawMaterialsListData,
         'date': DateTime.now().toUtc().toIso8601String(),
+        'createdBy': userId,
+        'createdByName': userName ?? 'Unknown',
+        'createdByRole': userRole ?? 'storekeeper',
       };
 
       final headers = {
@@ -688,7 +719,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
   }
 
   Future<void> _navigateToRawMaterialSelection() async {
-    final Map<String, Map<String, double>>? result = await Navigator.push<Map<String, Map<String, double>>>(
+    final Map<String, Map<String, dynamic>>? result = await Navigator.push<Map<String, Map<String, dynamic>>>(
       context,
       MaterialPageRoute(
         builder: (context) => RawMaterialSelectionPage(
@@ -781,6 +812,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
                             return Padding(
                               padding: const EdgeInsets.only(right: 8.0),
                               child: Chip(
+                                avatar: data?['photoFile'] != null ? const Icon(Icons.camera_alt, size: 16, color: Colors.teal) : null,
                                 label: Text('${product['name']} (Qty: $qty, ₹$amt)'),
                                 onDeleted: () {
                                   setState(() {
@@ -1048,7 +1080,7 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
 
 class RawMaterialSelectionPage extends StatefulWidget {
   final List<dynamic> products;
-  final Map<String, Map<String, double>> initialData;
+  final Map<String, Map<String, dynamic>> initialData;
 
   const RawMaterialSelectionPage({
     super.key,
@@ -1063,6 +1095,7 @@ class RawMaterialSelectionPage extends StatefulWidget {
 class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
   final Map<String, double> _quantities = {};
   final Map<String, double> _amounts = {};
+  final Map<String, File?> _productPhotoFiles = {};
   final Map<String, TextEditingController> _qtyControllers = {};
   final Map<String, TextEditingController> _amtControllers = {};
   String _searchQuery = '';
@@ -1074,8 +1107,11 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
     for (var entry in widget.initialData.entries) {
       final id = entry.key;
       final data = entry.value;
-      _quantities[id] = data['quantity'] ?? 0.0;
-      _amounts[id] = data['totalAmount'] ?? 0.0;
+      _quantities[id] = (data['quantity'] is num) ? (data['quantity'] as num).toDouble() : 0.0;
+      _amounts[id] = (data['totalAmount'] is num) ? (data['totalAmount'] as num).toDouble() : 0.0;
+      if (data['photoFile'] is File) {
+        _productPhotoFiles[id] = data['photoFile'] as File;
+      }
     }
     // Create controllers for all products
     for (var p in widget.products) {
@@ -1098,6 +1134,51 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
     super.dispose();
   }
 
+  Future<void> _capturePhotoForProduct(String id) async {
+    if (await Permission.camera.request().isDenied) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission required')),
+        );
+      }
+      return;
+    }
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No camera found')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final XFile? photo = await Navigator.push<XFile>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CameraPage(cameras: cameras),
+        fullscreenDialog: true,
+      ),
+    );
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (photo == null) return;
+
+    final bytes = await photo.readAsBytes();
+    final image = img_lib.decodeImage(bytes);
+    if (image == null) return;
+    final compressed = img_lib.encodeJpg(image, quality: 70);
+
+    final tempDir = await getTemporaryDirectory();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final tempFile = File('${tempDir.path}/rawmat_${id}_$timestamp.jpg');
+    await tempFile.writeAsBytes(compressed);
+
+    setState(() {
+      _productPhotoFiles[id] = tempFile;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = widget.products.where((p) {
@@ -1114,7 +1195,7 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
           IconButton(
             icon: const Icon(Icons.check),
             onPressed: () {
-              final result = <String, Map<String, double>>{};
+              final result = <String, Map<String, dynamic>>{};
               bool hasInvalid = false;
 
               _quantities.forEach((id, qty) {
@@ -1125,6 +1206,7 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                   result[id] = {
                     'quantity': qty,
                     'totalAmount': amt,
+                    'photoFile': _productPhotoFiles[id],
                   };
                 }
               });
@@ -1193,6 +1275,7 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                                       } else {
                                         _quantities.remove(id);
                                         _amounts.remove(id);
+                                        _productPhotoFiles.remove(id);
                                         _qtyControllers[id]?.clear();
                                         _amtControllers[id]?.clear();
                                       }
@@ -1209,50 +1292,125 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                             ),
                             if (isSelected)
                               Padding(
-                                padding: const EdgeInsets.only(left: 48.0, right: 8.0, top: 4.0, bottom: 4.0),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _qtyControllers[id],
-                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                        decoration: const InputDecoration(
-                                          hintText: 'Qty',
-                                          labelText: 'Quantity',
-                                          isDense: true,
-                                          border: OutlineInputBorder(),
-                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                padding: const EdgeInsets.only(left: 12.0, right: 8.0, top: 4.0, bottom: 4.0),
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 100,
+                                        child: TextField(
+                                          controller: _qtyControllers[id],
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          decoration: const InputDecoration(
+                                            hintText: 'Qty',
+                                            labelText: 'Quantity',
+                                            isDense: true,
+                                            border: OutlineInputBorder(),
+                                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                          ),
+                                          onChanged: (val) {
+                                            final qty = double.tryParse(val) ?? 0.0;
+                                            setState(() {
+                                              _quantities[id] = qty;
+                                            });
+                                          },
                                         ),
-                                        onChanged: (val) {
-                                          final qty = double.tryParse(val) ?? 0.0;
-                                          setState(() {
-                                            _quantities[id] = qty;
-                                          });
-                                        },
                                       ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _amtControllers[id],
-                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                        decoration: const InputDecoration(
-                                          hintText: 'Amount',
-                                          labelText: 'Total Amount',
-                                          isDense: true,
-                                          prefixText: '₹ ',
-                                          border: OutlineInputBorder(),
-                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                      const SizedBox(width: 8),
+                                      SizedBox(
+                                        width: 110,
+                                        child: TextField(
+                                          controller: _amtControllers[id],
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          decoration: const InputDecoration(
+                                            hintText: 'Amount',
+                                            labelText: 'Total Amount',
+                                            isDense: true,
+                                            prefixText: '₹ ',
+                                            border: OutlineInputBorder(),
+                                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                          ),
+                                          onChanged: (val) {
+                                            final amt = double.tryParse(val) ?? 0.0;
+                                            setState(() {
+                                              _amounts[id] = amt;
+                                            });
+                                          },
                                         ),
-                                        onChanged: (val) {
-                                          final amt = double.tryParse(val) ?? 0.0;
-                                          setState(() {
-                                            _amounts[id] = amt;
-                                          });
-                                        },
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(width: 8),
+                                      if (_productPhotoFiles[id] != null) ...[
+                                        Stack(
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                            GestureDetector(
+                                              onTap: () => _capturePhotoForProduct(id),
+                                              child: Container(
+                                                width: 40,
+                                                height: 40,
+                                                decoration: BoxDecoration(
+                                                  border: Border.all(color: Colors.grey.shade400),
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: ClipRRect(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  child: Image.file(
+                                                    _productPhotoFiles[id]!,
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            Positioned(
+                                              right: -6,
+                                              top: -6,
+                                              child: GestureDetector(
+                                                onTap: () {
+                                                  setState(() {
+                                                    try {
+                                                      _productPhotoFiles[id]?.deleteSync();
+                                                    } catch (_) {}
+                                                    _productPhotoFiles.remove(id);
+                                                  });
+                                                },
+                                                child: CircleAvatar(
+                                                  radius: 9,
+                                                  backgroundColor: Colors.red.withValues(alpha: 0.9),
+                                                  child: const Icon(Icons.close, size: 10, color: Colors.white),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ] else ...[
+                                        InkWell(
+                                          onTap: () => _capturePhotoForProduct(id),
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: Container(
+                                            height: 40,
+                                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                                            decoration: BoxDecoration(
+                                              border: Border.all(color: Colors.teal.shade400),
+                                              borderRadius: BorderRadius.circular(8),
+                                              color: Colors.teal.shade50,
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.camera_alt, size: 18, color: Colors.teal),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'Photo',
+                                                  style: TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ),
                               ),
                           ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'chat_page.dart';
 
-enum StockFooterTab { live, stock, review, chats }
+enum StockFooterTab { home, live, stock, review, chat }
 
 class StockFooter extends StatelessWidget {
   final StockFooterTab selectedTab;
@@ -8,6 +9,9 @@ class StockFooter extends StatelessWidget {
   final int stockBadgeCount;
   final int liveBadgeCount;
   final int reviewBadgeCount;
+  final int chatBadgeCount;
+  final bool isChef;
+  final bool isDriver;
 
   const StockFooter({
     super.key,
@@ -16,6 +20,9 @@ class StockFooter extends StatelessWidget {
     this.stockBadgeCount = 0,
     this.liveBadgeCount = 0,
     this.reviewBadgeCount = 0,
+    this.chatBadgeCount = 0,
+    this.isChef = false,
+    this.isDriver = false,
   });
 
   @override
@@ -38,38 +45,58 @@ class StockFooter extends StatelessWidget {
           children: [
             Expanded(
               child: _StockFooterItem(
-                icon: Icons.receipt_long_rounded,
-                label: 'LIVE',
-                isSelected: selectedTab == StockFooterTab.live,
-                onTap: () => onSelected(StockFooterTab.live),
-                badgeCount: liveBadgeCount,
+                icon: Icons.home_rounded,
+                label: 'HOME',
+                isSelected: selectedTab == StockFooterTab.home,
+                onTap: () => onSelected(StockFooterTab.home),
               ),
             ),
-            Expanded(
-              child: _StockFooterItem(
-                icon: Icons.inventory_2_rounded,
-                label: 'STOCK',
-                isSelected: selectedTab == StockFooterTab.stock,
-                onTap: () => onSelected(StockFooterTab.stock),
-                badgeCount: stockBadgeCount,
+            if (!isChef)
+              Expanded(
+                child: _StockFooterItem(
+                  icon: Icons.receipt_long_rounded,
+                  label: 'LIVE',
+                  isSelected: selectedTab == StockFooterTab.live,
+                  onTap: () => onSelected(StockFooterTab.live),
+                  badgeCount: liveBadgeCount,
+                ),
               ),
-            ),
-            Expanded(
-              child: _StockFooterItem(
-                icon: Icons.reviews_outlined,
-                label: 'REVIEW',
-                isSelected: selectedTab == StockFooterTab.review,
-                onTap: () => onSelected(StockFooterTab.review),
-                badgeCount: reviewBadgeCount,
+            if (!isChef)
+              Expanded(
+                child: _StockFooterItem(
+                  icon: Icons.inventory_2_rounded,
+                  label: 'STOCK',
+                  isSelected: selectedTab == StockFooterTab.stock,
+                  onTap: () => onSelected(StockFooterTab.stock),
+                  badgeCount: stockBadgeCount,
+                ),
               ),
-            ),
-            Expanded(
-              child: _StockFooterItem(
-                icon: Icons.chat_bubble_outline_rounded,
-                label: 'CHATS',
-                isSelected: selectedTab == StockFooterTab.chats,
-                onTap: () => onSelected(StockFooterTab.chats),
+            if (!isDriver)
+              Expanded(
+                child: _StockFooterItem(
+                  icon: Icons.reviews_outlined,
+                  label: 'REVIEW',
+                  isSelected: selectedTab == StockFooterTab.review,
+                  onTap: () => onSelected(StockFooterTab.review),
+                  badgeCount: reviewBadgeCount,
+                ),
               ),
+            ValueListenableBuilder<int>(
+              valueListenable: ChatPage.unreadChatNotifier,
+              builder: (context, unreadCount, _) {
+                final count = selectedTab == StockFooterTab.chat
+                    ? 0
+                    : (chatBadgeCount > 0 ? chatBadgeCount : unreadCount);
+                return Expanded(
+                  child: _StockFooterItem(
+                    icon: Icons.forum_rounded,
+                    label: 'CHAT',
+                    isSelected: selectedTab == StockFooterTab.chat,
+                    onTap: () => onSelected(StockFooterTab.chat),
+                    badgeCount: count,
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -119,19 +146,31 @@ class _StockFooterItem extends StatelessWidget {
                     right: -6,
                     top: -4,
                     child: Container(
-                      padding: const EdgeInsets.all(2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.orange,
+                        color: const Color(0xFFEF4444),
                         borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white, width: 1),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x33000000),
+                            blurRadius: 3,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
                       ),
                       constraints:
                           const BoxConstraints(minWidth: 16, minHeight: 16),
                       child: Text(
-                        '$badgeCount',
+                        badgeCount > 99 ? '99+' : '$badgeCount',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 10,
+                          fontSize: 9,
                           fontWeight: FontWeight.bold,
+                          height: 1.1,
                         ),
                         textAlign: TextAlign.center,
                       ),
