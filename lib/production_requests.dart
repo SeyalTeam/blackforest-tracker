@@ -157,13 +157,24 @@ class _StoreKeeperProductionRequestDetailScreenState extends State<StoreKeeperPr
     super.initState();
     final rawItems = widget.request['rawMaterialsList'] as List? ?? [];
     _items = rawItems.map((item) {
+      double initialSendingCount = (item['sendingCount'] ?? 0).toDouble();
+      final currentStatus = item['status'] ?? 'pending';
+      
+      if (initialSendingCount == 0 && currentStatus == 'pending') {
+        initialSendingCount = (item['requestCount'] ?? 0).toDouble();
+      }
+
+      // If it was ALREADY saved as 'sent', lock it
+      final isLocked = (item['status'] == 'sent');
+
       return {
         'id': item['id'],
         'rawMaterial': item['rawMaterial'],
         'requestCount': item['requestCount'] ?? 0,
-        'sendingCount': item['sendingCount'] ?? 0,
-        'status': item['status'] ?? 'pending',
-        '_controller': TextEditingController(text: (item['sendingCount'] ?? 0).toString()),
+        'sendingCount': initialSendingCount,
+        'status': currentStatus,
+        '_isLocked': isLocked,
+        '_controller': TextEditingController(text: initialSendingCount.toString()),
       };
     }).toList();
   }
@@ -237,6 +248,7 @@ class _StoreKeeperProductionRequestDetailScreenState extends State<StoreKeeperPr
           final unit = rawMaterial is Map ? (rawMaterial['unit'] ?? '') : '';
           final status = item['status'] as String;
           final isSent = status == 'sent';
+          final isLocked = item['_isLocked'] == true;
           
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
@@ -262,9 +274,12 @@ class _StoreKeeperProductionRequestDetailScreenState extends State<StoreKeeperPr
                               child: TextField(
                                 controller: item['_controller'] as TextEditingController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                                  border: OutlineInputBorder(),
+                                enabled: !isLocked,
+                                decoration: InputDecoration(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                  border: const OutlineInputBorder(),
+                                  fillColor: isLocked ? Colors.grey[200] : null,
+                                  filled: isLocked,
                                 ),
                               ),
                             ),
@@ -279,7 +294,7 @@ class _StoreKeeperProductionRequestDetailScreenState extends State<StoreKeeperPr
                       Checkbox(
                         value: isSent,
                         activeColor: Colors.teal,
-                        onChanged: (val) {
+                        onChanged: isLocked ? null : (val) {
                           setState(() {
                             item['status'] = (val == true) ? 'sent' : 'pending';
                           });
