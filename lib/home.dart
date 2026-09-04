@@ -4986,12 +4986,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       }
       return GridView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 1.0,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 0.65,
         ),
         itemCount: categories.length,
         itemBuilder: (context, index) {
@@ -5010,7 +5010,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: const Color(0xFFE5E7EB)),
                 boxShadow: [
                   BoxShadow(
@@ -5021,7 +5021,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -5035,17 +5035,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                      color: Colors.white,
+                      color: Colors.black,
                       child: Text(
-                        catName.toUpperCase(),
+                        catName,
                         textAlign: TextAlign.center,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
-                          fontSize: 12,
+                          fontSize: 14,
                           letterSpacing: 0.5,
-                          color: Colors.black87,
+                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -5111,12 +5111,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             child: filtered.isEmpty
                 ? const Center(child: Text('No products found.'))
                 : GridView.builder(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 3,
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
-                      childAspectRatio: 1.0,
+                      childAspectRatio: 0.65,
                     ),
                     itemCount: filtered.length,
                     itemBuilder: (context, index) {
@@ -5145,63 +5145,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: cartQty > 0 ? Colors.green.shade400 : Colors.grey.shade200,
+                              color: cartQty > 0 ? Colors.green.shade400 : const Color(0xFFE5E7EB),
                               width: cartQty > 0 ? 2 : 1,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
-                                blurRadius: 6,
-                                offset: const Offset(0, 3),
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 14,
+                                offset: const Offset(0, 6),
                               ),
                             ],
                           ),
                           child: Stack(
                             children: [
-                              Padding(
-                                padding: const EdgeInsets.all(8.0),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
                                 child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    Builder(
-                                      builder: (context) {
-                                        final imgUrl = _resolveProductImageUrl(product);
-                                        return imgUrl != null
-                                            ? ClipRRect(
-                                                borderRadius: BorderRadius.circular(8),
-                                                child: Image.network(
+                                    Expanded(
+                                      child: Builder(
+                                        builder: (context) {
+                                          final imgUrl = _resolveProductImageUrl(product);
+                                          return imgUrl != null
+                                              ? Image.network(
                                                   imgUrl,
-                                                  width: 44,
-                                                  height: 44,
                                                   fit: BoxFit.cover,
-                                                  errorBuilder: (_, __, ___) => const Icon(
-                                                    Icons.shopping_bag_outlined,
-                                                    color: Colors.grey,
-                                                    size: 28,
+                                                  errorBuilder: (_, __, ___) => Container(
+                                                    color: Colors.grey[100],
+                                                    child: const Icon(Icons.shopping_bag_outlined, color: Colors.grey, size: 40),
                                                   ),
-                                                ),
-                                              )
-                                            : const Icon(
-                                                Icons.shopping_bag_outlined,
-                                                color: Colors.grey,
-                                                size: 28,
-                                              );
-                                      },
+                                                )
+                                              : Container(
+                                                  color: Colors.grey[100],
+                                                  child: const Icon(Icons.shopping_bag_outlined, color: Colors.grey, size: 40),
+                                                );
+                                        },
+                                      ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      pName,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      unit,
-                                      style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                      color: Colors.black,
+                                      child: Text(
+                                        unit.isNotEmpty ? '$pName ($unit)' : pName,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 14,
+                                          letterSpacing: 0.5,
+                                          color: Colors.white,
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -5312,12 +5310,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? (categories.isEmpty
                   ? const Center(child: Text('No categories found for your company.', style: TextStyle(color: Colors.grey)))
                   : GridView.builder(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(12),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: categoryCrossAxisCount,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 1.0,
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 0.65,
                       ),
                       itemCount: categories.length,
                       itemBuilder: (context, index) {
@@ -5336,7 +5334,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(8),
                               border: Border.all(color: const Color(0xFFE5E7EB)),
                               boxShadow: [
                                 BoxShadow(
@@ -5347,7 +5345,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               ],
                             ),
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(8),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
@@ -5361,17 +5359,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                    color: Colors.white,
+                                    color: Colors.black,
                                     child: Text(
-                                      catName.toUpperCase(),
+                                      catName,
                                       textAlign: TextAlign.center,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w900,
-                                        fontSize: 12,
+                                        fontSize: 14,
                                         letterSpacing: 0.5,
-                                        color: Colors.black87,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
@@ -5483,12 +5481,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: filtered.isEmpty
               ? const Center(child: Text('No products found.'))
               : GridView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 3,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
-                    childAspectRatio: 1.0,
+                    childAspectRatio: 0.65,
                   ),
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
@@ -5517,63 +5515,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: cartQty > 0 ? Colors.teal : Colors.grey.shade200,
+                            color: cartQty > 0 ? Colors.teal : const Color(0xFFE5E7EB),
                             width: cartQty > 0 ? 2 : 1,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 6,
-                              offset: const Offset(0, 3),
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 14,
+                              offset: const Offset(0, 6),
                             ),
                           ],
                         ),
                         child: Stack(
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
                               child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  Builder(
-                                    builder: (context) {
-                                      final imgUrl = _resolveRawMaterialImageUrl(product);
-                                      return imgUrl != null
-                                          ? ClipRRect(
-                                              borderRadius: BorderRadius.circular(8),
-                                              child: Image.network(
+                                  Expanded(
+                                    child: Builder(
+                                      builder: (context) {
+                                        final imgUrl = _resolveRawMaterialImageUrl(product);
+                                        return imgUrl != null
+                                            ? Image.network(
                                                 imgUrl,
-                                                width: 44,
-                                                height: 44,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) => const Icon(
-                                                  Icons.restaurant,
-                                                  color: Colors.grey,
-                                                  size: 28,
+                                                errorBuilder: (_, __, ___) => Container(
+                                                  color: Colors.grey[100],
+                                                  child: const Icon(Icons.restaurant, color: Colors.grey, size: 40),
                                                 ),
-                                              ),
-                                            )
-                                          : const Icon(
-                                              Icons.restaurant,
-                                              color: Colors.grey,
-                                              size: 28,
-                                            );
-                                    },
+                                              )
+                                            : Container(
+                                                color: Colors.grey[100],
+                                                child: const Icon(Icons.restaurant, color: Colors.grey, size: 40),
+                                              );
+                                      },
+                                    ),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    pName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    unit,
-                                    style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    color: Colors.black,
+                                    child: Text(
+                                      unit.isNotEmpty ? '$pName ($unit)' : pName,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14,
+                                        letterSpacing: 0.5,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -9759,12 +9755,6 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
   }
 
   Future<void> _placeRawMaterialOrder() async {
-    if (_selectedRawMaterialDealerId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a dealer first'), backgroundColor: Colors.red),
-      );
-      return;
-    }
     if (_rawMaterialCart.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cart is empty'), backgroundColor: Colors.red),
@@ -9775,11 +9765,6 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
     setState(() => _isSubmittingRMOrder = true);
 
     try {
-      final mediaId = await _getPlaceholderMediaId();
-      if (mediaId == null) {
-        throw Exception('Failed to upload placeholder photos.');
-      }
-
       List<String> companyIds = [];
       final skCompaniesStr = await _storage.read(key: 'userStorekeeperCompanies');
       if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
@@ -9818,28 +9803,20 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
         rawMaterialsListData.add({
           'rawMaterial': entry.key,
           'quantity': entry.value,
-          'totalAmount': 0.0,
         });
       }
 
       final payload = {
-        'dealer': _selectedRawMaterialDealerId,
         'company': companyId,
-        'bills': [
-          {
-            'amount': 0.0,
-            'invoiceNumber': 'RM-${DateTime.now().millisecondsSinceEpoch}',
-            'photo': mediaId,
-          }
-        ],
-        'rawMaterials': rawMaterialsListData,
+        'rawMaterialsList': rawMaterialsListData,
+        'date': DateTime.now().toUtc().toIso8601String(),
         'status': 'pending',
       };
 
-      await ApiService.instance.createRawMaterialBilling(payload);
+      await ApiService.instance.createProductionRequest(payload);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Raw material order placed successfully!'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Production request placed successfully!'), backgroundColor: Colors.green),
         );
         setState(() {
           _rawMaterialCart.clear();
@@ -9851,7 +9828,7 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Order failed: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Request failed: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -9963,6 +9940,132 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
     );
   }
 
+  void _showSelectedRawMaterialsBottomSheet() {
+    if (_rawMaterialCart.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cart is empty'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          builder: (_, controller) {
+            return StatefulBuilder(
+              builder: (BuildContext context, StateSetter setModalState) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Selected Items',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ListView.builder(
+                        controller: controller,
+                        itemCount: _rawMaterialCart.length,
+                        itemBuilder: (context, index) {
+                          final entry = _rawMaterialCart.entries.elementAt(index);
+                          final productId = entry.key;
+                          final qty = entry.value;
+                          
+                          Map<String, dynamic>? product;
+                          if (_rawMaterials != null) {
+                            try {
+                              product = _rawMaterials!.firstWhere(
+                                (p) => (p['id'] ?? p['_id'])?.toString() == productId,
+                              ) as Map<String, dynamic>?;
+                            } catch (e) {
+                              // Not found
+                            }
+                          }
+                          
+                          final productName = (product?['name'] ?? 'Unknown').toString();
+                          final unit = (product?['unit'] ?? '').toString();
+                          final imageUrl = _resolveRawMaterialImageUrl(product);
+
+                          return ListTile(
+                            leading: imageUrl != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Image.network(imageUrl, width: 40, height: 40, fit: BoxFit.cover),
+                                  )
+                                : Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[200],
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Icon(Icons.inventory, color: Colors.grey, size: 20),
+                                  ),
+                            title: Text(productName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text('Qty: $qty $unit'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                              onPressed: () {
+                                setState(() {
+                                  _rawMaterialCart.remove(productId);
+                                });
+                                setModalState(() {});
+                                if (_rawMaterialCart.isEmpty) {
+                                  Navigator.pop(context);
+                                }
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _placeRawMaterialOrder();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal[700],
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(double.infinity, 50),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: Text('PLACE ORDER (${_rawMaterialCart.length} ITEMS)', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                );
+              }
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildRawMaterialView() {
     final categories = (_rawMaterialCategories ?? []).cast<Map<String, dynamic>>();
 
@@ -9984,6 +10087,41 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
                   'RAW MATERIAL CATEGORIES',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
                 ),
+                const Spacer(),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.shopping_cart, color: Colors.teal),
+                      onPressed: _showSelectedRawMaterialsBottomSheet,
+                    ),
+                    if (_rawMaterialCart.isNotEmpty)
+                      Positioned(
+                        right: 4,
+                        top: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            '${_rawMaterialCart.length}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -9992,12 +10130,12 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
               ? (categories.isEmpty
                   ? const Center(child: Text('No categories found for your company.', style: TextStyle(color: Colors.grey)))
                   : GridView.builder(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(12),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: categoryCrossAxisCount,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 1.0,
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 0.65,
                       ),
                       itemCount: categories.length,
                       itemBuilder: (context, index) {
@@ -10016,7 +10154,7 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(8),
                               border: Border.all(color: const Color(0xFFE5E7EB)),
                               boxShadow: [
                                 BoxShadow(
@@ -10027,7 +10165,7 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
                               ],
                             ),
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(8),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
@@ -10041,17 +10179,17 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
                                   ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                    color: Colors.white,
+                                    color: Colors.black,
                                     child: Text(
-                                      catName.toUpperCase(),
+                                      catName,
                                       textAlign: TextAlign.center,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w900,
-                                        fontSize: 12,
+                                        fontSize: 14,
                                         letterSpacing: 0.5,
-                                        color: Colors.black87,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
@@ -10135,6 +10273,41 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
                 _selectedRawMaterialCategoryName.toUpperCase(),
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
               ),
+              const Spacer(),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.shopping_cart, color: Colors.teal),
+                    onPressed: _showSelectedRawMaterialsBottomSheet,
+                  ),
+                  if (_rawMaterialCart.isNotEmpty)
+                    Positioned(
+                      right: 4,
+                      top: 4,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 16,
+                          minHeight: 16,
+                        ),
+                        child: Text(
+                          '${_rawMaterialCart.length}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
         ),
@@ -10163,12 +10336,12 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
           child: filtered.isEmpty
               ? const Center(child: Text('No products found.'))
               : GridView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 3,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
-                    childAspectRatio: 1.0,
+                    childAspectRatio: 0.65,
                   ),
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
@@ -10197,63 +10370,61 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: cartQty > 0 ? Colors.teal : Colors.grey.shade200,
+                            color: cartQty > 0 ? Colors.teal : const Color(0xFFE5E7EB),
                             width: cartQty > 0 ? 2 : 1,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 6,
-                              offset: const Offset(0, 3),
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 14,
+                              offset: const Offset(0, 6),
                             ),
                           ],
                         ),
                         child: Stack(
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
                               child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  Builder(
-                                    builder: (context) {
-                                      final imgUrl = _resolveRawMaterialImageUrl(product);
-                                      return imgUrl != null
-                                          ? ClipRRect(
-                                              borderRadius: BorderRadius.circular(8),
-                                              child: Image.network(
+                                  Expanded(
+                                    child: Builder(
+                                      builder: (context) {
+                                        final imgUrl = _resolveRawMaterialImageUrl(product);
+                                        return imgUrl != null
+                                            ? Image.network(
                                                 imgUrl,
-                                                width: 44,
-                                                height: 44,
                                                 fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) => const Icon(
-                                                  Icons.restaurant,
-                                                  color: Colors.grey,
-                                                  size: 28,
+                                                errorBuilder: (_, __, ___) => Container(
+                                                  color: Colors.grey[100],
+                                                  child: const Icon(Icons.restaurant, color: Colors.grey, size: 40),
                                                 ),
-                                              ),
-                                            )
-                                          : const Icon(
-                                              Icons.restaurant,
-                                              color: Colors.grey,
-                                              size: 28,
-                                            );
-                                    },
+                                              )
+                                            : Container(
+                                                color: Colors.grey[100],
+                                                child: const Icon(Icons.restaurant, color: Colors.grey, size: 40),
+                                              );
+                                      },
+                                    ),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    pName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    unit,
-                                    style: TextStyle(color: Colors.grey[500], fontSize: 10),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    color: Colors.black,
+                                    child: Text(
+                                      unit.isNotEmpty ? '$pName ($unit)' : pName,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14,
+                                        letterSpacing: 0.5,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),

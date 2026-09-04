@@ -1064,4 +1064,25 @@ class ApiService {
       rethrow;
     }
   }
+
+  Future<Map<String, dynamic>> createProductionRequest(Map<String, dynamic> payload) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/production-requests'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create production request: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }
