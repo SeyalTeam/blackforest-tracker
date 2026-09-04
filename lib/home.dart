@@ -2286,103 +2286,67 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: ListView(
                     padding: const EdgeInsets.only(top: 8, bottom: 24),
                     children: [
-                      _buildStoreKeeperListItem(
-                        context,
-                        title: 'Create New Bill',
-                        subtitle: 'Select dealer to create a bill',
-                        icon: Icons.receipt_long_rounded,
-                        color: Colors.teal,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const RawMaterialDealerSelectionScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      _buildStoreKeeperListItem(
-                        context,
-                        title: 'Production Requests',
-                        subtitle: 'Manage chef material requests',
-                        icon: Icons.kitchen_rounded,
-                        color: Colors.deepOrange,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const StoreKeeperProductionRequestsScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      _buildStoreKeeperListItem(
-                        context,
-                        title: 'Bill List',
-                        subtitle: 'View submitted raw material bills',
-                        icon: Icons.receipt_rounded,
-                        color: Colors.indigoAccent,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const RawMaterialBillingsListScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
+                      GridView.count(
+                        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 2,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 1.1,
                         children: [
-                          Expanded(
-                            child: _buildStoreKeeperGridItem(
-                              context,
-                              title: 'Dealer',
-                              icon: Icons.local_shipping_rounded,
-                              color: Colors.purpleAccent,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const CreateRawMaterialDealerScreen(),
-                                  ),
-                                );
-                              },
-                            ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'New Bill',
+                            icon: Icons.receipt_long_rounded,
+                            color: Colors.teal,
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const RawMaterialDealerSelectionScreen()));
+                            },
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildStoreKeeperGridItem(
-                              context,
-                              title: 'Product',
-                              icon: Icons.inventory_2_rounded,
-                              color: Colors.orangeAccent,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const CreateRawMaterialScreen(),
-                                  ),
-                                );
-                              },
-                            ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'Prod Requests',
+                            icon: Icons.kitchen_rounded,
+                            color: Colors.deepOrange,
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const StoreKeeperProductionRequestsScreen()));
+                            },
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildStoreKeeperGridItem(
-                              context,
-                              title: 'Category',
-                              icon: Icons.category_rounded,
-                              color: Colors.blueAccent,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const RawMaterialCategoryScreen(),
-                                  ),
-                                );
-                              },
-                            ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'Bill List',
+                            icon: Icons.receipt_rounded,
+                            color: Colors.indigoAccent,
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const RawMaterialBillingsListScreen()));
+                            },
+                          ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'Dealer',
+                            icon: Icons.local_shipping_rounded,
+                            color: Colors.purpleAccent,
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateRawMaterialDealerScreen()));
+                            },
+                          ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'Product',
+                            icon: Icons.inventory_2_rounded,
+                            color: Colors.orangeAccent,
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateRawMaterialScreen()));
+                            },
+                          ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'Category',
+                            icon: Icons.category_rounded,
+                            color: Colors.blueAccent,
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const RawMaterialCategoryScreen()));
+                            },
                           ),
                         ],
                       ),
