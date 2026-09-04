@@ -2287,12 +2287,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     padding: const EdgeInsets.only(top: 8, bottom: 24),
                     children: [
                       GridView.count(
-                        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 4 : 2,
+                        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 5 : 3,
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 1.1,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 0.95,
                         children: [
                           _buildStoreKeeperGridItem(
                             context,
@@ -2305,7 +2305,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                           _buildStoreKeeperGridItem(
                             context,
-                            title: 'Prod Requests',
+                            title: 'Prod Reqs',
                             icon: Icons.kitchen_rounded,
                             color: Colors.deepOrange,
                             onTap: () {
