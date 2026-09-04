@@ -2202,73 +2202,77 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            GridView.count(
+              crossAxisCount: MediaQuery.of(context).size.width > 600 ? 5 : 3,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 0.95,
               children: [
-                Expanded(
-                  child: AspectRatio(
-                    aspectRatio: 1.0,
-                    child: _buildChefGridItemWithBadge(
+                _buildChefGridItemWithBadge(
+                  context,
+                  title: 'Raw Material',
+                  icon: Icons.inventory_2_rounded,
+                  color: Colors.teal,
+                  onTap: () {
+                    Navigator.push(
                       context,
-                      title: 'Raw Material',
-                      icon: Icons.inventory_2_rounded,
-                      color: Colors.teal,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const ChefRawMaterialScreen(),
-                          ),
-                        );
-                      },
-                      badgeCount: 0,
-                    ),
-                  ),
+                      MaterialPageRoute(
+                        builder: (context) => const ChefRawMaterialScreen(),
+                      ),
+                    );
+                  },
+                  badgeCount: 0,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: AspectRatio(
-                    aspectRatio: 1.0,
-                    child: _buildChefGridItemWithBadge(
+                _buildChefGridItemWithBadge(
+                  context,
+                  title: 'My Reqs',
+                  icon: Icons.assignment_rounded,
+                  color: Colors.deepOrange,
+                  onTap: () {
+                    Navigator.push(
                       context,
-                      title: 'Live',
-                      icon: Icons.receipt_long_rounded,
-                      color: Colors.redAccent,
-                      onTap: () {
+                      MaterialPageRoute(
+                        builder: (context) => const ChefProductionRequestsScreen(),
+                      ),
+                    );
+                  },
+                  badgeCount: 0,
+                ),
+                _buildChefGridItemWithBadge(
+                  context,
+                  title: 'Live',
+                  icon: Icons.receipt_long_rounded,
+                  color: Colors.redAccent,
+                  onTap: () {
+                    setState(() {
+                      _stockTabSelected = 1;
+                      HomeScreen.activeStockTab = 1;
+                    });
+                  },
+                  badgeCount: _branchCount,
+                ),
+                _buildChefGridItemWithBadge(
+                  context,
+                  title: 'Stock',
+                  icon: Icons.inventory_2_rounded,
+                  color: Colors.orange,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const StockTicketListScreen(),
+                      ),
+                    ).then((_) {
+                      if (mounted && _isChef) {
                         setState(() {
-                          _stockTabSelected = 1;
-                          HomeScreen.activeStockTab = 1;
+                          _stockTabSelected = HomeScreen.activeStockTab;
                         });
-                      },
-                      badgeCount: _branchCount,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: AspectRatio(
-                    aspectRatio: 1.0,
-                    child: _buildChefGridItemWithBadge(
-                      context,
-                      title: 'Stock',
-                      icon: Icons.inventory_2_rounded,
-                      color: Colors.orange,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const StockTicketListScreen(),
-                          ),
-                        ).then((_) {
-                          if (mounted && _isChef) {
-                            setState(() {
-                              _stockTabSelected = HomeScreen.activeStockTab;
-                            });
-                          }
-                        });
-                      },
-                      badgeCount: _stockCount,
-                    ),
-                  ),
+                      }
+                    });
+                  },
+                  badgeCount: _stockCount,
                 ),
               ],
             ),
