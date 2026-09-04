@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _branchCount = 0;
   int _reviewCount = 0;
   int _chatUnreadCount = 0;
+  int _pendingProdRequestsCount = 0;
   List<Map<String, dynamic>> _departments = [];
   List<Map<String, dynamic>> _branches = [];
   String _selectedDepartmentFilter = 'ALL';
@@ -222,53 +223,78 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
+    int badgeCount = 0,
   }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.grey.shade200),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.02),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icon,
-                color: color,
-                size: 22,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      icon,
+                      color: color,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+          ),
+          if (badgeCount > 0)
+            Positioned(
+              top: -6,
+              right: -6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                child: Text(
+                  badgeCount > 99 ? '99+' : badgeCount.toString(),
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -314,6 +340,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _fetchCounts(),
       _fetchReviewsCount(),
       _fetchChatUnreadCount(),
+      if (_isStoreKeeper) _fetchPendingProductionRequestsCount(),
     ]);
 
     // Initial fetch based on module
@@ -548,6 +575,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       _fetchCounts(forceRefresh: false);
       _fetchReviewsCount();
+      if (_isStoreKeeper) _fetchPendingProductionRequestsCount();
     });
 
     // 2. Sync notifications, kitchen orders, and unread chat (every 10 seconds)
@@ -1945,6 +1973,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _fetchPendingProductionRequestsCount() async {
+    try {
+      final docs = await ApiService.instance.fetchProductionRequests();
+      int count = 0;
+      for (var req in docs) {
+        if (req['status'] == 'pending' || req['status'] == 'approved') {
+          count++;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _pendingProdRequestsCount = count;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching pending production requests: $e');
+    }
+  }
+
   Future<void> _fetchDepartments() async {
     try {
       final docs = await ApiService.instance.fetchDepartments();
@@ -2308,8 +2355,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             title: 'Prod Reqs',
                             icon: Icons.kitchen_rounded,
                             color: Colors.deepOrange,
-                            onTap: () {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => const StoreKeeperProductionRequestsScreen()));
+                            badgeCount: _pendingProdRequestsCount,
+                            onTap: () async {
+                              await Navigator.push(context, MaterialPageRoute(builder: (_) => const StoreKeeperProductionRequestsScreen()));
+                              _fetchPendingProductionRequestsCount();
                             },
                           ),
                           _buildStoreKeeperGridItem(
