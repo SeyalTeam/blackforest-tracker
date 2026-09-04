@@ -52,14 +52,8 @@ class _StoreKeeperProductionRequestsScreenState extends State<StoreKeeperProduct
           ? const Center(child: CircularProgressIndicator())
           : _requests.isEmpty
               ? const Center(child: Text('No production requests found.'))
-              : GridView.builder(
+              : ListView.builder(
                   padding: const EdgeInsets.all(12),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: MediaQuery.of(context).size.width > 600 ? 3 : 2,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 0.85,
-                  ),
                   itemCount: _requests.length,
                   itemBuilder: (context, index) {
                     final req = _requests[index];
@@ -88,6 +82,7 @@ class _StoreKeeperProductionRequestsScreenState extends State<StoreKeeperProduct
                         }
                       },
                       child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(16),
@@ -95,7 +90,7 @@ class _StoreKeeperProductionRequestsScreenState extends State<StoreKeeperProduct
                             BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
                           ],
                         ),
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -105,31 +100,45 @@ class _StoreKeeperProductionRequestsScreenState extends State<StoreKeeperProduct
                                 Expanded(
                                   child: Text(
                                     '#$reqNo',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
                                     color: statusColor.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
                                     status,
-                                    style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+                                    style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(chefName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.blueGrey)),
-                            const SizedBox(height: 4),
-                            Text(formattedDate, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                            const Spacer(),
-                            const Divider(),
-                            Text('${items.length} items requested', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.teal)),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                const Icon(Icons.person, size: 16, color: Colors.blueGrey),
+                                const SizedBox(width: 6),
+                                Text(chefName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.blueGrey)),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                                const SizedBox(width: 6),
+                                Text(formattedDate, style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                              ],
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8.0),
+                              child: Divider(),
+                            ),
+                            Text('${items.length} items requested', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.teal)),
                           ],
                         ),
                       ),
