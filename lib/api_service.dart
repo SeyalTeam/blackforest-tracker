@@ -1085,4 +1085,41 @@ class ApiService {
       rethrow;
     }
   }
+
+  Future<List<dynamic>> fetchProductionRequests() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/production-requests?limit=1000&sort=-date'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load production requests');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> updateProductionRequest(String id, Map<String, dynamic> payload) async {
+    try {
+      final token = await _getToken();
+      final res = await http.patch(
+        Uri.parse('$_baseUrl/production-requests/$id'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw Exception('Failed to update production request: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }

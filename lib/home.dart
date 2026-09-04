@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:http_parser/http_parser.dart';
 import 'login.dart';
+import 'production_requests.dart';
 import 'store_keeper_screens.dart';
 import 'common_scaffold.dart';
 import 'raw_material_billing.dart';
@@ -2296,6 +2297,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             context,
                             MaterialPageRoute(
                               builder: (context) => const RawMaterialDealerSelectionScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildStoreKeeperListItem(
+                        context,
+                        title: 'Production Requests',
+                        subtitle: 'Manage chef material requests',
+                        icon: Icons.kitchen_rounded,
+                        color: Colors.deepOrange,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const StoreKeeperProductionRequestsScreen(),
                             ),
                           );
                         },
@@ -9878,7 +9894,9 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
       for (var entry in _rawMaterialCart.entries) {
         rawMaterialsListData.add({
           'rawMaterial': entry.key,
-          'quantity': entry.value,
+          'requestCount': entry.value,
+          'sendingCount': 0,
+          'status': 'pending',
         });
       }
 
