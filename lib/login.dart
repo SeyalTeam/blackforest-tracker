@@ -42,7 +42,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _fetchDynamicRanges() async {
     try {
       final res = await http.get(
-        Uri.parse('https://blackforest.vseyal.com/api/branches?limit=1000'),
+        Uri.parse('https://dev1-blacforest.vseyal.com/api/branches?limit=1000'),
       );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -177,7 +177,7 @@ class _LoginPageState extends State<LoginPage> {
         final emailToUse = rawInput.contains('@') ? rawInput : '$rawInput@bf.com';
 
         var res = await http.post(
-          Uri.parse('https://blackforest.vseyal.com/api/users/login'),
+          Uri.parse('https://dev1-blacforest.vseyal.com/api/users/login'),
           headers: {
             'Content-Type': 'application/json',
             'x-private-ip': _privateIp ?? '',
@@ -193,7 +193,7 @@ class _LoginPageState extends State<LoginPage> {
         // Fallback: If @bf.com failed and input had no @, try sending rawInput directly as identifier
         if (res.statusCode != 200 && !rawInput.contains('@')) {
           final fallbackRes = await http.post(
-            Uri.parse('https://blackforest.vseyal.com/api/users/login'),
+            Uri.parse('https://dev1-blacforest.vseyal.com/api/users/login'),
             headers: {
               'Content-Type': 'application/json',
               'x-private-ip': _privateIp ?? '',

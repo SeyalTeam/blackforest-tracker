@@ -4569,10 +4569,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final dealers = await ApiService.instance.fetchRawMaterialDealers();
       
       const storage = FlutterSecureStorage();
-      final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
       List<String> companyIds = [];
-      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
-        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      
+      final profile = await ApiService.instance.fetchUserProfile();
+      final profileCompany = profile['company'];
+      if (profileCompany != null) {
+        if (profileCompany is Map) {
+          final cId = profileCompany['id']?.toString();
+          if (cId != null && cId.isNotEmpty) companyIds.add(cId);
+        } else if (profileCompany is String && profileCompany.isNotEmpty) {
+          companyIds.add(profileCompany);
+        }
+      }
+
+      if (companyIds.isEmpty) {
+        final skCompaniesStr = await storage.read(key: 'userStorekeeperCompanies');
+        if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+          companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+        }
       }
       if (companyIds.isEmpty) {
         final branchId = await storage.read(key: 'userBranchId');
@@ -4597,8 +4611,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       }
 
+      var filteredCategories = categories;
+      if (companyIds.isNotEmpty) {
+        filteredCategories = categories.where((cat) {
+          final catCompanies = cat['company'];
+          if (catCompanies is List) {
+            return catCompanies.any((c) {
+              final cId = c is Map ? c['id']?.toString() : c?.toString();
+              return cId != null && companyIds.contains(cId);
+            });
+          }
+          return false;
+        }).toList();
+      }
+
       setState(() {
-        _rawMaterialCategories = categories;
+        _rawMaterialCategories = filteredCategories;
         _rawMaterials = products;
         _rawMaterialDealers = dealers;
         if (dealers.isNotEmpty) {
@@ -9662,15 +9690,31 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
   Future<void> _loadRawMaterialData() async {
     setState(() => _isLoading = true);
     try {
-      final categories = await ApiService.instance.fetchRawMaterialCategories();
+      var categories = await ApiService.instance.fetchRawMaterialCategories();
       final products = await ApiService.instance.fetchRawMaterials();
       final dealers = await ApiService.instance.fetchRawMaterialDealers();
       
       List<String> companyIds = [];
-      final skCompaniesStr = await _storage.read(key: 'userStorekeeperCompanies');
-      if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
-        companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+      
+      // First try to fetch from user profile directly for Chef role
+      final profile = await ApiService.instance.fetchUserProfile();
+      final profileCompany = profile['company'];
+      if (profileCompany != null) {
+        if (profileCompany is Map) {
+          final cId = profileCompany['id']?.toString();
+          if (cId != null && cId.isNotEmpty) companyIds.add(cId);
+        } else if (profileCompany is String && profileCompany.isNotEmpty) {
+          companyIds.add(profileCompany);
+        }
       }
+
+      if (companyIds.isEmpty) {
+        final skCompaniesStr = await _storage.read(key: 'userStorekeeperCompanies');
+        if (skCompaniesStr != null && skCompaniesStr.isNotEmpty) {
+          companyIds = skCompaniesStr.split(',').where((id) => id.isNotEmpty).toList();
+        }
+      }
+      
       if (companyIds.isEmpty) {
         final branchId = await _storage.read(key: 'userBranchId');
         if (branchId != null && branchId.isNotEmpty) {
@@ -9692,6 +9736,20 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
             }
           }
         }
+      }
+
+      // Filter categories if we have specific company restrictions
+      if (companyIds.isNotEmpty) {
+        categories = categories.where((cat) {
+          final catCompanies = cat['company'];
+          if (catCompanies is List) {
+            return catCompanies.any((c) {
+              final cId = c is Map ? c['id']?.toString() : c?.toString();
+              return cId != null && companyIds.contains(cId);
+            });
+          }
+          return false;
+        }).toList();
       }
 
       setState(() {
