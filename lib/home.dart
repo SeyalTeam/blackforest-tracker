@@ -9669,11 +9669,15 @@ class ChefRawMaterialScreen extends StatefulWidget {
 }
 
 class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
+  static List<dynamic>? _cachedCategories;
+  static List<dynamic>? _cachedProducts;
+  static List<dynamic>? _cachedDealers;
+
   final _storage = const FlutterSecureStorage();
   bool _isLoading = false;
-  List<dynamic>? _rawMaterialCategories;
-  List<dynamic>? _rawMaterials;
-  List<dynamic>? _rawMaterialDealers;
+  List<dynamic>? _rawMaterialCategories = _cachedCategories;
+  List<dynamic>? _rawMaterials = _cachedProducts;
+  List<dynamic>? _rawMaterialDealers = _cachedDealers;
   String? _selectedRawMaterialCategoryId;
   String _selectedRawMaterialCategoryName = '';
   String? _selectedRawMaterialDealerId;
@@ -9688,16 +9692,26 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
   }
 
   Future<void> _loadRawMaterialData() async {
+    if (_rawMaterialCategories != null && _rawMaterials != null && _rawMaterialDealers != null) {
+      return;
+    }
     setState(() => _isLoading = true);
     try {
-      var categories = await ApiService.instance.fetchRawMaterialCategories();
-      final products = await ApiService.instance.fetchRawMaterials();
-      final dealers = await ApiService.instance.fetchRawMaterialDealers();
+      final results = await Future.wait([
+        ApiService.instance.fetchRawMaterialCategories(),
+        ApiService.instance.fetchRawMaterials(),
+        ApiService.instance.fetchRawMaterialDealers(),
+        ApiService.instance.fetchUserProfile(),
+      ]);
+
+      var categories = results[0] as List<dynamic>;
+      final products = results[1] as List<dynamic>;
+      final dealers = results[2] as List<dynamic>;
+      final profile = results[3] as Map<String, dynamic>;
       
       List<String> companyIds = [];
       
       // First try to fetch from user profile directly for Chef role
-      final profile = await ApiService.instance.fetchUserProfile();
       final profileCompany = profile['company'];
       if (profileCompany != null) {
         if (profileCompany is Map) {
@@ -9751,6 +9765,10 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
           return false;
         }).toList();
       }
+
+      _cachedCategories = categories;
+      _cachedProducts = products;
+      _cachedDealers = dealers;
 
       setState(() {
         _rawMaterialCategories = categories;
