@@ -1,6 +1,4 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'api_service.dart';
 
@@ -59,15 +57,12 @@ class GeofenceUtil {
     }
 
     try {
-      final url = '${ApiService.baseUrl}/globals/branch-geo-settings';
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final locations = data['locations'] as List?;
-        if (locations != null && locations.isNotEmpty) {
-          for (var loc in locations) {
-            final lat = loc['latitude'];
-            final lng = loc['longitude'];
+      final data = await ApiService.instance.fetchBranchGeoSettings();
+      final locations = data['locations'] as List?;
+      if (locations != null && locations.isNotEmpty) {
+        for (var loc in locations) {
+          final lat = loc['latitude'];
+          final lng = loc['longitude'];
             final radiusStr = loc['radius'];
             final radius = (radiusStr is num) ? radiusStr.toDouble() : 100.0;
             
@@ -93,7 +88,6 @@ class GeofenceUtil {
           }
           return false;
         }
-      }
     } catch (e) {
       debugPrint('Geofence API error: $e');
     }
