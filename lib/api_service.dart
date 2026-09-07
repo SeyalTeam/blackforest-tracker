@@ -1091,7 +1091,7 @@ class ApiService {
       final token = await _getToken();
       
       // Inject current company
-      final currentCompanyId = await _storage.read(key: 'userCompanyId');
+      final currentCompanyId = await storage.read(key: 'userCompanyId');
       if (currentCompanyId != null && !payload.containsKey('company')) {
         payload['company'] = currentCompanyId;
       }

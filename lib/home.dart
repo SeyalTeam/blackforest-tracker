@@ -23,7 +23,6 @@ import 'kitchen_notifications_page.dart';
 import 'kitchen_footer.dart';
 import 'dart:convert';
 import 'module_switcher_footer.dart';
-import 'stock_screens.dart';
 import 'dealer_order.dart';
 import 'stock_footer.dart';
 import 'smooth_navigation.dart';
