@@ -205,9 +205,9 @@ class _DealerOrderScreenState extends State<DealerOrderScreen> {
       final rawMaterials = await ApiService.instance.fetchRawMaterials();
       
       final dealerProducts = rawMaterials.where((p) {
-        final assignedDealers = p['dealers'] as List? ?? [];
+        final assignedDealers = p['dealer'] as List? ?? [];
         return assignedDealers.any((d) {
-          if (d is Map) return d['id']?.toString() == widget.dealerId;
+          if (d is Map) return (d['id'] ?? d['_id'])?.toString() == widget.dealerId;
           return d.toString() == widget.dealerId;
         });
       }).toList();
