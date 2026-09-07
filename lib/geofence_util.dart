@@ -60,36 +60,47 @@ class GeofenceUtil {
       final data = await ApiService.instance.fetchBranchGeoSettings();
       final locations = data['locations'] as List?;
       if (locations != null && locations.isNotEmpty) {
+        double nearestDistance = double.infinity;
         for (var loc in locations) {
           final lat = loc['latitude'];
           final lng = loc['longitude'];
-            final radiusStr = loc['radius'];
-            final radius = (radiusStr is num) ? radiusStr.toDouble() : 100.0;
+          final radiusStr = loc['radius'];
+          final radius = (radiusStr is num) ? radiusStr.toDouble() : 100.0;
+          
+          if (lat != null && lng != null) {
+            final double latD = (lat is num) ? lat.toDouble() : double.parse(lat.toString());
+            final double lngD = (lng is num) ? lng.toDouble() : double.parse(lng.toString());
             
-            if (lat != null && lng != null) {
-              final double latD = (lat is num) ? lat.toDouble() : double.parse(lat.toString());
-              final double lngD = (lng is num) ? lng.toDouble() : double.parse(lng.toString());
-              
-              final distance = Geolocator.distanceBetween(
-                position.latitude, position.longitude,
-                latD, lngD
-              );
-              
-              if (distance <= radius) {
-                return true; // Inside a branch!
-              }
+            final distance = Geolocator.distanceBetween(
+              position.latitude, position.longitude,
+              latD, lngD
+            );
+            
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+            }
+            
+            if (distance <= radius) {
+              return true; // Inside a branch!
             }
           }
-          
-          if (!silent && context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('You are not inside any branch location circle.')),
-            );
-          }
-          return false;
         }
+        
+        if (!silent && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Not inside any branch. Nearest is ${nearestDistance.toStringAsFixed(1)}m away.')),
+          );
+        }
+        return false;
+      }
     } catch (e) {
       debugPrint('Geofence API error: $e');
+      if (!silent && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Geofence Error: $e')),
+        );
+      }
+      return false;
     }
 
     if (!silent && context.mounted) {
