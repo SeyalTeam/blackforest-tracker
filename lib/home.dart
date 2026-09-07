@@ -23,6 +23,8 @@ import 'kitchen_notifications_page.dart';
 import 'kitchen_footer.dart';
 import 'dart:convert';
 import 'module_switcher_footer.dart';
+import 'stock_screens.dart';
+import 'dealer_order.dart';
 import 'stock_footer.dart';
 import 'smooth_navigation.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -2300,18 +2302,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () async {
-                const storage = FlutterSecureStorage();
-                await storage.deleteAll();
-                if (context.mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const LoginPage()),
-                    (route) => false,
-                  );
-                }
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ProfilePage()),
+                );
               },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+                child: CircleAvatar(
+                  radius: 17,
+                  backgroundColor: Colors.white24,
+                  backgroundImage: _profilePhotoUrl != null && _profilePhotoUrl!.isNotEmpty
+                      ? NetworkImage(_profilePhotoUrl!)
+                      : null,
+                  child: _profilePhotoUrl == null || _profilePhotoUrl!.isEmpty
+                      ? const Icon(Icons.person, size: 20, color: Colors.white)
+                      : null,
+                ),
+              ),
             ),
           ],
         ),
@@ -2352,6 +2362,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             color: Colors.teal,
                             onTap: () {
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const RawMaterialDealerSelectionScreen()));
+                            },
+                          ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'Order Dealer',
+                            icon: Icons.add_shopping_cart_rounded,
+                            color: Colors.green,
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const DealerOrderSelectionScreen()));
                             },
                           ),
                           _buildStoreKeeperGridItem(
@@ -2646,6 +2665,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       reviewBadgeCount: _reviewCount,
       chatBadgeCount: _chatUnreadCount,
       isDriver: _userRole == 'driver',
+      isStoreKeeper: _isStoreKeeper,
     ),
   );
 }

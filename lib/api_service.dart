@@ -1086,6 +1086,54 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> createDealerOrder(Map<String, dynamic> payload) async {
+    try {
+      final token = await _getToken();
+      
+      // Inject current company
+      final currentCompanyId = await _storage.read(key: 'userCompanyId');
+      if (currentCompanyId != null && !payload.containsKey('company')) {
+        payload['company'] = currentCompanyId;
+      }
+      
+      final res = await http.post(
+        Uri.parse('$_baseUrl/dealer-orders'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create dealer order: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchDealerOrders({int limit = 100}) async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/dealer-orders?limit=$limit&sort=-createdAt'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return data['docs'] as List<dynamic>;
+      } else {
+        throw Exception('Failed to fetch dealer orders');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> fetchProductionRequests() async {
     try {
       final token = await _getToken();
