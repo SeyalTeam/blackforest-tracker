@@ -231,6 +231,67 @@ class _ProfilePageState extends State<ProfilePage> {
           final outTimeStr = punchOut != null ? DateFormat('hh:mm a').format(punchOut) : 'Active';
 
           if (type == 'session') {
+            // ── Stale active session guard (FIRST — before any accumulation) ──
+            // If active but punchIn was before today's midnight, the employee
+            // forgot to punch out. Auto-close it on the server and skip it
+            // entirely so it never inflates today's work timer.
+            if (status == 'active' && punchIn.isBefore(localMidnight)) {
+              final endOfDay = DateTime(
+                punchIn.year, punchIn.month, punchIn.day, 23, 59, 59,
+              );
+              final durationSecs = endOfDay.difference(punchIn).inSeconds;
+
+              final ownerDoc = docs.firstWhere(
+                (d) {
+                  final acts = (d is Map ? d['activities'] : null) as List?;
+                  return acts?.any((a) =>
+                    a is Map &&
+                    a['punchIn']?.toString() == punchInStr &&
+                    a['status'] == 'active') ?? false;
+                },
+                orElse: () => null,
+              );
+
+              if (ownerDoc != null) {
+                final ownerDocId = ownerDoc['id']?.toString();
+                final ownerActivities = List<dynamic>.from(
+                  (ownerDoc['activities'] as List?) ?? [],
+                );
+                for (final a in ownerActivities) {
+                  if (a is Map &&
+                      a['punchIn']?.toString() == punchInStr &&
+                      a['status'] == 'active') {
+                    a['punchOut'] = endOfDay.toUtc().toIso8601String();
+                    a['status'] = 'closed';
+                    a['durationSeconds'] = durationSecs > 0 ? durationSecs : 0;
+                    a['punchOutType'] = 'auto';
+                    break;
+                  }
+                }
+                final storedToken = token;
+                if (ownerDocId != null && storedToken != null && storedToken.isNotEmpty) {
+                  http.patch(
+                    Uri.parse('${ApiService.baseUrl}/attendance/$ownerDocId'),
+                    headers: {
+                      'Authorization': 'Bearer $storedToken',
+                      'Content-Type': 'application/json',
+                    },
+                    body: jsonEncode({'activities': ownerActivities}),
+                  ).then((_) {
+                    if (mounted) _fetchAttendance();
+                  }).catchError((e) {
+                    debugPrint('Stale session auto-close error: $e');
+                  });
+                }
+              }
+              // Skip entirely — don't add to totalWork, don't show in UI
+              continue;
+            }
+
+            // ── Only count today's sessions toward the work timer ─────────
+            final isToday = punchIn.isAfter(localMidnight) ||
+                (punchOut != null && punchOut.isAfter(localMidnight));
+
             final duration = punchOut != null
                 ? Duration(
                     seconds: durationSeconds > 0
@@ -239,7 +300,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   )
                 : DateTime.now().difference(punchIn);
 
-            totalWork += duration;
+            if (isToday) {
+              totalWork += duration;
+            }
 
             // Add break card before this session if breakDurationSeconds is stored
             if (breakDurationSeconds > 0 && punchIn.isAfter(localMidnight)) {
@@ -254,13 +317,11 @@ class _ProfilePageState extends State<ProfilePage> {
                         : '${breakDur.inSeconds} Sec Break',
                 'color': const Color(0xFFFFE0B2),
                 'textColor': Colors.orange[900],
-                // Place break just before the session punchIn
                 'startTime': punchIn.subtract(Duration(seconds: breakDurationSeconds)),
               });
             }
 
-            if (punchIn.isAfter(localMidnight) ||
-                (punchOut != null && punchOut.isAfter(localMidnight))) {
+            if (isToday) {
               allActivities.add({
                 'type': 'session',
                 'inTime': inTimeStr,
@@ -272,71 +333,7 @@ class _ProfilePageState extends State<ProfilePage> {
             }
 
             if (status == 'active') {
-              // ── Stale session guard ───────────────────────────────────────
-              // If the active session's punchIn was before today's midnight,
-              // the employee forgot to punch out yesterday. Auto-close it on
-              // the server (end-of-that-day) instead of showing a runaway timer.
-              final isFromPastDay = punchIn.isBefore(localMidnight);
-
-              if (isFromPastDay) {
-                // Close at end-of-that-day (23:59:59) so the record is accurate
-                final endOfDay = DateTime(
-                  punchIn.year, punchIn.month, punchIn.day, 23, 59, 59,
-                );
-                final durationSecs = endOfDay.difference(punchIn).inSeconds;
-
-                // Find which doc owns this activity and patch it silently
-                final ownerDoc = docs.firstWhere(
-                  (d) {
-                    final acts = (d is Map ? d['activities'] : null) as List?;
-                    return acts?.any((a) =>
-                      a is Map &&
-                      a['punchIn']?.toString() == punchInStr &&
-                      a['status'] == 'active') ?? false;
-                  },
-                  orElse: () => null,
-                );
-
-                if (ownerDoc != null) {
-                  final ownerDocId = ownerDoc['id']?.toString();
-                  final ownerActivities = List<dynamic>.from(
-                    (ownerDoc['activities'] as List?) ?? [],
-                  );
-
-                  for (final a in ownerActivities) {
-                    if (a is Map &&
-                        a['punchIn']?.toString() == punchInStr &&
-                        a['status'] == 'active') {
-                      a['punchOut'] = endOfDay.toUtc().toIso8601String();
-                      a['status'] = 'closed';
-                      a['durationSeconds'] = durationSecs > 0 ? durationSecs : 0;
-                      a['punchOutType'] = 'auto';
-                      break;
-                    }
-                  }
-
-                  // Fire-and-forget PATCH then re-fetch
-                  final storedToken = token;
-                  if (ownerDocId != null && storedToken != null && storedToken.isNotEmpty) {
-                    http.patch(
-                      Uri.parse('${ApiService.baseUrl}/attendance/$ownerDocId'),
-                      headers: {
-                        'Authorization': 'Bearer $storedToken',
-                        'Content-Type': 'application/json',
-                      },
-                      body: jsonEncode({'activities': ownerActivities}),
-                    ).then((_) {
-                      if (mounted) _fetchAttendance();
-                    }).catchError((e) {
-                      debugPrint('Stale session auto-close error: $e');
-                    });
-                  }
-                }
-                // Don't mark activeSessionFound — treat this session as closed locally
-                continue;
-              }
-
-              // ── Normal active session (today) ─────────────────────────────
+              // Normal active session for today — start the live ticker
               activeSessionFound = true;
               final activeStart = punchIn;
               final pastWork = totalWork - DateTime.now().difference(activeStart);
