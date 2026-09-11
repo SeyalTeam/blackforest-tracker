@@ -41,6 +41,8 @@ class _ProfilePageState extends State<ProfilePage> {
   List<dynamic> _rawActivities = [];
 
   Timer? _timer;
+  Timer? _geofenceTimer;          // polls GPS every 60s while session is active
+  bool _autoPunchOutFired = false; // prevents double-fire on same geofence exit
   Duration _workDuration = Duration.zero;
   Duration _breakDuration = Duration.zero;
   List<Map<String, dynamic>> _activities = [];
@@ -56,6 +58,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _geofenceTimer?.cancel();
     super.dispose();
   }
 
@@ -335,6 +338,14 @@ class _ProfilePageState extends State<ProfilePage> {
         }
       });
 
+      // Start or stop the geofence watcher based on session state
+      if (activeSessionFound) {
+        _autoPunchOutFired = false; // reset so a fresh punch-in can trigger auto punch-out
+        _startGeofenceWatcher();
+      } else {
+        _stopGeofenceWatcher();
+      }
+
 
     } catch (e) {
       debugPrint('Error fetching attendance: $e');
@@ -578,6 +589,107 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // ── Geofence watcher ────────────────────────────────────────────────────────
+
+  /// Starts a 60-second periodic GPS check. If the employee is outside every
+  /// branch geofence while a session is active, auto punch-out fires once.
+  void _startGeofenceWatcher() {
+    // Already running — don't create a second timer
+    if (_geofenceTimer != null && (_geofenceTimer!.isActive)) return;
+
+    _geofenceTimer?.cancel();
+    _geofenceTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
+      if (!mounted || !_hasActiveSession || _autoPunchOutFired) return;
+
+      final isInside = await GeofenceUtil.isInsideAnyBranch(context, silent: true);
+      if (!isInside && mounted && _hasActiveSession && !_autoPunchOutFired) {
+        _autoPunchOutFired = true;
+        await _autoPunchOut();
+      }
+    });
+  }
+
+  void _stopGeofenceWatcher() {
+    _geofenceTimer?.cancel();
+    _geofenceTimer = null;
+  }
+
+  /// Identical to _punchOut() but stamps punchOutType:'auto' and shows a
+  /// different banner explaining the reason.
+  Future<void> _autoPunchOut() async {
+    if (!_hasActiveSession || _attendanceDocId == null || _isProcessingPunch) return;
+
+    setState(() => _isProcessingPunch = true);
+
+    final token = await _storage.read(key: 'token');
+    if (token == null) {
+      setState(() => _isProcessingPunch = false);
+      return;
+    }
+
+    try {
+      final updatedActivities = List.from(_rawActivities);
+
+      for (var i = updatedActivities.length - 1; i >= 0; i--) {
+        final activity = updatedActivities[i];
+        if (activity['type'] == 'session' && activity['status'] == 'active') {
+          final punchInTime = DateTime.parse(activity['punchIn']);
+          final punchOutTime = DateTime.now();
+          final durationSecs = punchOutTime.difference(punchInTime).inSeconds;
+
+          activity['punchOut'] = punchOutTime.toUtc().toIso8601String();
+          activity['status'] = 'closed';
+          activity['durationSeconds'] = durationSecs;
+          activity['punchOutType'] = 'auto'; // ← marks this as geofence-triggered
+          break;
+        }
+      }
+
+      final url = '${ApiService.baseUrl}/attendance/$_attendanceDocId';
+      final response = await http.patch(
+        Uri.parse(url),
+        headers: token.isNotEmpty
+            ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+            : {},
+        body: jsonEncode({'activities': updatedActivities}),
+      );
+
+      if (response.statusCode == 200) {
+        _stopGeofenceWatcher();
+        await _fetchEmployeeProfile();
+        await _fetchAttendance();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.location_off, color: Colors.white),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Auto punched out — you left the branch area.',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.orange[800],
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Auto Punch Out Error: $e');
+      _autoPunchOutFired = false; // allow retry on next tick if network failed
+    } finally {
+      if (mounted) setState(() => _isProcessingPunch = false);
+    }
+  }
+
+  // ── Manual Punch Out ────────────────────────────────────────────────────────
+
   Future<void> _punchOut() async {
     if (!_hasActiveSession || _attendanceDocId == null || _isProcessingPunch) return;
 
@@ -601,6 +713,7 @@ class _ProfilePageState extends State<ProfilePage> {
           activity['punchOut'] = punchOutTime.toUtc().toIso8601String();
           activity['status'] = 'closed';
           activity['durationSeconds'] = durationSecs;
+          activity['punchOutType'] = 'manual'; // ← employee tapped the button
           break;
         }
       }
