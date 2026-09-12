@@ -61,6 +61,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   bool get isSupervisor => _userRole == 'supervisor';
   bool get isDriver => _userRole == 'driver';
   bool get isFactory => _userRole == 'factory';
+  bool get isManager => _userRole == 'manager';
   // Consolidated View Cache
   List<Map<String, dynamic>> _consolidatedItems =
       []; // Deprecated - replaced by specific lists
@@ -1815,7 +1816,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
     // Check role for builder
     final isChef = _userRole == 'chef' || _userRole == 'kitchen';
-    final isSupervisor = _userRole == 'supervisor';
+    final isSupervisor = _userRole == 'supervisor' || isManager;
 
     void flushGroup() {
       if (currentGroup.isEmpty) return;
@@ -2267,7 +2268,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final isFactory =
         _userRole == 'factory' || _userRole == 'chef' || _userRole == 'kitchen';
     final isStrictFactory = _userRole == 'factory';
-    final isSupervisor = _userRole == 'supervisor';
+    final isSupervisor = _userRole == 'supervisor' || isManager;
 
     if (isStrictFactory) {
       return Card(
@@ -4177,7 +4178,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     // Check if user is factory for consolidated view
     // Check if user is factory or supervisor for consolidated view
     final isStrictFactory = _userRole == 'factory';
-    final isSupervisor = _userRole == 'supervisor';
+    final isSupervisor = _userRole == 'supervisor' || isManager;
     // Chef View
     final isChef = _userRole == 'chef' || _userRole == 'kitchen';
 

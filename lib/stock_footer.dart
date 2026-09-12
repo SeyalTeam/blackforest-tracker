@@ -12,6 +12,7 @@ class StockFooter extends StatelessWidget {
   final int chatBadgeCount;
   final bool isChef;
   final bool isDriver;
+  final bool isManager;
 
   const StockFooter({
     super.key,
@@ -23,6 +24,7 @@ class StockFooter extends StatelessWidget {
     this.chatBadgeCount = 0,
     this.isChef = false,
     this.isDriver = false,
+    this.isManager = false,
   });
 
   @override
@@ -51,7 +53,7 @@ class StockFooter extends StatelessWidget {
                 onTap: () => onSelected(StockFooterTab.home),
               ),
             ),
-            if (!isChef)
+            if (!isChef && !isManager)
               Expanded(
                 child: _StockFooterItem(
                   icon: Icons.receipt_long_rounded,
@@ -61,7 +63,7 @@ class StockFooter extends StatelessWidget {
                   badgeCount: liveBadgeCount,
                 ),
               ),
-            if (!isChef)
+            if (!isChef && !isManager)
               Expanded(
                 child: _StockFooterItem(
                   icon: Icons.inventory_2_rounded,

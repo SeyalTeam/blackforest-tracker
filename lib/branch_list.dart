@@ -121,7 +121,7 @@ class _BranchListPageState extends State<BranchListPage> {
               final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
               return s == 'ordered' || s == 'pending' || s == 'sending';
             });
-          } else if (_userRole == 'supervisor') {
+          } else if (_userRole == 'supervisor' || _userRole == 'manager') {
             shouldShow = true;
           } else if (_userRole == 'driver') {
             shouldShow = items.any((item) {
@@ -290,7 +290,7 @@ class _BranchListPageState extends State<BranchListPage> {
       bool isTouched = false;
       if (_userRole == 'chef') {
         isTouched = ((item['sendingQty'] as num?) ?? 0) > 0;
-      } else if (_userRole == 'supervisor') {
+      } else if (_userRole == 'supervisor' || _userRole == 'manager') {
         isTouched = ((item['confirmedQty'] as num?) ?? 0) > 0;
       } else if (_userRole == 'driver') {
         isTouched = ((item['pickedQty'] as num?) ?? 0) > 0;
@@ -682,7 +682,7 @@ class _BranchListPageState extends State<BranchListPage> {
       val1 = totalOrdered;
       label2 = 'Snt';
       val2 = totalSending;
-    } else if (_userRole == 'supervisor') {
+    } else if (_userRole == 'supervisor' || _userRole == 'manager') {
       label1 = 'Snt';
       val1 = totalSending;
       color1 = Colors.red;
@@ -709,6 +709,7 @@ class _BranchListPageState extends State<BranchListPage> {
           if ([
             'chef',
             'supervisor',
+            'manager',
             'driver',
             'factory',
             'kitchen',

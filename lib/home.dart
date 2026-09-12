@@ -147,6 +147,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return normalized == 'chef';
   }
 
+  bool get _isManager {
+    final normalized = _userRole.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase();
+    return normalized == 'manager';
+  }
+
   Widget _buildStoreKeeperListItem(
     BuildContext context, {
     required String title,
@@ -421,6 +426,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             : (profile['isStock'] == true ||
                 profileRole == 'chef' ||
                 profileRole == 'supervisor' ||
+                profileRole == 'manager' ||
                 profileRole == 'driver' ||
                 profileRole == 'factory');
 
@@ -1846,8 +1852,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
               return s == 'ordered' || s == 'pending' || s == 'sending';
             });
-          } else if (_userRole == 'supervisor') {
-            // Supervisor sees ALL orders for the day (Simplified for full visibility)
+          } else if (_userRole == 'supervisor' || _isManager) {
+            // Supervisor/Manager sees ALL orders for the day (Simplified for full visibility)
             shouldShow = true;
           } else if (_userRole == 'driver') {
             // Driver sees orders with ANY Confirmed OR Picked items
@@ -2092,7 +2098,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       bool isTouched = false;
       if (_userRole == 'chef') {
         isTouched = ((item['sendingQty'] as num?) ?? 0) > 0;
-      } else if (_userRole == 'supervisor') {
+      } else if (_userRole == 'supervisor' || _isManager) {
         isTouched = ((item['confirmedQty'] as num?) ?? 0) > 0;
       } else if (_userRole == 'driver') {
         isTouched = ((item['pickedQty'] as num?) ?? 0) > 0;
@@ -2452,7 +2458,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }).toList();
 
     Widget stockBody;
-    if (_stockTabSelected == 0) {
+    if (_isManager) {
+      // Manager sees an empty home page — navigation via footer only
+      stockBody = const Center(
+        child: Text(
+          'Welcome, Manager',
+          style: TextStyle(color: Colors.grey, fontSize: 16),
+        ),
+      );
+    } else if (_stockTabSelected == 0) {
       stockBody = _buildStockAddView();
     } else if (_stockTabSelected == 2) {
       stockBody = _isChef ? _buildChefRawMaterialTabBody() : _buildRawMaterialView();
@@ -2540,6 +2554,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         chatBadgeCount: _chatUnreadCount,
         isChef: _isChef,
         isDriver: _userRole == 'driver',
+        isManager: _isManager,
       ),
     );
   }

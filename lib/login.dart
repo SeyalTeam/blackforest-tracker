@@ -246,6 +246,7 @@ class _LoginPageState extends State<LoginPage> {
               : (fullUser['isStock'] == true ||
                   userRole == 'chef' ||
                   userRole == 'supervisor' ||
+                  userRole == 'manager' ||
                   userRole == 'driver' ||
                   userRole == 'factory');
 
