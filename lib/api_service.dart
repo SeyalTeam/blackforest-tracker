@@ -185,7 +185,33 @@ class ApiService {
     }
   }
 
-  Future<List<dynamic>> fetchReviews({DateTime? date, String? branchId}) async {
+  Future<Map<String, dynamic>> fetchBranchGeoSettings() async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/globals/branch-geo-settings'),
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to load branch geo settings: ${res.statusCode}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchReviews({
+    DateTime? date, 
+    String? branchId,
+    List<String>? companyIds,
+  }) async {
     try {
       final token = await _getToken();
 
@@ -193,6 +219,26 @@ class ApiService {
 
       if (branchId != null && branchId.isNotEmpty && branchId != 'ALL') {
         url += '&where[branch][equals]=$branchId';
+      } else if (companyIds != null && companyIds.isNotEmpty) {
+        // Payload doesn't support deep relationship filtering natively in REST without joins,
+        // so we first fetch all branches and filter them by company locally.
+        final allBranches = await fetchBranches();
+        final validBranchIds = <String>[];
+        for (var b in allBranches) {
+          final c = b['company'];
+          final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+          if (companyIds.contains(cId)) {
+            final bId = (b['id'] ?? b['_id'])?.toString();
+            if (bId != null) validBranchIds.add(bId);
+          }
+        }
+        if (validBranchIds.isNotEmpty) {
+          url += '&where[branch][in]=${validBranchIds.join(',')}';
+        } else {
+          // If manager has companies but no branches exist for those companies,
+          // return empty by querying a non-existent branch
+          url += '&where[branch][equals]=NONE';
+        }
       }
 
       if (date != null) {
