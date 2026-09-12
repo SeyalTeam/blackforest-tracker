@@ -29,6 +29,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _profileLoading = true;
   String? _employeeName;
   String? _employeeRole;
+  List<String> _managerCompanyNames = [];
   String? _employeeId;
   String? _employeePhotoUrl;
   String? _branchName;
@@ -138,6 +139,18 @@ class _ProfilePageState extends State<ProfilePage> {
           resolvedUrl = _resolveApiAssetUrl(photoUrl);
         }
 
+        List<String> companyNames = [];
+        if (role == 'manager') {
+          final rawCompanies = user['manager_companies'];
+          if (rawCompanies is List) {
+            for (final c in rawCompanies) {
+              if (c is Map && c['name'] != null) {
+                companyNames.add(c['name'].toString());
+              }
+            }
+          }
+        }
+
         if (mounted) {
           setState(() {
             if (name != null) _employeeName = name;
@@ -146,6 +159,7 @@ class _ProfilePageState extends State<ProfilePage> {
             if (phone != null) _employeePhone = phone;
             if (bName != null) _branchName = bName;
             if (resolvedUrl != null) _employeePhotoUrl = resolvedUrl;
+            if (companyNames.isNotEmpty) _managerCompanyNames = companyNames;
           });
         }
       }
@@ -986,7 +1000,17 @@ class _ProfilePageState extends State<ProfilePage> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      if (_branchName != null && _branchName!.isNotEmpty)
+                      if (_employeeRole == 'manager' && _managerCompanyNames.isNotEmpty)
+                        Text(
+                          _managerCompanyNames.join(' • '),
+                          style: const TextStyle(
+                            color: Colors.blue,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        )
+                      else if (_branchName != null && _branchName!.isNotEmpty)
                         Text(
                           _branchName!,
                           style: const TextStyle(
