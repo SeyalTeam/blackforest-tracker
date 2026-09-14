@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
+import 'branch_bills.dart';
 
 class ManagerBillingReportScreen extends StatefulWidget {
   final List<String> managerCompanyIds;
@@ -306,8 +307,32 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
   }
 
   Widget _buildBranchCard(Map<String, dynamic> stat, NumberFormat format) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
+    // Determine the branch ID for navigation
+    String branchId = '';
+    for (var b in _branches) {
+      if ((b['name']?.toString() ?? '') == stat['branchName']) {
+        branchId = (b['id'] ?? b['_id'])?.toString() ?? '';
+        break;
+      }
+    }
+    
+    return InkWell(
+      onTap: branchId.isNotEmpty
+          ? () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BranchBillsScreen(
+                    branchId: branchId,
+                    branchName: stat['branchName']?.toString() ?? 'Branch',
+                    date: _selectedDate,
+                  ),
+                ),
+              );
+            }
+          : null,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 2,
       child: Padding(

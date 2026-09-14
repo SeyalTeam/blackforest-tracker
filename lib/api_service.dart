@@ -239,6 +239,41 @@ class ApiService {
     }
   }
 
+  Future<List<dynamic>> fetchBranchBills({
+    required String branchId,
+    required DateTime date,
+  }) async {
+    try {
+      final token = await _getToken();
+      
+      final startOfDay = DateTime(date.year, date.month, date.day).toUtc().toIso8601String();
+      final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999).toUtc().toIso8601String();
+      
+      final url = '$_baseUrl/api/billings?'
+          'where[branch][equals]=$branchId&'
+          'where[createdAt][greater_than_equal]=$startOfDay&'
+          'where[createdAt][less_than_equal]=$endOfDay&'
+          'where[status][equals]=completed&'
+          'limit=1000&'
+          'sort=-createdAt';
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        return data['docs'] ?? [];
+      } else {
+        throw Exception('Failed to fetch bills: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching bills: $e');
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> fetchReviews({
     DateTime? date, 
     String? branchId,
