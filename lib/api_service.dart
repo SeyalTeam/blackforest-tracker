@@ -255,6 +255,7 @@ class ApiService {
         'where[createdAt][less_than_equal]': endOfDay,
         'where[status][equals]': 'completed',
         'limit': '1000',
+        'depth': '1',
         'sort': '-createdAt',
       };
       

@@ -21,7 +21,13 @@ class BranchBillsScreen extends StatefulWidget {
 class _BranchBillsScreenState extends State<BranchBillsScreen> {
   bool _isLoading = true;
   String _errorMessage = '';
-  List<dynamic> _bills = [];
+  List<dynamic> _allBills = [];
+  List<dynamic> _filteredBills = [];
+
+  // Filters
+  String _selectedOrderType = 'All'; // 'All', 'Table Order', 'Counter Bill'
+  String? _selectedWaiterId;
+  Map<String, String> _waiterMap = {}; // id -> name
 
   @override
   void initState() {
@@ -41,9 +47,26 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
         date: widget.date,
       );
 
+      // Extract unique waiters from the bills
+      final Map<String, String> waiters = {};
+      for (var bill in bills) {
+        final createdBy = bill['createdBy'];
+        if (createdBy != null) {
+          if (createdBy is Map) {
+            final id = (createdBy['id'] ?? createdBy['_id'])?.toString() ?? '';
+            final name = createdBy['name']?.toString() ?? 'Unknown Waiter';
+            if (id.isNotEmpty) waiters[id] = name;
+          } else if (createdBy is String) {
+            waiters[createdBy] = 'Waiter ($createdBy)';
+          }
+        }
+      }
+
       setState(() {
-        _bills = bills;
+        _allBills = bills;
+        _waiterMap = waiters;
         _isLoading = false;
+        _applyFilters();
       });
     } catch (e) {
       setState(() {
@@ -51,6 +74,108 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void _applyFilters() {
+    setState(() {
+      _filteredBills = _allBills.where((bill) {
+        // Filter by Order Type
+        bool isTableOrder = false;
+        final tableDetails = bill['tableDetails'];
+        if (tableDetails != null && tableDetails is Map) {
+          final tableNumber = tableDetails['tableNumber']?.toString() ?? '';
+          if (tableNumber.isNotEmpty) isTableOrder = true;
+        }
+
+        if (_selectedOrderType == 'Table Order' && !isTableOrder) return false;
+        if (_selectedOrderType == 'Counter Bill' && isTableOrder) return false;
+
+        // Filter by Waiter
+        if (_selectedWaiterId != null && _selectedWaiterId!.isNotEmpty) {
+          final createdBy = bill['createdBy'];
+          String billWaiterId = '';
+          if (createdBy is Map) {
+            billWaiterId = (createdBy['id'] ?? createdBy['_id'])?.toString() ?? '';
+          } else if (createdBy is String) {
+            billWaiterId = createdBy;
+          }
+          if (billWaiterId != _selectedWaiterId) return false;
+        }
+
+        return true;
+      }).toList();
+    });
+  }
+
+  void _showFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Filter Bills', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 24),
+                  const Text('Order Type', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _selectedOrderType,
+                    decoration: const InputDecoration(border: OutlineInputBorder()),
+                    items: ['All', 'Table Order', 'Counter Bill'].map((type) {
+                      return DropdownMenuItem(value: type, child: Text(type));
+                    }).toList(),
+                    onChanged: (val) {
+                      setModalState(() {
+                        _selectedOrderType = val!;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  const Text('Waiter', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String?>(
+                    value: _selectedWaiterId,
+                    decoration: const InputDecoration(border: OutlineInputBorder()),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('All Waiters')),
+                      ..._waiterMap.entries.map((entry) {
+                        return DropdownMenuItem(value: entry.key, child: Text(entry.value));
+                      }),
+                    ],
+                    onChanged: (val) {
+                      setModalState(() {
+                        _selectedWaiterId = val;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _applyFilters();
+                      },
+                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                      child: const Text('Apply Filters'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -70,9 +195,9 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
           ],
         ),
       );
-    } else if (_bills.isEmpty) {
+    } else if (_filteredBills.isEmpty) {
       bodyContent = const Center(
-        child: Text('No bills found for this date.', style: TextStyle(color: Colors.grey)),
+        child: Text('No bills found matching filters.', style: TextStyle(color: Colors.grey)),
       );
     } else {
       final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
@@ -82,10 +207,10 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
         onRefresh: _fetchBills,
         child: ListView.separated(
           padding: const EdgeInsets.all(16),
-          itemCount: _bills.length,
+          itemCount: _filteredBills.length,
           separatorBuilder: (context, index) => const Divider(height: 24),
           itemBuilder: (context, index) {
-            final bill = _bills[index];
+            final bill = _filteredBills[index];
             final billNo = bill['invoiceNumber']?.toString() ?? 'N/A';
             
             DateTime? createdAt;
@@ -96,6 +221,27 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
             
             final amount = (bill['totalAmount'] ?? 0).toDouble();
             final paymentMethod = bill['paymentMethod']?.toString().toUpperCase() ?? 'UNKNOWN';
+
+            // Waiter & Table Info
+            String subtitle = timeStr;
+            final createdBy = bill['createdBy'];
+            if (createdBy != null) {
+               if (createdBy is Map) {
+                 subtitle += ' • ${createdBy['name'] ?? 'Waiter'}';
+               } else if (createdBy is String) {
+                 subtitle += ' • Waiter (${createdBy.substring(0, 4)})';
+               }
+            }
+
+            final tableDetails = bill['tableDetails'];
+            if (tableDetails != null && tableDetails is Map) {
+              final tableNumber = tableDetails['tableNumber']?.toString() ?? '';
+              final section = tableDetails['section']?.toString() ?? '';
+              if (tableNumber.isNotEmpty) {
+                subtitle += ' • Table $tableNumber';
+                if (section.isNotEmpty) subtitle += ' ($section)';
+              }
+            }
 
             return Row(
               children: [
@@ -118,8 +264,8 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        timeStr,
-                        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                        subtitle,
+                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
                       ),
                     ],
                   ),
@@ -178,8 +324,46 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0.5,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list, color: Colors.blue),
+            onPressed: _showFilterSheet,
+            tooltip: 'Filter Bills',
+          ),
+        ],
       ),
-      body: bodyContent,
+      body: Column(
+        children: [
+          if (_selectedOrderType != 'All' || _selectedWaiterId != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.blue[50],
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 16, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Showing: $_selectedOrderType' + (_selectedWaiterId != null ? ' • ${_waiterMap[_selectedWaiterId!]}' : ''),
+                      style: TextStyle(fontSize: 12, color: Colors.blue[800], fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () {
+                      setState(() {
+                        _selectedOrderType = 'All';
+                        _selectedWaiterId = null;
+                        _applyFilters();
+                      });
+                    },
+                    child: Text('CLEAR', style: TextStyle(fontSize: 12, color: Colors.blue[800], fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(child: bodyContent),
+        ],
+      ),
     );
   }
 }
