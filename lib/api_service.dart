@@ -257,7 +257,7 @@ class ApiService {
           'limit=100&'
           'depth=1&'
           'page=$page&'
-          'sort=createdAt';
+          'sort=-createdAt';
 
       final res = await http.get(
         Uri.parse(url),
