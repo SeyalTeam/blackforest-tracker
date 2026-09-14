@@ -19,6 +19,7 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
   List<dynamic> _companies = [];
 
   String? _selectedCompanyId;
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
@@ -33,8 +34,7 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
         _errorMessage = '';
       });
 
-      final today = DateTime.now();
-      final dateStr = DateFormat('yyyy-MM-dd').format(today);
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
       final results = await Future.wait([
         ApiService.instance.fetchBranchBillingReport(startDate: dateStr, endDate: dateStr),
@@ -138,6 +138,33 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
     return 'Unknown Company';
   }
 
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.blue,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+      _fetchData();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget bodyContent;
@@ -172,6 +199,14 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
         }
 
         final selectedStats = groupedStats[_selectedCompanyId]!;
+        
+        // Sort from top sales to zero
+        selectedStats.sort((a, b) {
+          final amountA = (a['totalAmount'] ?? 0).toDouble();
+          final amountB = (b['totalAmount'] ?? 0).toDouble();
+          return amountB.compareTo(amountA);
+        });
+
         final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
 
         bodyContent = RefreshIndicator(
@@ -231,13 +266,31 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
       }
     }
 
+    final dateDisplay = DateFormat('dd MMM yyyy').format(_selectedDate);
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Billing Report'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Billing Report', style: TextStyle(fontSize: 16)),
+            Text(
+              dateDisplay,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0.5,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month, color: Colors.blue),
+            onPressed: _pickDate,
+            tooltip: 'Select Date',
+          ),
+        ],
       ),
       body: bodyContent,
     );
