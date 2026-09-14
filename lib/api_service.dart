@@ -239,7 +239,7 @@ class ApiService {
     }
   }
 
-  Future<List<dynamic>> fetchBranchBills({
+  Future<Map<String, dynamic>> fetchBranchBills({
     required String branchId,
     required DateTime date,
     int page = 1,
@@ -267,7 +267,10 @@ class ApiService {
 
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
-        return data['docs'] ?? [];
+        return {
+          'docs': data['docs'] ?? [],
+          'hasNextPage': data['hasNextPage'] ?? false,
+        };
       } else {
         debugPrint('Bills API Error: ${res.statusCode} ${res.body}');
         throw Exception('Failed to fetch bills: ${res.statusCode}');

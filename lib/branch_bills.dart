@@ -65,13 +65,16 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
         _hasMore = true;
       });
 
-      final bills = await ApiService.instance.fetchBranchBills(
+      final response = await ApiService.instance.fetchBranchBills(
         branchId: widget.branchId,
         date: widget.date,
         page: _currentPage,
       );
 
-      _processBillsData(bills, isRefresh: true);
+      final bills = response['docs'] as List<dynamic>;
+      final hasNextPage = response['hasNextPage'] as bool;
+
+      _processBillsData(bills, hasNextPage: hasNextPage, isRefresh: true);
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to load bills: $e';
@@ -87,13 +90,16 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
       });
 
       _currentPage++;
-      final bills = await ApiService.instance.fetchBranchBills(
+      final response = await ApiService.instance.fetchBranchBills(
         branchId: widget.branchId,
         date: widget.date,
         page: _currentPage,
       );
 
-      _processBillsData(bills, isRefresh: false);
+      final bills = response['docs'] as List<dynamic>;
+      final hasNextPage = response['hasNextPage'] as bool;
+
+      _processBillsData(bills, hasNextPage: hasNextPage, isRefresh: false);
     } catch (e) {
       setState(() {
         _isFetchingMore = false;
@@ -102,7 +108,7 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
     }
   }
 
-  void _processBillsData(List<dynamic> bills, {required bool isRefresh}) {
+  void _processBillsData(List<dynamic> bills, {required bool hasNextPage, required bool isRefresh}) {
     final Map<String, String> waiters = isRefresh ? {} : Map.from(_waiterMap);
     
     for (var bill in bills) {
@@ -125,7 +131,7 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
         _allBills.addAll(bills);
       }
       
-      _hasMore = bills.length >= 100; // if less than limit, no more pages
+      _hasMore = hasNextPage;
       _waiterMap = waiters;
       _isLoading = false;
       _isFetchingMore = false;
