@@ -68,13 +68,17 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
     // Grouping
     final Map<String, List<Map<String, dynamic>>> grouped = {};
 
-    // First, initialize all branches that belong to the manager's companies (so we show 0 sales)
+    // First, initialize all active branches that belong to the manager's companies
     for (var b in _branches) {
       final bName = b['name']?.toString() ?? '';
       final c = b['company'];
       final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+      final status = b['status']?.toString().toLowerCase();
       
-      if (cId.isNotEmpty && (widget.managerCompanyIds.isEmpty || widget.managerCompanyIds.contains(cId))) {
+      // Only include active branches (or null/empty for backwards compatibility)
+      final isActive = status == null || status.isEmpty || status == 'active';
+      
+      if (isActive && cId.isNotEmpty && (widget.managerCompanyIds.isEmpty || widget.managerCompanyIds.contains(cId))) {
         if (!grouped.containsKey(cId)) {
           grouped[cId] = [];
         }
@@ -97,13 +101,18 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
       
       // Find which company this branch belongs to
       String foundCompanyId = '';
+      bool isActive = true;
       for (var b in _branches) {
         if ((b['name']?.toString() ?? '') == branchName) {
           final c = b['company'];
           foundCompanyId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+          final status = b['status']?.toString().toLowerCase();
+          isActive = status == null || status.isEmpty || status == 'active';
           break;
         }
       }
+      
+      if (!isActive) continue;
       
       final cId = foundCompanyId.isNotEmpty ? foundCompanyId : 'unknown';
       
