@@ -20,9 +20,14 @@ class BranchBillsScreen extends StatefulWidget {
 
 class _BranchBillsScreenState extends State<BranchBillsScreen> {
   bool _isLoading = true;
+  bool _isFetchingMore = false;
+  bool _hasMore = true;
+  int _currentPage = 1;
   String _errorMessage = '';
   List<dynamic> _allBills = [];
   List<dynamic> _filteredBills = [];
+
+  final ScrollController _scrollController = ScrollController();
 
   // Filters
   String _selectedOrderType = 'All'; // 'All', 'Table Order', 'Counter Bill'
@@ -33,6 +38,21 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
   void initState() {
     super.initState();
     _fetchBills();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (!_isFetchingMore && _hasMore) {
+        _fetchMoreBills();
+      }
+    }
   }
 
   Future<void> _fetchBills() async {
@@ -40,40 +60,77 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
       setState(() {
         _isLoading = true;
         _errorMessage = '';
+        _currentPage = 1;
+        _allBills.clear();
+        _hasMore = true;
       });
 
       final bills = await ApiService.instance.fetchBranchBills(
         branchId: widget.branchId,
         date: widget.date,
+        page: _currentPage,
       );
 
-      // Extract unique waiters from the bills
-      final Map<String, String> waiters = {};
-      for (var bill in bills) {
-        final createdBy = bill['createdBy'];
-        if (createdBy != null) {
-          if (createdBy is Map) {
-            final id = (createdBy['id'] ?? createdBy['_id'])?.toString() ?? '';
-            final name = createdBy['name']?.toString() ?? 'Unknown Waiter';
-            if (id.isNotEmpty) waiters[id] = name;
-          } else if (createdBy is String) {
-            waiters[createdBy] = 'Waiter ($createdBy)';
-          }
-        }
-      }
-
-      setState(() {
-        _allBills = bills;
-        _waiterMap = waiters;
-        _isLoading = false;
-        _applyFilters();
-      });
+      _processBillsData(bills, isRefresh: true);
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to load bills: $e';
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _fetchMoreBills() async {
+    try {
+      setState(() {
+        _isFetchingMore = true;
+      });
+
+      _currentPage++;
+      final bills = await ApiService.instance.fetchBranchBills(
+        branchId: widget.branchId,
+        date: widget.date,
+        page: _currentPage,
+      );
+
+      _processBillsData(bills, isRefresh: false);
+    } catch (e) {
+      setState(() {
+        _isFetchingMore = false;
+        // Optionally show a toast for load more failure
+      });
+    }
+  }
+
+  void _processBillsData(List<dynamic> bills, {required bool isRefresh}) {
+    final Map<String, String> waiters = isRefresh ? {} : Map.from(_waiterMap);
+    
+    for (var bill in bills) {
+      final createdBy = bill['createdBy'];
+      if (createdBy != null) {
+        if (createdBy is Map) {
+          final id = (createdBy['id'] ?? createdBy['_id'])?.toString() ?? '';
+          final name = createdBy['name']?.toString() ?? 'Unknown Waiter';
+          if (id.isNotEmpty) waiters[id] = name;
+        } else if (createdBy is String) {
+          waiters[createdBy] = 'Waiter ($createdBy)';
+        }
+      }
+    }
+
+    setState(() {
+      if (isRefresh) {
+        _allBills = bills;
+      } else {
+        _allBills.addAll(bills);
+      }
+      
+      _hasMore = bills.length >= 100; // if less than limit, no more pages
+      _waiterMap = waiters;
+      _isLoading = false;
+      _isFetchingMore = false;
+      _applyFilters();
+    });
   }
 
   void _applyFilters() {
@@ -206,10 +263,18 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
       bodyContent = RefreshIndicator(
         onRefresh: _fetchBills,
         child: ListView.separated(
+          controller: _scrollController,
           padding: const EdgeInsets.all(16),
-          itemCount: _filteredBills.length,
+          itemCount: _filteredBills.length + (_isFetchingMore ? 1 : 0),
           separatorBuilder: (context, index) => const Divider(height: 24),
           itemBuilder: (context, index) {
+            if (index == _filteredBills.length) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.0),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
             final bill = _filteredBills[index];
             final billNo = bill['invoiceNumber']?.toString() ?? 'N/A';
             

@@ -242,6 +242,7 @@ class ApiService {
   Future<List<dynamic>> fetchBranchBills({
     required String branchId,
     required DateTime date,
+    int page = 1,
   }) async {
     try {
       final token = await _getToken();
@@ -249,40 +250,28 @@ class ApiService {
       final startOfDay = DateTime(date.year, date.month, date.day).toUtc().toIso8601String();
       final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999).toUtc().toIso8601String();
       
-      List<dynamic> allBills = [];
-      int page = 1;
-      bool hasNextPage = true;
+      final url = '$_baseUrl/billings?'
+          'where[branch][equals]=$branchId&'
+          'where[createdAt][greater_than_equal]=$startOfDay&'
+          'where[createdAt][less_than_equal]=$endOfDay&'
+          'where[status][equals]=completed&'
+          'limit=100&'
+          'depth=1&'
+          'page=$page&'
+          'sort=-createdAt';
 
-      while (hasNextPage) {
-        final url = '$_baseUrl/billings?'
-            'where[branch][equals]=$branchId&'
-            'where[createdAt][greater_than_equal]=$startOfDay&'
-            'where[createdAt][less_than_equal]=$endOfDay&'
-            'where[status][equals]=completed&'
-            'limit=100&'
-            'depth=1&'
-            'page=$page&'
-            'sort=-createdAt';
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
 
-        final res = await http.get(
-          Uri.parse(url),
-          headers: token != null ? {'Authorization': 'Bearer $token'} : {},
-        );
-
-        if (res.statusCode == 200) {
-          final data = json.decode(res.body);
-          final docs = data['docs'] as List<dynamic>? ?? [];
-          allBills.addAll(docs);
-          
-          hasNextPage = data['hasNextPage'] == true;
-          page++;
-        } else {
-          debugPrint('Bills API Error: ${res.statusCode} ${res.body}');
-          throw Exception('Failed to fetch bills: ${res.statusCode}');
-        }
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        return data['docs'] ?? [];
+      } else {
+        debugPrint('Bills API Error: ${res.statusCode} ${res.body}');
+        throw Exception('Failed to fetch bills: ${res.statusCode}');
       }
-      
-      return allBills;
     } catch (e) {
       debugPrint('Error fetching bills: $e');
       rethrow;
