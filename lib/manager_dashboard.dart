@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
 
-class ManagerDashboard extends StatefulWidget {
+class ManagerBillingReportScreen extends StatefulWidget {
   final List<String> managerCompanyIds;
-  const ManagerDashboard({super.key, required this.managerCompanyIds});
+  const ManagerBillingReportScreen({super.key, required this.managerCompanyIds});
 
   @override
-  State<ManagerDashboard> createState() => _ManagerDashboardState();
+  State<ManagerBillingReportScreen> createState() => _ManagerBillingReportScreenState();
 }
 
-class _ManagerDashboardState extends State<ManagerDashboard> {
+class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen> {
   bool _isLoading = true;
   String _errorMessage = '';
   
@@ -110,12 +110,12 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    Widget bodyContent;
 
-    if (_errorMessage.isNotEmpty) {
-      return Center(
+    if (_isLoading) {
+      bodyContent = const Center(child: CircularProgressIndicator());
+    } else if (_errorMessage.isNotEmpty) {
+      bodyContent = Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -128,53 +128,64 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
           ],
         ),
       );
+    } else {
+      final aggregated = _aggregateByCompany();
+      final totals = _billingReport?['totals'] ?? {};
+
+      bodyContent = RefreshIndicator(
+        onRefresh: _fetchData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildOverallTotals(totals),
+              const SizedBox(height: 24),
+              const Text(
+                'Company Reports',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              if (aggregated.isEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: Text('No billing data for today.', style: TextStyle(color: Colors.grey)),
+                  ),
+                )
+              else
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 0.85,
+                  ),
+                  itemCount: aggregated.length,
+                  itemBuilder: (context, index) {
+                    final cName = aggregated.keys.elementAt(index);
+                    final data = aggregated[cName]!;
+                    return _buildCompanyCard(cName, data);
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
     }
 
-    final aggregated = _aggregateByCompany();
-    final totals = _billingReport?['totals'] ?? {};
-
-    return RefreshIndicator(
-      onRefresh: _fetchData,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildOverallTotals(totals),
-            const SizedBox(height: 24),
-            const Text(
-              'Company Reports',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            if (aggregated.isEmpty)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32.0),
-                  child: Text('No billing data for today.', style: TextStyle(color: Colors.grey)),
-                ),
-              )
-            else
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.85,
-                ),
-                itemCount: aggregated.length,
-                itemBuilder: (context, index) {
-                  final cName = aggregated.keys.elementAt(index);
-                  final data = aggregated[cName]!;
-                  return _buildCompanyCard(cName, data);
-                },
-              ),
-          ],
-        ),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Billing Report'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
       ),
+      body: bodyContent,
     );
   }
 

@@ -30,6 +30,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'profile_page.dart';
 import 'chat_page.dart';
 import 'manager_dashboard.dart';
+import 'manager_home.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -2482,8 +2483,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     Widget stockBody;
     if (_isManager) {
-      // Manager sees the billing report dashboard grid
-      stockBody = ManagerDashboard(
+      // Manager sees the home grid of features
+      stockBody = ManagerHomeGrid(
         managerCompanyIds: _managerCompanyIds,
       );
     } else if (_stockTabSelected == 0) {
