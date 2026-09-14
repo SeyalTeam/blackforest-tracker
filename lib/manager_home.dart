@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'manager_dashboard.dart';
+import 'manager_closing_report.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -35,6 +36,22 @@ class ManagerHomeGrid extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ManagerBillingReportScreen(
+                        managerCompanyIds: managerCompanyIds,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildGridItem(
+                context,
+                title: 'Closing Entry',
+                icon: Icons.account_balance_wallet,
+                color: Colors.green,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerClosingReportScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
                     ),
