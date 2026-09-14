@@ -177,6 +177,169 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
     });
   }
 
+  void _showBillDetails(dynamic bill) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final billNoRaw = bill['invoiceNumber']?.toString() ?? 'N/A';
+        final status = bill['status']?.toString().toUpperCase() ?? 'UNKNOWN';
+        
+        DateTime? createdAt;
+        if (bill['createdAt'] != null) {
+          createdAt = DateTime.tryParse(bill['createdAt'].toString())?.toLocal();
+        }
+        final dateStr = createdAt != null ? DateFormat('MMM dd, yyyy - hh:mm a').format(createdAt) : 'Unknown time';
+        
+        final paymentMethod = bill['paymentMethod']?.toString().toUpperCase() ?? 'CASH';
+        final amount = (bill['totalAmount'] ?? 0).toDouble();
+
+        String waiterName = 'Unknown Waiter';
+        final createdBy = bill['createdBy'];
+        if (createdBy != null) {
+          if (createdBy is Map) {
+            waiterName = createdBy['name']?.toString() ?? waiterName;
+          } else if (createdBy is String) {
+            waiterName = createdBy;
+          }
+        }
+
+        final items = bill['items'] as List<dynamic>? ?? [];
+
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(width: 24), // Balance for close button
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.receipt, color: Colors.blue, size: 20),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  widget.branchName,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.branchName.toUpperCase(),
+                            style: const TextStyle(color: Colors.grey, fontSize: 12),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: const Icon(Icons.close, color: Colors.grey),
+                    ),
+                  ],
+                ),
+                const Divider(height: 32),
+                
+                // Invoice Details
+                Text('Invoice: $billNoRaw', style: const TextStyle(fontSize: 14)),
+                const SizedBox(height: 4),
+                Text('Status: $status', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 4),
+                Text(dateStr, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                const Divider(height: 32),
+                
+                // Items
+                if (items.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Text('No items found', style: TextStyle(color: Colors.grey)),
+                  )
+                else
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: items.map((item) {
+                          final name = item['name']?.toString() ?? 'Item';
+                          final qty = item['quantity'] ?? 1;
+                          final price = item['unitPrice'] ?? 0;
+                          final total = qty * price;
+                          
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4.0),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: Text(name, style: const TextStyle(fontSize: 14))),
+                                const SizedBox(width: 16),
+                                Text(
+                                  '$qty x ${price.toStringAsFixed(0)} = ${total.toStringAsFixed(0)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                
+                const Divider(height: 32),
+                
+                // Payment & Waiter
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Payment', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                    Text(paymentMethod, style: const TextStyle(fontSize: 14)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Waiter', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                    Text(waiterName.toUpperCase(), style: const TextStyle(fontSize: 14)),
+                  ],
+                ),
+                
+                const Divider(height: 32),
+                
+                // Total
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Total Amount', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(
+                      '₹${amount.toStringAsFixed(2)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 24),
+                const Text('Thank you for visiting!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                const SizedBox(height: 4),
+                const Text('Powered by VSeyal POS', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showFilterSheet() {
     showModalBottomSheet(
       context: context,
@@ -334,84 +497,87 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
               }
             }
 
-            return Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
+            return InkWell(
+              onTap: () => _showBillDetails(bill),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.receipt, color: Colors.blue),
                   ),
-                  child: const Icon(Icons.receipt, color: Colors.blue),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            billNo,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: statusColor.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              billNo,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                             ),
-                            child: Text(
-                              status,
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: statusColor,
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                              ),
+                              child: Text(
+                                status,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: statusColor,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        currencyFormat.format(amount),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.green,
+                        ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          paymentMethod,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[800],
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      currencyFormat.format(amount),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.green,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        paymentMethod,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             );
           },
         ),
