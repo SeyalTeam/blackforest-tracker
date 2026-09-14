@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-class BranchAttendanceDetailScreen extends StatelessWidget {
+class BranchAttendanceDetailScreen extends StatefulWidget {
   final String branchName;
   final List<dynamic> items;
 
@@ -10,6 +10,14 @@ class BranchAttendanceDetailScreen extends StatelessWidget {
     required this.branchName,
     required this.items,
   });
+
+  @override
+  State<BranchAttendanceDetailScreen> createState() => _BranchAttendanceDetailScreenState();
+}
+
+class _BranchAttendanceDetailScreenState extends State<BranchAttendanceDetailScreen> {
+  // 'all', 'active', 'on_break', 'closed'
+  String _filter = 'all';
 
   Color _statusColor(String status) {
     switch (status) {
@@ -27,31 +35,68 @@ class BranchAttendanceDetailScreen extends StatelessWidget {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final sorted = [...items]..sort((a, b) {
+  List<dynamic> get _filteredItems {
+    final all = [...widget.items];
+    if (_filter == 'all') {
+      return all..sort((a, b) {
         const order = {'active': 0, 'on_break': 1, 'closed': 2};
         return (order[a['status']] ?? 2).compareTo(order[b['status']] ?? 2);
       });
+    }
+    return all.where((item) => item['status']?.toString() == _filter).toList();
+  }
+
+  int _countByStatus(String status) =>
+      widget.items.where((item) => item['status']?.toString() == status).length;
+
+
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filteredItems;
+    final activeCount = _countByStatus('active');
+    final onBreakCount = _countByStatus('on_break');
+    final closedCount = _countByStatus('closed');
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('$branchName - Attendance', style: const TextStyle(fontSize: 16)),
+        title: Text('${widget.branchName} - Attendance', style: const TextStyle(fontSize: 16)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0.5,
       ),
-      body: sorted.isEmpty
-          ? const Center(child: Text('No attendance records found.'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: sorted.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final item = sorted[index];
-                final status = item['status']?.toString() ?? 'closed';
-                final statusColor = _statusColor(status);
-                final statusLabel = _statusLabel(status);
+      body: Column(
+        children: [
+          // Filter chips
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                _filterChip('All', 'all', '${widget.items.length}', Colors.blue),
+                const SizedBox(width: 8),
+                _filterChip('Punched In', 'active', '$activeCount', Colors.green),
+                const SizedBox(width: 8),
+                _filterChip('On Break', 'on_break', '$onBreakCount', Colors.orange),
+                const SizedBox(width: 8),
+                _filterChip('Punched Out', 'closed', '$closedCount', Colors.red),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: filtered.isEmpty
+                ? const Center(child: Text('No records for this filter.'))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final item = filtered[index];
+                      final status = item['status']?.toString() ?? 'closed';
+                      final statusColor = _statusColor(status);
+                      final statusLabel = _statusLabel(status);
+
 
                 final name = item['employeeName']?.toString() ?? item['userName']?.toString() ?? 'Unknown';
                 final role = (item['employeeTeam'] ?? item['userRole'] ?? '').toString().toUpperCase();
@@ -100,65 +145,24 @@ class BranchAttendanceDetailScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Row(
-                              children: [
-                                if (role.isNotEmpty)
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 6),
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue[50],
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(role, style: TextStyle(fontSize: 10, color: Colors.blue[700])),
-                                  ),
-                                if (empId.isNotEmpty)
-                                  Text('#$empId', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          // Punch-In / Punch-Out buttons
-                          Row(
-                            children: [
-                              _punchButton(
-                                label: 'IN',
-                                time: firstIn,
-                                color: Colors.green,
-                                icon: Icons.login,
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          children: [
+                            if (role.isNotEmpty)
+                              Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue[50],
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(role, style: TextStyle(fontSize: 10, color: Colors.blue[700])),
                               ),
-                              const SizedBox(width: 8),
-                              Builder(
-                                builder: (context) {
-                                  // Get last punch-out from activities
-                                  final activities = item['activities'] as List<dynamic>? ?? [];
-                                  final sessions = activities.where((a) => a['type'] == 'session').toList();
-                                  String lastOut = '--';
-                                  bool isActive = status == 'active' || status == 'on_break';
-                                  for (final s in sessions) {
-                                    if (s['punchOut'] != null) {
-                                      final t = DateFormat('hh:mm a').format(DateTime.parse(s['punchOut']).toLocal());
-                                      lastOut = t;
-                                    }
-                                  }
-                                  if (isActive) lastOut = 'Active';
-                                  return _punchButton(
-                                    label: 'OUT',
-                                    time: lastOut,
-                                    color: isActive ? Colors.orange : Colors.red[400]!,
-                                    icon: Icons.logout,
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                        ],
+                            if (empId.isNotEmpty)
+                              Text('#$empId', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                          ],
+                        ),
                       ),
                       children: [
                         const Divider(height: 1),
@@ -194,37 +198,32 @@ class BranchAttendanceDetailScreen extends StatelessWidget {
                 );
               },
             ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _punchButton({
-    required String label,
-    required String time,
-    required Color color,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+  Widget _filterChip(String label, String value, String count, Color color) {
+    final isSelected = _filter == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _filter = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? color.withValues(alpha: 0.12) : Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: isSelected ? color : Colors.grey[300]!),
           ),
-          const SizedBox(width: 4),
-          Text(
-            time,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
+          child: Column(
+            children: [
+              Text(count, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isSelected ? color : Colors.black87)),
+              Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: isSelected ? color : Colors.grey[600])),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

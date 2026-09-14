@@ -339,25 +339,28 @@ class _ManagerAttendanceReportScreenState extends State<ManagerAttendanceReportS
                 children: [
                   Expanded(
                     child: Text(
-                      stat['branchName']?.toString() ?? 'Unknown Branch',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      branchName,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ),
                   const Icon(Icons.people, color: Colors.blue),
                 ],
               ),
               const Divider(height: 24),
-              
-              // Metrics Grid
-              Row(
-                children: [
-                  Expanded(child: _buildMetric('PRESENT', '${stat['presentCount'] ?? 0}')),
-                  Expanded(child: _buildMetric('ACTIVE NOW', '${stat['activeCount'] ?? 0}')),
-                ],
-              ),
+
+              // Metrics Grid — 3 columns
+              Builder(builder: (context) {
+                final present = (stat['presentCount'] ?? 0) as int;
+                final active = (stat['activeCount'] ?? 0) as int;
+                final punchedOut = present - active;
+                return Row(
+                  children: [
+                    _buildMetricColored('PRESENT', '$present', Colors.black87),
+                    _buildMetricColored('ACTIVE NOW', '$active', Colors.green[700]!),
+                    _buildMetricColored('PUNCHED OUT', '$punchedOut', Colors.red[600]!),
+                  ],
+                );
+              }),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -368,22 +371,8 @@ class _ManagerAttendanceReportScreenState extends State<ManagerAttendanceReportS
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'TOTAL HOURS',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue[800],
-                      ),
-                    ),
-                    Text(
-                      '${(stat['totalHours'] ?? 0).toStringAsFixed(1)} h',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.blue[900],
-                      ),
-                    ),
+                    Text('TOTAL HOURS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue[800])),
+                    Text('${(stat['totalHours'] ?? 0).toStringAsFixed(1)} h', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.blue[900])),
                   ],
                 ),
               ),
@@ -394,28 +383,18 @@ class _ManagerAttendanceReportScreenState extends State<ManagerAttendanceReportS
     );
   }
 
-  Widget _buildMetric(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            color: Colors.grey[500],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
-        ),
-      ],
+
+
+  Widget _buildMetricColored(String label, String value, Color color) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[500])),
+          const SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
     );
   }
 }
