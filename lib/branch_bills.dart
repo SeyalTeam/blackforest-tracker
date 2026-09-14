@@ -282,7 +282,14 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
             }
 
             final bill = _filteredBills[index];
-            final billNo = bill['invoiceNumber']?.toString() ?? 'N/A';
+            final billNoRaw = bill['invoiceNumber']?.toString() ?? 'N/A';
+            
+            // Shorten invoice number (e.g., KMC-20260914-001 -> KMC-001)
+            String billNo = billNoRaw;
+            final parts = billNoRaw.split('-');
+            if (parts.length >= 3 && parts[1].length == 8) {
+              billNo = '${parts[0]}-${parts.sublist(2).join('-')}';
+            }
             
             DateTime? createdAt;
             if (bill['createdAt'] != null) {
@@ -292,6 +299,12 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
             
             final amount = (bill['totalAmount'] ?? 0).toDouble();
             final paymentMethod = bill['paymentMethod']?.toString().toUpperCase() ?? 'UNKNOWN';
+            final status = bill['status']?.toString().toUpperCase() ?? 'UNKNOWN';
+
+            Color statusColor = Colors.grey;
+            if (status == 'SETTLED' || status == 'COMPLETED') statusColor = Colors.green;
+            if (status == 'ORDERED') statusColor = Colors.orange;
+            if (status == 'CANCELLED') statusColor = Colors.red;
 
             // Waiter & Table Info
             String subtitle = timeStr;
@@ -329,9 +342,30 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        billNo,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      Row(
+                        children: [
+                          Text(
+                            billNo,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                            ),
+                            child: Text(
+                              status,
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: statusColor,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
