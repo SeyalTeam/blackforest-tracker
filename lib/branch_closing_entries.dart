@@ -74,7 +74,7 @@ class BranchClosingEntriesScreen extends StatelessWidget {
                         Row(
                           children: [
                             Expanded(child: _buildItem('Expenses', entry['expenses'], currencyFormat, color: Colors.red)),
-                            Expanded(child: _buildItem('Net Amount', entry['net'], currencyFormat, isBold: true, color: Colors.green)),
+                            Expanded(child: _buildItem('Net Sales (Total - Exp)', entry['net'], currencyFormat, isBold: true)),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -83,6 +83,59 @@ class BranchClosingEntriesScreen extends StatelessWidget {
                             Expanded(child: _buildItem('Cash', entry['cash'], currencyFormat)),
                             Expanded(child: _buildItem('UPI', entry['upi'], currencyFormat)),
                           ],
+                        ),
+                        const Divider(height: 24),
+                        Builder(
+                          builder: (context) {
+                            final net = (entry['net'] ?? entry['totalSales'] ?? 0).toDouble();
+                            final cash = (entry['cash'] ?? 0).toDouble();
+                            final upi = (entry['upi'] ?? 0).toDouble();
+                            final card = (entry['card'] ?? 0).toDouble();
+                            
+                            final totalCollection = cash + upi + card;
+                            final difference = totalCollection - net;
+
+                            String diffText = '';
+                            Color diffColor = Colors.grey;
+                            if (difference > 0) {
+                              diffText = 'Excess: +${currencyFormat.format(difference)}';
+                              diffColor = Colors.green[700]!;
+                            } else if (difference < 0) {
+                              diffText = 'Shortage: -${currencyFormat.format(difference.abs())}';
+                              diffColor = Colors.red[700]!;
+                            } else {
+                              diffText = 'Perfectly Matched';
+                              diffColor = Colors.blue[700]!;
+                            }
+
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[50],
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey[200]!),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Total Collection', style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.bold)),
+                                      Text(currencyFormat.format(totalCollection), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                  const Divider(height: 12),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('STATUS', style: TextStyle(fontSize: 12, color: diffColor, fontWeight: FontWeight.bold)),
+                                      Text(diffText, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: diffColor)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
                         ),
                       ],
                     ),

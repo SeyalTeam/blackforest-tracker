@@ -361,33 +361,67 @@ class _ManagerClosingReportScreenState extends State<ManagerClosingReportScreen>
               ],
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'NET AMOUNT',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green[800],
-                    ),
+            
+            // Collection & Difference Calculation
+            Builder(
+              builder: (context) {
+                final net = (stat['net'] ?? stat['totalSales'] ?? 0).toDouble();
+                final cash = (stat['cash'] ?? 0).toDouble();
+                final upi = (stat['upi'] ?? 0).toDouble();
+                final card = (stat['card'] ?? 0).toDouble();
+                
+                final totalCollection = cash + upi + card;
+                final difference = totalCollection - net;
+                
+                String diffText = '';
+                Color diffColor = Colors.grey;
+                if (difference > 0) {
+                  diffText = 'Excess: +${format.format(difference)}';
+                  diffColor = Colors.green[700]!;
+                } else if (difference < 0) {
+                  diffText = 'Shortage: -${format.format(difference.abs())}';
+                  diffColor = Colors.red[700]!;
+                } else {
+                  diffText = 'Perfectly Matched';
+                  diffColor = Colors.blue[700]!;
+                }
+
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[200]!),
                   ),
-                  Text(
-                    format.format(stat['net'] ?? stat['totalSales'] ?? 0),
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.green[900],
-                    ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Net Sales (Total - Exp)', style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.bold)),
+                          Text(format.format(net), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Total Collection', style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.bold)),
+                          Text(format.format(totalCollection), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const Divider(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('STATUS', style: TextStyle(fontSize: 12, color: diffColor, fontWeight: FontWeight.bold)),
+                          Text(diffText, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: diffColor)),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              }
             ),
           ],
         ),
