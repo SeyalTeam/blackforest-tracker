@@ -32,6 +32,7 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
   // Filters
   String _selectedOrderType = 'All'; // 'All', 'Table Order', 'Counter Bill'
   String? _selectedWaiterId;
+  String _selectedStatus = 'All'; // 'All', 'Ordered', 'Completed', 'Settled', 'Cancelled'
   Map<String, String> _waiterMap = {}; // id -> name
 
   @override
@@ -142,6 +143,12 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
   void _applyFilters() {
     setState(() {
       _filteredBills = _allBills.where((bill) {
+        // Filter by Status
+        if (_selectedStatus != 'All') {
+          final status = bill['status']?.toString().toUpperCase() ?? 'UNKNOWN';
+          if (status != _selectedStatus.toUpperCase()) return false;
+        }
+
         // Filter by Order Type
         bool isTableOrder = false;
         final tableDetails = bill['tableDetails'];
@@ -438,7 +445,32 @@ class _BranchBillsScreenState extends State<BranchBillsScreen> {
         ],
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: ['All', 'Ordered', 'Completed', 'Settled', 'Cancelled'].map((status) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: ChoiceChip(
+                    label: Text(status, style: TextStyle(fontSize: 12, color: _selectedStatus == status ? Colors.white : Colors.black87)),
+                    selected: _selectedStatus == status,
+                    selectedColor: Colors.blue,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _selectedStatus = status;
+                          _applyFilters();
+                        });
+                      }
+                    },
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
           if (_selectedOrderType != 'All' || _selectedWaiterId != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
