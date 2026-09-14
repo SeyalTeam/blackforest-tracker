@@ -18,6 +18,8 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
   List<dynamic> _branches = [];
   List<dynamic> _companies = [];
 
+  String? _selectedCompanyId;
+
   @override
   void initState() {
     super.initState();
@@ -45,17 +47,22 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
         _branches = results[1] as List<dynamic>;
         _companies = results[2] as List<dynamic>;
         _isLoading = false;
+        
+        // Auto-select first company if available
+        final grouped = _groupStatsByCompany();
+        if (grouped.isNotEmpty && _selectedCompanyId == null) {
+          _selectedCompanyId = grouped.keys.first;
+        }
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to load dashboard: $e';
+        _errorMessage = 'Failed to load report: $e';
         _isLoading = false;
       });
     }
   }
 
-  Map<String, Map<String, dynamic>> _aggregateByCompany() {
-    // Group branch stats by company
+  Map<String, List<Map<String, dynamic>>> _groupStatsByCompany() {
     final stats = _billingReport?['stats'] as List<dynamic>? ?? [];
     
     // Create branchName -> companyId map
@@ -67,45 +74,35 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
       branchToCompany[name] = cId;
     }
 
-    // Create companyId -> companyName map
-    final companyNames = <String, String>{};
-    for (var c in _companies) {
-      final id = (c['id'] ?? c['_id'])?.toString() ?? '';
-      companyNames[id] = c['name']?.toString() ?? 'Unknown Company';
-    }
-
-    // Aggregate
-    final Map<String, Map<String, dynamic>> aggregated = {};
+    // Grouping
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
 
     for (var stat in stats) {
       final branchName = stat['branchName']?.toString() ?? '';
       final cId = branchToCompany[branchName] ?? 'unknown';
       
-      // If the manager has specific companies, filter to only those (though backend should already do this)
       if (widget.managerCompanyIds.isNotEmpty && cId != 'unknown' && !widget.managerCompanyIds.contains(cId)) {
         continue;
       }
 
-      final cName = cId == 'unknown' ? 'Other Branches' : (companyNames[cId] ?? 'Unknown Company');
-
-      if (!aggregated.containsKey(cName)) {
-        aggregated[cName] = {
-          'totalAmount': 0.0,
-          'totalBills': 0,
-          'cash': 0.0,
-          'upi': 0.0,
-          'card': 0.0,
-        };
+      if (!grouped.containsKey(cId)) {
+        grouped[cId] = [];
       }
-
-      aggregated[cName]!['totalAmount'] += (stat['totalAmount'] ?? 0).toDouble();
-      aggregated[cName]!['totalBills'] += (stat['totalBills'] ?? 0) as int;
-      aggregated[cName]!['cash'] += (stat['cash'] ?? 0).toDouble();
-      aggregated[cName]!['upi'] += (stat['upi'] ?? 0).toDouble();
-      aggregated[cName]!['card'] += (stat['card'] ?? 0).toDouble();
+      grouped[cId]!.add(stat as Map<String, dynamic>);
     }
 
-    return aggregated;
+    return grouped;
+  }
+
+  String _getCompanyName(String companyId) {
+    if (companyId == 'unknown') return 'Other Branches';
+    for (var c in _companies) {
+      final id = (c['id'] ?? c['_id'])?.toString() ?? '';
+      if (id == companyId) {
+        return c['name']?.toString() ?? 'Unknown Company';
+      }
+    }
+    return 'Unknown Company';
   }
 
   @override
@@ -129,186 +126,190 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
         ),
       );
     } else {
-      final aggregated = _aggregateByCompany();
-      final totals = _billingReport?['totals'] ?? {};
+      final groupedStats = _groupStatsByCompany();
 
-      bodyContent = RefreshIndicator(
-        onRefresh: _fetchData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16.0),
+      if (groupedStats.isEmpty) {
+        bodyContent = const Center(
+          child: Text('No billing data available.', style: TextStyle(color: Colors.grey)),
+        );
+      } else {
+        // Ensure selected company is valid
+        if (_selectedCompanyId == null || !groupedStats.containsKey(_selectedCompanyId)) {
+          _selectedCompanyId = groupedStats.keys.first;
+        }
+
+        final selectedStats = groupedStats[_selectedCompanyId]!;
+        final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
+
+        bodyContent = RefreshIndicator(
+          onRefresh: _fetchData,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildOverallTotals(totals),
-              const SizedBox(height: 24),
-              const Text(
-                'Company Reports',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              // Company Tabs
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: groupedStats.keys.map((cId) {
+                      final isSelected = cId == _selectedCompanyId;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: ChoiceChip(
+                          label: Text(_getCompanyName(cId)),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            if (selected) {
+                              setState(() {
+                                _selectedCompanyId = cId;
+                              });
+                            }
+                          },
+                          selectedColor: Colors.blue[600],
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : Colors.black87,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                          backgroundColor: Colors.grey[200],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
               ),
-              const SizedBox(height: 12),
-              if (aggregated.isEmpty)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32.0),
-                    child: Text('No billing data for today.', style: TextStyle(color: Colors.grey)),
-                  ),
-                )
-              else
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 0.85,
-                  ),
-                  itemCount: aggregated.length,
+              
+              // Branch List
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: selectedStats.length,
                   itemBuilder: (context, index) {
-                    final cName = aggregated.keys.elementAt(index);
-                    final data = aggregated[cName]!;
-                    return _buildCompanyCard(cName, data);
+                    final stat = selectedStats[index];
+                    return _buildBranchCard(stat, currencyFormat);
                   },
                 ),
+              ),
             ],
           ),
-        ),
-      );
+        );
+      }
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Billing Report'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
-        elevation: 0,
+        elevation: 0.5,
       ),
       body: bodyContent,
     );
   }
 
-  Widget _buildOverallTotals(Map<String, dynamic> totals) {
-    final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
-    
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.blue[700]!, Colors.blue[900]!],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  Widget _buildBranchCard(Map<String, dynamic> stat, NumberFormat format) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Branch Name Header
+            Row(
+              children: [
+                Icon(Icons.storefront, color: Colors.blue[700], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    stat['branchName']?.toString().toUpperCase() ?? 'UNKNOWN BRANCH',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+            
+            // Metrics Grid
+            Row(
+              children: [
+                Expanded(child: _buildMetric('TOTAL BILLS', '${stat['totalBills'] ?? 0}')),
+                Expanded(child: _buildMetric('CASH TOTAL', format.format(stat['cash'] ?? 0))),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(child: _buildMetric('UPI PAYMENTS', format.format(stat['upi'] ?? 0))),
+                Expanded(child: _buildMetric('CARD REVENUE', format.format(stat['card'] ?? 0))),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'TOTAL AMOUNT',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green[800],
+                    ),
+                  ),
+                  Text(
+                    format.format(stat['totalAmount'] ?? 0),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.green[900],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withValues(alpha: 0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Overall Today',
-            style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            currencyFormat.format((totals['totalAmount'] ?? 0).toDouble()),
-            style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildMiniStat('BILLS', (totals['totalBills'] ?? 0).toString()),
-              _buildMiniStat('CASH', currencyFormat.format((totals['cash'] ?? 0).toDouble())),
-              _buildMiniStat('ONLINE', currencyFormat.format(((totals['upi'] ?? 0) + (totals['card'] ?? 0)).toDouble())),
-            ],
-          ),
-        ],
       ),
     );
   }
 
-  Widget _buildMiniStat(String label, String value) {
+  Widget _buildMetric(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[500],
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
         ),
       ],
-    );
-  }
-
-  Widget _buildCompanyCard(String companyName, Map<String, dynamic> data) {
-    final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
-    
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            companyName,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const Spacer(),
-          Text(
-            'Total Sales',
-            style: TextStyle(color: Colors.grey[600], fontSize: 11),
-          ),
-          Text(
-            currencyFormat.format(data['totalAmount']),
-            style: const TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Bills', style: TextStyle(color: Colors.grey[500], fontSize: 10)),
-                  Text('${data['totalBills']}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text('Online', style: TextStyle(color: Colors.grey[500], fontSize: 10)),
-                  Text(currencyFormat.format(data['upi'] + data['card']), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
