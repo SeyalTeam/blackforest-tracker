@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
+import 'branch_closing_entries.dart';
 
 class ManagerClosingReportScreen extends StatefulWidget {
   final List<String> managerCompanyIds;
@@ -309,7 +310,14 @@ class _ManagerClosingReportScreenState extends State<ManagerClosingReportScreen>
   Widget _buildBranchCard(Map<String, dynamic> stat, NumberFormat format) {
     // Determine the branch ID for navigation
     return InkWell(
-      onTap: null, // TODO: Add Branch Closing Entries screen if needed
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BranchClosingEntriesScreen(stat: stat),
+          ),
+        );
+      },
       child: Card(
         margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
