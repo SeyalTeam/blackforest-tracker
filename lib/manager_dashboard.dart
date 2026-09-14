@@ -38,7 +38,7 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
 
       final results = await Future.wait([
         ApiService.instance.fetchBranchBillingReport(startDate: dateStr, endDate: dateStr),
-        ApiService.instance.fetchBranches(),
+        ApiService.instance.fetchBranches(forceRefresh: true),
         ApiService.instance.fetchCompanies(),
       ]);
 
@@ -50,7 +50,7 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
         
         // Auto-select first company if available
         final grouped = _groupStatsByCompany();
-        if (grouped.isNotEmpty && _selectedCompanyId == null) {
+        if (grouped.isNotEmpty && (_selectedCompanyId == null || !grouped.containsKey(_selectedCompanyId))) {
           _selectedCompanyId = grouped.keys.first;
         }
       });
@@ -65,21 +65,47 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
   Map<String, List<Map<String, dynamic>>> _groupStatsByCompany() {
     final stats = _billingReport?['stats'] as List<dynamic>? ?? [];
     
-    // Create branchName -> companyId map
-    final branchToCompany = <String, String>{};
-    for (var b in _branches) {
-      final name = b['name']?.toString() ?? '';
-      final c = b['company'];
-      final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-      branchToCompany[name] = cId;
-    }
-
     // Grouping
     final Map<String, List<Map<String, dynamic>>> grouped = {};
 
+    // First, initialize all branches that belong to the manager's companies (so we show 0 sales)
+    for (var b in _branches) {
+      final bName = b['name']?.toString() ?? '';
+      final c = b['company'];
+      final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+      
+      if (cId.isNotEmpty && (widget.managerCompanyIds.isEmpty || widget.managerCompanyIds.contains(cId))) {
+        if (!grouped.containsKey(cId)) {
+          grouped[cId] = [];
+        }
+        
+        // Add a 0-value template for this branch
+        grouped[cId]!.add({
+          'branchName': bName,
+          'totalBills': 0,
+          'cash': 0.0,
+          'upi': 0.0,
+          'card': 0.0,
+          'totalAmount': 0.0,
+        });
+      }
+    }
+
+    // Now overlay the actual stats from the report
     for (var stat in stats) {
       final branchName = stat['branchName']?.toString() ?? '';
-      final cId = branchToCompany[branchName] ?? 'unknown';
+      
+      // Find which company this branch belongs to
+      String foundCompanyId = '';
+      for (var b in _branches) {
+        if ((b['name']?.toString() ?? '') == branchName) {
+          final c = b['company'];
+          foundCompanyId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+          break;
+        }
+      }
+      
+      final cId = foundCompanyId.isNotEmpty ? foundCompanyId : 'unknown';
       
       if (widget.managerCompanyIds.isNotEmpty && cId != 'unknown' && !widget.managerCompanyIds.contains(cId)) {
         continue;
@@ -88,7 +114,14 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
       if (!grouped.containsKey(cId)) {
         grouped[cId] = [];
       }
-      grouped[cId]!.add(stat as Map<String, dynamic>);
+
+      // Find the template we added earlier and replace it, or add if it wasn't there
+      final existingIndex = grouped[cId]!.indexWhere((s) => s['branchName'] == branchName);
+      if (existingIndex >= 0) {
+        grouped[cId]![existingIndex] = stat as Map<String, dynamic>;
+      } else {
+        grouped[cId]!.add(stat as Map<String, dynamic>);
+      }
     }
 
     return grouped;
