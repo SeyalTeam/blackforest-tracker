@@ -405,7 +405,7 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildMetric(String label, String value) {
