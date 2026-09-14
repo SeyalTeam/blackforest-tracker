@@ -16,6 +16,7 @@ import 'api_service.dart';
 import 'camera_page.dart';
 import 'login.dart';
 import 'geofence_util.dart';
+import 'notification_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -38,12 +39,16 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isProcessingPunch = false;
   String? _attendanceDocId;
   bool _hasActiveSession = false;
+  bool _activeSessionHasPhoto = true;
+  String? _lastPunchOutType;
   File? _capturedPunchInPhoto;
   List<dynamic> _rawActivities = [];
 
   Timer? _timer;
   Timer? _geofenceTimer;          // polls GPS every 60s while session is active
   bool _autoPunchOutFired = false; // prevents double-fire on same geofence exit
+  bool _autoPunchInFired = false;
+  StreamSubscription<String?>? _notificationSubscription;
   Duration _workDuration = Duration.zero;
   Duration _breakDuration = Duration.zero;
   List<Map<String, dynamic>> _activities = [];
@@ -51,15 +56,21 @@ class _ProfilePageState extends State<ProfilePage> {
 
 
   @override
-  void initState() {
+    void initState() {
     super.initState();
     _loadEmployeeData();
+    _notificationSubscription = NotificationService().onNotificationClick.listen((payload) {
+      if (payload == 'auto_punch_in') {
+        _autoCaptureAndPunchIn();
+      }
+    });
   }
 
   @override
-  void dispose() {
+    void dispose() {
     _timer?.cancel();
     _geofenceTimer?.cancel();
+    _notificationSubscription?.cancel();
     super.dispose();
   }
 
@@ -198,6 +209,9 @@ class _ProfilePageState extends State<ProfilePage> {
       var totalWork = Duration.zero;
       var totalBreak = Duration.zero;
       var activeSessionFound = false;
+      var activePhotoFound = true;
+      String? latestPunchOutType;
+      DateTime? latestPunchOutTime;
 
       if (docs.isNotEmpty && docs.first is Map<String, dynamic>) {
         final firstDoc = docs.first as Map<String, dynamic>;
@@ -303,6 +317,13 @@ class _ProfilePageState extends State<ProfilePage> {
             }
 
             // ── Only count today's sessions toward the work timer ─────────
+            if (punchOut != null) {
+              if (latestPunchOutTime == null || punchOut.isAfter(latestPunchOutTime)) {
+                latestPunchOutTime = punchOut;
+                latestPunchOutType = rawActivity['punchOutType']?.toString();
+              }
+            }
+
             final isToday = punchIn.isAfter(localMidnight) ||
                 (punchOut != null && punchOut.isAfter(localMidnight));
 
@@ -349,6 +370,8 @@ class _ProfilePageState extends State<ProfilePage> {
             if (status == 'active') {
               // Normal active session for today — start the live ticker
               activeSessionFound = true;
+              final capturedImg = rawActivity['capturedImage'];
+              activePhotoFound = capturedImg != null && capturedImg.toString().trim().isNotEmpty;
               final activeStart = punchIn;
               final pastWork = totalWork - DateTime.now().difference(activeStart);
               _timer?.cancel();
@@ -399,6 +422,8 @@ class _ProfilePageState extends State<ProfilePage> {
         _workDuration = totalWork;
         _breakDuration = totalBreak;
         _hasActiveSession = activeSessionFound;
+        _activeSessionHasPhoto = activePhotoFound;
+        _lastPunchOutType = latestPunchOutType;
         // dayType is only meaningful after midnight for a COMPLETED past day.
         // Never show half/full day badge for today's ongoing session.
         final todayStr = DateFormat('yyyy-MM-dd').format(localMidnight);
@@ -416,11 +441,12 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // Start or stop the geofence watcher based on session state
       if (activeSessionFound) {
-        _autoPunchOutFired = false; // reset so a fresh punch-in can trigger auto punch-out
-        _startGeofenceWatcher();
+        _autoPunchOutFired = false; // reset so a fresh punch-out can trigger auto punch-out
       } else {
-        _stopGeofenceWatcher();
+        _autoPunchInFired = false; // reset so auto punch-in is enabled whenever not in a session
+        _autoPunchOutFired = false;
       }
+      _startGeofenceWatcher();
 
 
     } catch (e) {
@@ -545,10 +571,11 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() {
         _capturedPunchInPhoto = File(capturedFile.path);
       });
+      await _submitPunchIn(isAuto: true);
     }
   }
 
-  Future<void> _submitPunchIn() async {
+  Future<void> _submitPunchIn({bool isAuto = false}) async {
     if (_capturedPunchInPhoto == null || _hasActiveSession || _isProcessingPunch) return;
 
     setState(() {
@@ -565,7 +592,7 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       final mediaId = await _uploadMedia(_capturedPunchInPhoto!);
       if (mediaId != null) {
-        await _punchIn(mediaId);
+        await _punchIn(mediaId, isAuto: isAuto);
         if (mounted) {
           setState(() {
             _capturedPunchInPhoto = null;
@@ -589,7 +616,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> _punchIn(String mediaId) async {
+  Future<void> _punchIn(String mediaId, {bool isAuto = false}) async {
     final token = await _storage.read(key: 'token');
     final userId = await _storage.read(key: 'userId');
     if (token == null || userId == null) return;
@@ -611,6 +638,7 @@ class _ProfilePageState extends State<ProfilePage> {
       'punchIn': now.toUtc().toIso8601String(),
       'status': 'active',
       'capturedImage': mediaId,
+      'punchInType': isAuto ? 'auto' : 'manual',
       if (position != null) 'latitude': position.latitude,
       if (position != null) 'longitude': position.longitude,
     };
@@ -630,6 +658,7 @@ class _ProfilePageState extends State<ProfilePage> {
           );
           await _fetchEmployeeProfile();
           await _fetchAttendance();
+          _lastPunchOutType = null;
         }
       } else {
         final localMidnight = DateTime(now.year, now.month, now.day);
@@ -652,6 +681,7 @@ class _ProfilePageState extends State<ProfilePage> {
           );
           await _fetchEmployeeProfile();
           await _fetchAttendance();
+          _lastPunchOutType = null;
         }
       }
     } catch (e) {
@@ -670,19 +700,331 @@ class _ProfilePageState extends State<ProfilePage> {
   /// Starts a 60-second periodic GPS check. If the employee is outside every
   /// branch geofence while a session is active, auto punch-out fires once.
   void _startGeofenceWatcher() {
-    // Already running — don't create a second timer
-    if (_geofenceTimer != null && (_geofenceTimer!.isActive)) return;
-
     _geofenceTimer?.cancel();
-    _geofenceTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
-      if (!mounted || !_hasActiveSession || _autoPunchOutFired) return;
+    _geofenceTimer = null;
+    
+    // Check IMMEDIATELY on start / refresh
+    _checkGeofence();
 
-      final isInside = await GeofenceUtil.isInsideAnyBranch(context, silent: true);
-      if (!isInside && mounted && _hasActiveSession && !_autoPunchOutFired) {
+    _geofenceTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      await _checkGeofence();
+    });
+  }
+
+  Future<void> _checkGeofence() async {
+    if (!mounted || _isProcessingPunch) return;
+
+    final isInside = await GeofenceUtil.isInsideAnyBranch(context, silent: true);
+    debugPrint('GeofenceWatcher tick: isInside=$isInside, hasActive=$_hasActiveSession, activePhoto=$_activeSessionHasPhoto, autoFired=$_autoPunchInFired');
+
+    if (!mounted) return;
+
+    if (_hasActiveSession) {
+      if (!isInside && !_autoPunchOutFired) {
+        if (!_activeSessionHasPhoto) {
+          debugPrint('Auto punch-out held: selfie photo not added yet');
+          return;
+        }
         _autoPunchOutFired = true;
         await _autoPunchOut();
       }
+    } else {
+      // Auto punch-in proceeds ONLY IF the previous session ended via an AUTO punch-out
+      final shouldAutoPunchIn = _lastPunchOutType == 'auto';
+      debugPrint('GeofenceWatcher tick: isInside=$isInside, shouldAutoPunchIn=$shouldAutoPunchIn (lastPunchOut=$_lastPunchOutType)');
+
+      if (shouldAutoPunchIn && isInside && !_autoPunchInFired) {
+        _autoPunchInFired = true;
+        await _autoPunchInWithoutSelfie();
+      } else if (!isInside) {
+        _autoPunchInFired = false;
+      }
+    }
+  }
+
+  Future<void> _autoPunchInWithoutSelfie() async {
+    if (_hasActiveSession || _isProcessingPunch) return;
+
+    setState(() {
+      _isProcessingPunch = true;
     });
+
+    final token = await _storage.read(key: 'token');
+    final userId = await _storage.read(key: 'userId');
+    if (token == null || userId == null) {
+      setState(() => _isProcessingPunch = false);
+      return;
+    }
+
+    Position? position;
+    try {
+      position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      ).timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('AutoPunchIn location error: $e');
+      try {
+        position = await Geolocator.getLastKnownPosition();
+      } catch (_) {}
+    }
+
+    final now = DateTime.now();
+    final newActivity = {
+      'type': 'session',
+      'punchIn': now.toUtc().toIso8601String(),
+      'status': 'active',
+      'capturedImage': null,
+      'punchInType': 'auto',
+      if (position != null) 'latitude': position.latitude,
+      if (position != null) 'longitude': position.longitude,
+    };
+
+    try {
+      if (_attendanceDocId != null) {
+        final updatedActivities = List.from(_rawActivities)..add(newActivity);
+        final url = '${ApiService.baseUrl}/attendance/$_attendanceDocId';
+        final response = await http.patch(
+          Uri.parse(url),
+          headers: token.isNotEmpty
+              ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+              : {},
+          body: jsonEncode({'activities': updatedActivities}),
+        );
+        debugPrint('AutoPunchIn PATCH response: ${response.statusCode} -> ${response.body}');
+        if (response.statusCode == 200) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.bolt, color: Colors.amber),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Auto punched in! Please add your selfie photo.',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.blue[800],
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          await _fetchEmployeeProfile();
+          await _fetchAttendance();
+          _lastPunchOutType = null;
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Auto punch-in rejected by server (${response.statusCode}): ${response.body}'),
+                backgroundColor: Colors.red[800],
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        }
+      } else {
+        final localMidnight = DateTime(now.year, now.month, now.day);
+        final dateString = DateFormat('yyyy-MM-dd').format(localMidnight);
+
+        final url = '${ApiService.baseUrl}/attendance';
+        final response = await http.post(
+          Uri.parse(url),
+          headers: token.isNotEmpty
+              ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+              : {},
+          body: jsonEncode({
+            'user': userId,
+            'date': localMidnight.toUtc().toIso8601String(),
+            'dateString': dateString,
+            'activities': [newActivity],
+          }),
+        );
+        debugPrint('AutoPunchIn POST response: ${response.statusCode} -> ${response.body}');
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.bolt, color: Colors.amber),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Auto punched in! Please add your selfie photo.',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.blue[800],
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          await _fetchEmployeeProfile();
+          await _fetchAttendance();
+          _lastPunchOutType = null;
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Auto punch-in rejected by server (${response.statusCode}): ${response.body}'),
+                backgroundColor: Colors.red[800],
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Auto punch in error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingPunch = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _attachSelfieToActiveSession() async {
+    if (_isProcessingPunch) return;
+
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No camera found')),
+      );
+      return;
+    }
+
+    final XFile? capturedFile = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CameraPage(cameras: cameras, isFaceCapture: true),
+      ),
+    );
+
+    if (capturedFile == null) return;
+
+    final photoFile = File(capturedFile.path);
+    setState(() {
+      _capturedPunchInPhoto = photoFile;
+      _isProcessingPunch = true;
+    });
+
+    try {
+      final mediaId = await _uploadMedia(photoFile);
+      if (mediaId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to upload selfie photo.')),
+          );
+        }
+        return;
+      }
+
+      final token = await _storage.read(key: 'token');
+      if (token == null || _attendanceDocId == null) return;
+
+      final updatedActivities = List.from(_rawActivities);
+      for (var i = updatedActivities.length - 1; i >= 0; i--) {
+        final activity = updatedActivities[i];
+        if (activity is Map && activity['type'] == 'session' && activity['status'] == 'active') {
+          activity['capturedImage'] = mediaId;
+          break;
+        }
+      }
+
+      final url = '${ApiService.baseUrl}/attendance/$_attendanceDocId';
+      final response = await http.patch(
+        Uri.parse(url),
+        headers: token.isNotEmpty
+            ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+            : {},
+        body: jsonEncode({'activities': updatedActivities}),
+      );
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Selfie attached successfully! You can now punch out when done.'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        await _fetchAttendance();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to update attendance: ${response.statusCode}')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error attaching selfie: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessingPunch = false);
+      }
+    }
+  }
+
+  Future<void> _autoCaptureAndPunchIn() async {
+    if (_hasActiveSession || _isProcessingPunch) return;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.location_on, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Inside branch! Please take a selfie to complete punch-in.',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green[700],
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      _autoPunchInFired = false;
+      return;
+    }
+
+    if (!mounted) return;
+    final XFile? capturedFile = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CameraPage(cameras: cameras, isFaceCapture: true),
+      ),
+    );
+
+    if (capturedFile != null) {
+      setState(() {
+        _capturedPunchInPhoto = File(capturedFile.path);
+      });
+      await _submitPunchIn(isAuto: true);
+    } else {
+      // User cancelled camera without taking photo: allow re-trigger
+      _autoPunchInFired = false;
+    }
   }
 
   void _stopGeofenceWatcher() {
@@ -731,6 +1073,8 @@ class _ProfilePageState extends State<ProfilePage> {
       );
 
       if (response.statusCode == 200) {
+        _lastPunchOutType = 'auto';
+        _autoPunchInFired = false;
         _stopGeofenceWatcher();
         await _fetchEmployeeProfile();
         await _fetchAttendance();
@@ -768,6 +1112,45 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _punchOut() async {
     if (!_hasActiveSession || _attendanceDocId == null || _isProcessingPunch) return;
+
+    if (!_activeSessionHasPhoto) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+              SizedBox(width: 8),
+              Text('Photo Required'),
+            ],
+          ),
+          content: const Text(
+            'You cannot punch out yet! Please add your selfie photo to complete today\'s attendance first.',
+            style: TextStyle(fontSize: 15),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _attachSelfieToActiveSession();
+              },
+              icon: const Icon(Icons.camera_alt, size: 18),
+              label: const Text('Add Photo Now'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isProcessingPunch = true;
@@ -807,6 +1190,8 @@ class _ProfilePageState extends State<ProfilePage> {
         );
         await _fetchEmployeeProfile();
         await _fetchAttendance();
+        _autoPunchInFired = false;
+        _lastPunchOutType = 'manual';
       }
     } catch (e) {
       debugPrint('Punch Out Error: $e');
@@ -897,6 +1282,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 onRefresh: () async {
                   await _fetchEmployeeProfile();
                   await _fetchAttendance();
+                  _autoPunchInFired = false;
+                  await _checkGeofence();
                 },
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -904,7 +1291,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: Column(
                     children: [
                       GestureDetector(
-                        onTap: _hasActiveSession ? null : _capturePhoto,
+                        onTap: _hasActiveSession
+                            ? (!_activeSessionHasPhoto ? _attachSelfieToActiveSession : null)
+                            : _capturePhoto,
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
@@ -913,7 +1302,9 @@ class _ProfilePageState extends State<ProfilePage> {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: _hasActiveSession ? Colors.green : Colors.grey[300]!,
+                                  color: _hasActiveSession
+                                      ? (_activeSessionHasPhoto ? Colors.green : Colors.red)
+                                      : Colors.grey[300]!,
                                   width: _hasActiveSession ? 3 : 2,
                                 ),
                                 boxShadow: [
@@ -950,9 +1341,74 @@ class _ProfilePageState extends State<ProfilePage> {
                                   child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
                                 ),
                               ),
+                            if (_hasActiveSession && !_activeSessionHasPhoto)
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.red,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.add_a_photo, color: Colors.white, size: 18),
+                                ),
+                              ),
                           ],
                         ),
                       ),
+                      if (_hasActiveSession && !_activeSessionHasPhoto) ...[
+                        const SizedBox(height: 12),
+                        GestureDetector(
+                          onTap: _attachSelfieToActiveSession,
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFEBEE),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.redAccent, width: 1.5),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(7),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.red,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Selfie Required for Punch-In',
+                                        style: TextStyle(
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      SizedBox(height: 2),
+                                      Text(
+                                        'Tap here to add selfie. Punch-out is blocked until added.',
+                                        style: TextStyle(
+                                          color: Colors.black87,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(Icons.camera_alt, color: Colors.red, size: 20),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 15),
                       Wrap(
                         alignment: WrapAlignment.center,
@@ -1021,6 +1477,87 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
 
                       const SizedBox(height: 16),
+                      if (!_hasActiveSession) ...[
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE3F2FD),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFF90CAF9)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF1976D2),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.my_location, color: Colors.white, size: 16),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _lastPunchOutType == 'auto'
+                                          ? 'Auto Punch-In Ready (Auto Punched Out)'
+                                          : 'Punched Out (Manual)',
+                                      style: const TextStyle(
+                                        color: Color(0xFF0D47A1),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    Text(
+                                      _lastPunchOutType == 'auto'
+                                          ? 'Will auto punch-in when you enter branch'
+                                          : 'Manual punch out active. Use camera to punch in.',
+                                      style: const TextStyle(
+                                        color: Color(0xFF1565C0),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1976D2),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onPressed: _isProcessingPunch ? null : () => _checkGeofence(),
+                                child: _isProcessingPunch
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text(
+                                        'Check Now',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(
@@ -1114,7 +1651,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           width: double.infinity,
                           height: 50,
                           child: ElevatedButton.icon(
-                            onPressed: _isProcessingPunch ? null : _submitPunchIn,
+                            onPressed: _isProcessingPunch ? null : () => _submitPunchIn(isAuto: false),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
                               foregroundColor: Colors.white,
