@@ -207,6 +207,38 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> fetchBranchBillingReport({
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final token = await _getToken();
+      String url = '$_baseUrl/reports/branch-billing';
+      
+      List<String> queryParams = [];
+      if (startDate != null) queryParams.add('startDate=$startDate');
+      if (endDate != null) queryParams.add('endDate=$endDate');
+      
+      if (queryParams.isNotEmpty) {
+        url += '?${queryParams.join('&')}';
+      }
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        return json.decode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to fetch billing report: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching branch billing report: $e');
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> fetchReviews({
     DateTime? date, 
     String? branchId,

@@ -29,6 +29,7 @@ import 'smooth_navigation.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'profile_page.dart';
 import 'chat_page.dart';
+import 'manager_dashboard.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -122,6 +123,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _selectedRawMaterialDealerId;
   String? _cachedPlaceholderMediaId;
   String? _profilePhotoUrl;
+  List<String> _managerCompanyIds = [];
 
 
   bool _isLoadingRawMaterial = false;
@@ -382,6 +384,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _storage.read(key: 'userIsStock'),
       _storage.read(key: 'userId'),
       _storage.read(key: 'user_id'),
+      _storage.read(key: 'managerCompanyIds'),
     ]);
 
     final role = values[0];
@@ -391,6 +394,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final isKit = values[4];
     final isStk = values[5];
     String uId = values[6] ?? values[7] ?? '';
+    final managerCompaniesStr = values[8];
 
     String syncedRole = role ?? '';
     String syncedIsKit = isKit ?? 'false';
@@ -398,6 +402,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String syncedKitchenId = kId ?? '';
     List<String> syncedKitchenCategoryIds =
         catIds?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
+    List<String> syncedManagerCompanyIds = managerCompaniesStr?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
 
     // Immediately update local role state from cached storage to prevent UI flash
     if (mounted && syncedRole.isNotEmpty) {
@@ -405,6 +410,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _userRole = syncedRole.toLowerCase();
         _isKitchenEnabled = syncedIsKit == 'true';
         _isStockEnabled = syncedIsStk == 'true';
+        _managerCompanyIds = syncedManagerCompanyIds;
         if (_userRole == 'chef') {
           _stockTabSelected = 2;
           HomeScreen.activeStockTab = 2;
@@ -438,6 +444,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         await _storage.write(key: 'userRole', value: profileRole);
         await _storage.write(key: 'userIsKitchen', value: profileIsKitchen.toString());
         await _storage.write(key: 'userIsStock', value: profileIsStock.toString());
+
+        if (profileRole == 'manager') {
+          final rawCompanies = profile['manager_companies'];
+          final companyIds = <String>[];
+          if (rawCompanies is List) {
+            for (final c in rawCompanies) {
+              final id = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+              if (id.isNotEmpty) companyIds.add(id);
+            }
+          }
+          await _storage.write(key: 'managerCompanyIds', value: companyIds.join(','));
+          if (mounted) {
+            setState(() {
+              _managerCompanyIds = companyIds;
+            });
+          }
+        }
 
         // Extract employee photo for app bar avatar
         final employeeData = profile['employee'];
@@ -2459,12 +2482,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     Widget stockBody;
     if (_isManager) {
-      // Manager sees an empty home page — navigation via footer only
-      stockBody = const Center(
-        child: Text(
-          'Welcome, Manager',
-          style: TextStyle(color: Colors.grey, fontSize: 16),
-        ),
+      // Manager sees the billing report dashboard grid
+      stockBody = ManagerDashboard(
+        managerCompanyIds: _managerCompanyIds,
       );
     } else if (_stockTabSelected == 0) {
       stockBody = _buildStockAddView();
@@ -4439,6 +4459,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               chatBadgeCount: _chatUnreadCount,
               footerMode: 'STOCK',
               branchId: _userBranchId,
+              companyIds: _managerCompanyIds,
             ),
           ),
         ).then((_) {
@@ -4510,6 +4531,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               chatBadgeCount: _chatUnreadCount,
               footerMode: 'KITCHEN',
               branchId: _userBranchId,
+              companyIds: _managerCompanyIds,
             ),
           ),
         );
@@ -9521,7 +9543,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const ReviewListScreen(),
+                      builder: (context) => ReviewListScreen(
+                        companyIds: _managerCompanyIds,
+                      ),
                     ),
                   );
                 }
