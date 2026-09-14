@@ -249,29 +249,40 @@ class ApiService {
       final startOfDay = DateTime(date.year, date.month, date.day).toUtc().toIso8601String();
       final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999).toUtc().toIso8601String();
       
-      final url = '$_baseUrl/billings?'
-          'where[branch][equals]=$branchId&'
-          'where[createdAt][greater_than_equal]=$startOfDay&'
-          'where[createdAt][less_than_equal]=$endOfDay&'
-          'where[status][equals]=completed&'
-          'limit=1000&'
-          'depth=1&'
-          'sort=-createdAt';
-      
-      debugPrint('Fetching bills from: $url');
+      List<dynamic> allBills = [];
+      int page = 1;
+      bool hasNextPage = true;
 
-      final res = await http.get(
-        Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
-      );
+      while (hasNextPage) {
+        final url = '$_baseUrl/billings?'
+            'where[branch][equals]=$branchId&'
+            'where[createdAt][greater_than_equal]=$startOfDay&'
+            'where[createdAt][less_than_equal]=$endOfDay&'
+            'where[status][equals]=completed&'
+            'limit=100&'
+            'depth=1&'
+            'page=$page&'
+            'sort=-createdAt';
 
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body);
-        return data['docs'] ?? [];
-      } else {
-        debugPrint('Bills API Error: ${res.statusCode} ${res.body}');
-        throw Exception('Failed to fetch bills: ${res.statusCode}');
+        final res = await http.get(
+          Uri.parse(url),
+          headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        );
+
+        if (res.statusCode == 200) {
+          final data = json.decode(res.body);
+          final docs = data['docs'] as List<dynamic>? ?? [];
+          allBills.addAll(docs);
+          
+          hasNextPage = data['hasNextPage'] == true;
+          page++;
+        } else {
+          debugPrint('Bills API Error: ${res.statusCode} ${res.body}');
+          throw Exception('Failed to fetch bills: ${res.statusCode}');
+        }
       }
+      
+      return allBills;
     } catch (e) {
       debugPrint('Error fetching bills: $e');
       rethrow;
