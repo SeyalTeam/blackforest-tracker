@@ -100,24 +100,65 @@ class BranchAttendanceDetailScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          children: [
-                            if (role.isNotEmpty)
-                              Container(
-                                margin: const EdgeInsets.only(right: 6),
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue[50],
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(role, style: TextStyle(fontSize: 10, color: Colors.blue[700])),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                if (role.isNotEmpty)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue[50],
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(role, style: TextStyle(fontSize: 10, color: Colors.blue[700])),
+                                  ),
+                                if (empId.isNotEmpty)
+                                  Text('#$empId', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          // Punch-In / Punch-Out buttons
+                          Row(
+                            children: [
+                              _punchButton(
+                                label: 'IN',
+                                time: firstIn,
+                                color: Colors.green,
+                                icon: Icons.login,
                               ),
-                            if (empId.isNotEmpty)
-                              Text('#$empId', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                          ],
-                        ),
+                              const SizedBox(width: 8),
+                              Builder(
+                                builder: (context) {
+                                  // Get last punch-out from activities
+                                  final activities = item['activities'] as List<dynamic>? ?? [];
+                                  final sessions = activities.where((a) => a['type'] == 'session').toList();
+                                  String lastOut = '--';
+                                  bool isActive = status == 'active' || status == 'on_break';
+                                  for (final s in sessions) {
+                                    if (s['punchOut'] != null) {
+                                      final t = DateFormat('hh:mm a').format(DateTime.parse(s['punchOut']).toLocal());
+                                      lastOut = t;
+                                    }
+                                  }
+                                  if (isActive) lastOut = 'Active';
+                                  return _punchButton(
+                                    label: 'OUT',
+                                    time: lastOut,
+                                    color: isActive ? Colors.orange : Colors.red[400]!,
+                                    icon: Icons.logout,
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                        ],
                       ),
                       children: [
                         const Divider(height: 1),
@@ -153,6 +194,38 @@ class BranchAttendanceDetailScreen extends StatelessWidget {
                 );
               },
             ),
+    );
+  }
+
+  Widget _punchButton({
+    required String label,
+    required String time,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            time,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
+          ),
+        ],
+      ),
     );
   }
 
