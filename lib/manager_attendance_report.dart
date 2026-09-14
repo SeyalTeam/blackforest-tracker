@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
+import 'branch_attendance_detail.dart';
 
 
 class ManagerAttendanceReportScreen extends StatefulWidget {
@@ -264,7 +265,8 @@ class _ManagerAttendanceReportScreenState extends State<ManagerAttendanceReportS
                   itemCount: selectedStats.length,
                   itemBuilder: (context, index) {
                     final stat = selectedStats[index];
-                    return _buildBranchCard(stat, currencyFormat);
+                    final allItems = (_attendanceReport?['items'] as List<dynamic>? ?? []);
+                    return _buildBranchCard(stat, currencyFormat, allItems);
                   },
                 ),
               ),
@@ -305,9 +307,23 @@ class _ManagerAttendanceReportScreenState extends State<ManagerAttendanceReportS
   }
 
   
-  Widget _buildBranchCard(Map<String, dynamic> stat, NumberFormat format) {
+  Widget _buildBranchCard(Map<String, dynamic> stat, NumberFormat format, List<dynamic> allItems) {
+    final branchName = stat['branchName']?.toString() ?? 'Unknown Branch';
+    // Filter all items to only those belonging to this branch
+    final branchItems = allItems.where((item) => item['branchName']?.toString() == branchName).toList();
+
     return InkWell(
-      onTap: null, // TODO: Show branch attendance entries
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BranchAttendanceDetailScreen(
+              branchName: branchName,
+              items: branchItems,
+            ),
+          ),
+        );
+      },
       child: Card(
         margin: const EdgeInsets.only(bottom: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
