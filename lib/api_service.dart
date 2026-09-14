@@ -258,7 +258,9 @@ class ApiService {
         'sort': '-createdAt',
       };
       
-      final uri = Uri.parse('$_baseUrl/api/billings').replace(queryParameters: queryParams);
+      final uri = Uri.parse('$_baseUrl/billings').replace(queryParameters: queryParams);
+      
+      debugPrint('Fetching bills from: $uri');
 
       final res = await http.get(
         uri,
@@ -269,6 +271,7 @@ class ApiService {
         final data = json.decode(res.body);
         return data['docs'] ?? [];
       } else {
+        debugPrint('Bills API Error: ${res.statusCode} ${res.body}');
         throw Exception('Failed to fetch bills: ${res.statusCode}');
       }
     } catch (e) {
