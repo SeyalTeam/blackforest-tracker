@@ -249,22 +249,19 @@ class ApiService {
       final startOfDay = DateTime(date.year, date.month, date.day).toUtc().toIso8601String();
       final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999).toUtc().toIso8601String();
       
-      final queryParams = {
-        'where[branch][equals]': branchId,
-        'where[createdAt][greater_than_equal]': startOfDay,
-        'where[createdAt][less_than_equal]': endOfDay,
-        'where[status][equals]': 'completed',
-        'limit': '1000',
-        'depth': '1',
-        'sort': '-createdAt',
-      };
+      final url = '$_baseUrl/billings?'
+          'where[branch][equals]=$branchId&'
+          'where[createdAt][greater_than_equal]=$startOfDay&'
+          'where[createdAt][less_than_equal]=$endOfDay&'
+          'where[status][equals]=completed&'
+          'limit=1000&'
+          'depth=1&'
+          'sort=-createdAt';
       
-      final uri = Uri.parse('$_baseUrl/billings').replace(queryParameters: queryParams);
-      
-      debugPrint('Fetching bills from: $uri');
+      debugPrint('Fetching bills from: $url');
 
       final res = await http.get(
-        uri,
+        Uri.parse(url),
         headers: token != null ? {'Authorization': 'Bearer $token'} : {},
       );
 
