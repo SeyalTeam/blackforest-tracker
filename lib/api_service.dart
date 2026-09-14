@@ -254,7 +254,7 @@ class ApiService {
           'where[branch][equals]=$branchId&'
           'where[createdAt][greater_than_equal]=$startOfDay&'
           'where[createdAt][less_than_equal]=$endOfDay&'
-          'where[status][equals]=completed&'
+          'where[status][in]=completed,settled&'
           'limit=100&'
           'depth=1&'
           'page=$page&'
