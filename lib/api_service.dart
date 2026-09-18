@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' as http_parser;
 import 'package:intl/intl.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -268,6 +270,70 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('Error fetching closing entry report: $e');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchAttendanceReport({
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final token = await _getToken();
+      Map<String, String> headers = {};
+      if (token != null) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final now = DateTime.now();
+      final startStr = startDate ?? DateFormat('yyyy-MM-dd').format(now);
+      final endStr = endDate ?? DateFormat('yyyy-MM-dd').format(now);
+
+      String url = '$_baseUrl/reports/attendance';
+      url += '?startDate=$startStr&endDate=$endStr';
+
+      debugPrint('Fetching attendance report from: $url');
+      final res = await http.get(Uri.parse(url), headers: headers);
+
+      if (res.statusCode == 200) {
+        return json.decode(res.body);
+      } else {
+        throw Exception('Failed to load attendance report: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching attendance report: $e');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchDealerReport({
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final token = await _getToken();
+      Map<String, String> headers = {};
+      if (token != null) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final now = DateTime.now();
+      final startStr = startDate ?? DateFormat('yyyy-MM-dd').format(now);
+      final endStr = endDate ?? DateFormat('yyyy-MM-dd').format(now);
+
+      String url = '$_baseUrl/reports/dealer';
+      url += '?startDate=$startStr&endDate=$endStr';
+
+      debugPrint('Fetching dealer report from: $url');
+      final res = await http.get(Uri.parse(url), headers: headers);
+
+      if (res.statusCode == 200) {
+        return json.decode(res.body);
+      } else {
+        throw Exception('Failed to load dealer report: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching dealer report: $e');
       rethrow;
     }
   }
@@ -1322,4 +1388,109 @@ class ApiService {
       rethrow;
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  CCTV Report Methods (Watcher Role)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Fetch all CCTV reports visible to the logged-in watcher.
+  Future<List<Map<String, dynamic>>> fetchCctvReports({
+    int limit = 50,
+  }) async {
+    try {
+      final token = await _getToken();
+      final uri = Uri.parse(
+        '$_baseUrl/cctv-reports?limit=$limit&depth=1&sort=-createdAt',
+      );
+      final res = await http.get(
+        uri,
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return ((data['docs'] as List?) ?? [])
+            .cast<Map<String, dynamic>>();
+      } else {
+        debugPrint('fetchCctvReports: ${res.statusCode} ${res.body}');
+        return [];
+      }
+    } catch (e) {
+      debugPrint('fetchCctvReports error: $e');
+      return [];
+    }
+  }
+
+  /// Create a new CCTV report with a screenshot uploaded as multipart/form-data.
+  Future<void> createCctvReport({
+    required File screenshotFile,
+    required String branchId,
+    required String message,
+    required String status,
+  }) async {
+    final token = await _getToken();
+    final uri = Uri.parse('$_baseUrl/cctv-reports');
+
+    // Build multipart request
+    final request = http.MultipartRequest('POST', uri);
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+
+    // Attach screenshot
+    final mimeType = _guessMimeType(screenshotFile.path);
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'screenshot',
+        screenshotFile.path,
+        contentType: http_parser.MediaType.parse(mimeType),
+      ),
+    );
+
+    // JSON fields (PayloadCMS supports _payload JSON field alongside files)
+    request.fields['_payload'] = jsonEncode({
+      'branch': branchId,
+      'message': message,
+      'status': status,
+    });
+
+    final streamed = await request.send();
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception('createCctvReport failed (${res.statusCode}): ${res.body}');
+    }
+  }
+
+  /// PATCH status on an existing CCTV report.
+  Future<void> updateCctvReportStatus(String id, String status) async {
+    try {
+      final token = await _getToken();
+      final res = await http.patch(
+        Uri.parse('$_baseUrl/cctv-reports/$id'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'status': status}),
+      );
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw Exception('updateCctvReportStatus failed (${res.statusCode}): ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  String _guessMimeType(String path) {
+    final ext = path.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      default:
+        return 'image/jpeg';
+    }
+  }
 }
+

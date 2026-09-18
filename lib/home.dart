@@ -31,6 +31,7 @@ import 'profile_page.dart';
 import 'chat_page.dart';
 import 'manager_dashboard.dart';
 import 'manager_home.dart';
+import 'watcher_home.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -153,6 +154,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool get _isManager {
     final normalized = _userRole.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase();
     return normalized == 'manager';
+  }
+
+  bool get _isWatcher {
+    final normalized = _userRole.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase();
+    return normalized == 'watcher';
   }
 
   Widget _buildStoreKeeperListItem(
@@ -2322,6 +2328,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: CircularProgressIndicator(),
         ),
       );
+    }
+    if (_isWatcher) {
+      return WatcherHome(profilePhotoUrl: _profilePhotoUrl ?? '');
     }
     if (_isStoreKeeper) {
       return Scaffold(

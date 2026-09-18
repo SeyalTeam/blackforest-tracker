@@ -28,6 +28,7 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  flutter_background_service: ^5.0.0
   flutter:
     sdk: flutter
 
@@ -44,6 +45,7 @@ dependencies:
   audioplayers: ^6.5.1
   scrollable_positioned_list: ^0.3.8
   camera: ^0.12.0+1
+  image_picker: ^1.1.2
   permission_handler: ^12.0.3
   image: ^4.2.0
   http_parser: ^4.0.0
