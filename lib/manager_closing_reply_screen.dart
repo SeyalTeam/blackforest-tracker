@@ -6,12 +6,16 @@ class ManagerClosingReplyScreen extends StatefulWidget {
   final String branchId;
   final String branchName;
   final List<dynamic> entries;
+  final String? initialReplyType;
+  final String? initialEntryId;
 
   const ManagerClosingReplyScreen({
     super.key,
     required this.branchId,
     required this.branchName,
     required this.entries,
+    this.initialReplyType,
+    this.initialEntryId,
   });
 
   @override
@@ -39,8 +43,13 @@ class _ManagerClosingReplyScreenState extends State<ManagerClosingReplyScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.entries.length == 1) {
-      _selectedEntryId = widget.entries.first['id']?.toString();
+    if (widget.initialReplyType != null) {
+      _replyType = widget.initialReplyType!;
+    }
+    if (widget.initialEntryId != null) {
+      _selectedEntryId = widget.initialEntryId;
+    } else if (widget.entries.length == 1) {
+      _selectedEntryId = widget.entries.first['id']?.toString() ?? widget.entries.first['_id']?.toString();
     }
     for (var controller in _denominations.values) {
       controller.addListener(_calculateTotal);
