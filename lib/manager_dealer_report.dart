@@ -132,7 +132,16 @@ class _ManagerDealerReportScreenState extends State<ManagerDealerReportScreen> {
       }
     }
 
-    return grouped;
+    // Filter out branches with 0 bills (no dealer bills)
+    final filteredGrouped = <String, List<Map<String, dynamic>>>{};
+    for (var entry in grouped.entries) {
+      final validBranches = entry.value.where((stat) => (stat['count'] as int? ?? 0) > 0).toList();
+      if (validBranches.isNotEmpty) {
+        filteredGrouped[entry.key] = validBranches;
+      }
+    }
+
+    return filteredGrouped;
   }
 
   String _getCompanyName(String companyId) {
