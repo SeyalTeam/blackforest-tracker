@@ -98,9 +98,21 @@ class _BranchProductTimeDetailsScreenState extends State<BranchProductTimeDetail
                 final chefName = item['chefName']?.toString() ?? 'Unknown Chef';
                 final prepTime = item['chefPreparationTime'] ?? item['preparationTime'] ?? 0;
                 
-                final time = item['orderedAt'] != null 
-                    ? DateFormat('hh:mm a').format(DateTime.parse(item['orderedAt']).toLocal())
-                    : '';
+                String time = '';
+                if (item['orderedAt'] != null && item['orderedAt'].toString().isNotEmpty) {
+                  final str = item['orderedAt'].toString();
+                  final parsed = DateTime.tryParse(str);
+                  if (parsed != null) {
+                    time = DateFormat('hh:mm a').format(parsed.toLocal());
+                  } else {
+                    try {
+                      final timeDate = DateFormat('HH:mm:ss').parse(str);
+                      time = DateFormat('hh:mm a').format(timeDate);
+                    } catch (_) {
+                      time = str;
+                    }
+                  }
+                }
                 
                 final imageUrl = _productImageUrls[productId] ?? '';
 
