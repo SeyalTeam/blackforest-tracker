@@ -7,6 +7,7 @@ import 'manager_stock_order_report.dart';
 import 'manager_expense_report.dart';
 import 'manager_return_order_report.dart';
 import 'manager_product_time_report.dart';
+import 'manager_employee_list.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -156,6 +157,21 @@ class ManagerHomeGrid extends StatelessWidget {
                       builder: (context) => ManagerProductTimeReportScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
+                    ),
+                  );
+                },
+              ),
+
+              _buildGridItem(
+                context,
+                title: 'Manage Employees',
+                icon: Icons.people,
+                color: Colors.blueGrey,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ManagerEmployeeListScreen(),
                     ),
                   );
                 },

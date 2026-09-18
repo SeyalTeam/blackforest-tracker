@@ -501,7 +501,50 @@ Future<List<dynamic>> fetchManagerClosingReplies({
     }
   }
 
-  Future<void> submitManagerClosingReply(Map<String, dynamic> body) async {
+Future<List<dynamic>> fetchEmployees() async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/employees?limit=2000&where[status][equals]=active';
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        return data['docs'] ?? [];
+      } else {
+        throw Exception('Failed to load employees: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching employees: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateEmployeeRole(String id, String role) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/employees/$id';
+      final res = await http.patch(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'team': role}),
+      );
+
+      if (res.statusCode != 200) {
+        throw Exception('Failed to update employee role: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error updating employee role: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> submitManagerClosingReply (Map<String, dynamic> body) async {
     try {
       final token = await _getToken();
       final url = '$_baseUrl/manager-closing-replies';
