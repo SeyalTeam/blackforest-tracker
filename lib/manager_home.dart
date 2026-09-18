@@ -6,6 +6,7 @@ import 'manager_dealer_report.dart';
 import 'manager_stock_order_report.dart';
 import 'manager_expense_report.dart';
 import 'manager_return_order_report.dart';
+import 'manager_product_time_report.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -137,6 +138,22 @@ class ManagerHomeGrid extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ManagerReturnOrderReportScreen(
+                        managerCompanyIds: managerCompanyIds,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildGridItem(
+                context,
+                title: 'Product Time Report',
+                icon: Icons.timer,
+                color: Colors.indigo,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerProductTimeReportScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
                     ),
