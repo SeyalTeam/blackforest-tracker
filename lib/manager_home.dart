@@ -3,6 +3,7 @@ import 'manager_dashboard.dart';
 import 'manager_closing_report.dart';
 import 'manager_attendance_report.dart';
 import 'manager_dealer_report.dart';
+import 'manager_stock_order_report.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -86,6 +87,22 @@ class ManagerHomeGrid extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ManagerDealerReportScreen(
+                        managerCompanyIds: managerCompanyIds,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildGridItem(
+                context,
+                title: 'Stock Order Report',
+                icon: Icons.inventory,
+                color: Colors.brown,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerStockOrderReportScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
                     ),
