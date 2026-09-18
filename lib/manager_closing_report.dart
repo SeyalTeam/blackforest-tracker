@@ -87,6 +87,8 @@ class _ManagerClosingReportScreenState extends State<ManagerClosingReportScreen>
         
         // Add a 0-value template for this branch
         grouped[cId]!.add({
+          '_id': b['id'] ?? b['_id'],
+          'branchId': b['id'] ?? b['_id'],
           'branchName': bName,
           'totalEntries': 0,
           'cash': 0.0,
@@ -444,7 +446,7 @@ class _ManagerClosingReportScreenState extends State<ManagerClosingReportScreen>
                     context,
                     MaterialPageRoute(
                       builder: (context) => ManagerClosingReplyScreen(
-                        branchId: stat['branchId']?.toString() ?? '',
+                        branchId: (stat['branchId'] ?? stat['_id'])?.toString() ?? '',
                         branchName: stat['branchName']?.toString() ?? '',
                         entries: stat['entries'] as List<dynamic>? ?? [],
                       ),
