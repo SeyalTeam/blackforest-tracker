@@ -782,6 +782,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               onSelected: _handleKitchenFooterSelection,
               stockBadgeCount: widget.stockBadgeCount,
               reviewBadgeCount: widget.reviewBadgeCount,
+              isStoreKeeper: widget.isStoreKeeper,
             );
     }
 

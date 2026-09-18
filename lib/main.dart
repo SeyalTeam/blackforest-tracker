@@ -3,10 +3,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'login.dart';
 import 'home.dart';
 import 'notification_service.dart';
+import 'background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService().init();
+  await initializeService();
   runApp(const MyApp());
 }
 

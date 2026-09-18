@@ -12,6 +12,7 @@ class DealerOrderSelectionScreen extends StatefulWidget {
 class _DealerOrderSelectionScreenState extends State<DealerOrderSelectionScreen> {
   bool _isLoading = false;
   List<dynamic> _dealers = [];
+  Map<String, List<dynamic>> _dealerProducts = {};
   String? _errorMsg;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -36,8 +37,30 @@ class _DealerOrderSelectionScreenState extends State<DealerOrderSelectionScreen>
 
     try {
       final dealers = await ApiService.instance.fetchDealers();
+      final rawMaterials = await ApiService.instance.fetchRawMaterials();
+      
+      Map<String, List<dynamic>> dealerProds = {};
+      
+      for (var p in rawMaterials) {
+        final dealerData = p['dealer'];
+        List<dynamic> assignedDealers = [];
+        if (dealerData is List) {
+          assignedDealers = dealerData;
+        } else if (dealerData is String) {
+          assignedDealers = [dealerData];
+        }
+
+        for (var d in assignedDealers) {
+          final String dId = (d is Map ? (d['id'] ?? d['_id']) : d)?.toString() ?? '';
+          if (dId.isNotEmpty) {
+            dealerProds.putIfAbsent(dId, () => []).add(p);
+          }
+        }
+      }
+
       setState(() {
         _dealers = dealers;
+        _dealerProducts = dealerProds;
         _isLoading = false;
       });
     } catch (e) {
@@ -113,6 +136,7 @@ class _DealerOrderSelectionScreenState extends State<DealerOrderSelectionScreen>
                                   final companyName = dealer['companyName'] ?? 'Unknown Dealer';
                                   final phone = dealer['phoneNumber'] ?? 'No Phone';
                                   final id = dealer['id']?.toString() ?? '';
+                                  final products = _dealerProducts[id] ?? [];
 
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 12.0),
@@ -126,7 +150,11 @@ class _DealerOrderSelectionScreenState extends State<DealerOrderSelectionScreen>
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) => DealerOrderScreen(dealerId: id, dealerName: companyName),
+                                              builder: (_) => DealerOrderScreen(
+                                                dealerId: id,
+                                                dealerName: companyName,
+                                                products: products,
+                                              ),
                                             ),
                                           );
                                         },
@@ -145,19 +173,36 @@ class _DealerOrderSelectionScreenState extends State<DealerOrderSelectionScreen>
                                                 child: Column(
                                                   crossAxisAlignment: CrossAxisAlignment.start,
                                                   children: [
-                                                    Text(companyName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                                    Text(companyName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                                     const SizedBox(height: 4),
-                                                    Text('Phone: $phone', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.phone, size: 14, color: Colors.grey),
+                                                        const SizedBox(width: 4),
+                                                        Text(phone, style: const TextStyle(color: Colors.grey)),
+                                                      ],
+                                                    ),
                                                   ],
                                                 ),
                                               ),
-                                              const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.orange.withValues(alpha: 0.1),
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Text(
+                                                  '${products.length} Products',
+                                                  style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12),
+                                                ),
+                                              ),
                                             ],
                                           ),
                                         ),
                                       ),
                                     ),
                                   );
+
                                 },
                               ),
                             ),
@@ -171,16 +216,16 @@ class _DealerOrderSelectionScreenState extends State<DealerOrderSelectionScreen>
 class DealerOrderScreen extends StatefulWidget {
   final String dealerId;
   final String dealerName;
-  const DealerOrderScreen({super.key, required this.dealerId, required this.dealerName});
+  final List<dynamic> products;
+  
+  const DealerOrderScreen({super.key, required this.dealerId, required this.dealerName, required this.products});
 
   @override
   State<DealerOrderScreen> createState() => _DealerOrderScreenState();
 }
 
 class _DealerOrderScreenState extends State<DealerOrderScreen> {
-  bool _isLoading = false;
   bool _isSubmitting = false;
-  List<dynamic> _products = [];
   
   // Controllers for quantities
   final Map<String, TextEditingController> _qtyControllers = {};
@@ -188,7 +233,10 @@ class _DealerOrderScreenState extends State<DealerOrderScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchProducts();
+    for (var p in widget.products) {
+      final id = p['id'] as String;
+      _qtyControllers[id] = TextEditingController();
+    }
   }
 
   @override
@@ -199,46 +247,10 @@ class _DealerOrderScreenState extends State<DealerOrderScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchProducts() async {
-    setState(() => _isLoading = true);
-    try {
-      final rawMaterials = await ApiService.instance.fetchRawMaterials();
-      
-      final dealerProducts = rawMaterials.where((p) {
-        final dealerData = p['dealer'];
-        List<dynamic> assignedDealers = [];
-        if (dealerData is List) {
-          assignedDealers = dealerData;
-        } else if (dealerData is String) {
-          assignedDealers = [dealerData];
-        }
-
-        return assignedDealers.any((d) {
-          if (d is Map) return (d['id'] ?? d['_id'])?.toString() == widget.dealerId;
-          return d.toString() == widget.dealerId;
-        });
-      }).toList();
-
-      setState(() {
-        _products = dealerProducts;
-      });
-
-      for (var p in dealerProducts) {
-        final id = p['id'] as String;
-        _qtyControllers[id] = TextEditingController();
-      }
-
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load products: $e')));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
   Future<void> _placeOrder() async {
     final List<Map<String, dynamic>> items = [];
     
-    for (var p in _products) {
+    for (var p in widget.products) {
       final id = p['id'] as String;
       final ctrl = _qtyControllers[id];
       if (ctrl != null && ctrl.text.trim().isNotEmpty) {
@@ -315,15 +327,13 @@ class _DealerOrderScreenState extends State<DealerOrderScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _products.isEmpty
+      body: widget.products.isEmpty
               ? const Center(child: Text('No products assigned to this dealer.', style: TextStyle(color: Colors.grey)))
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _products.length,
+                  itemCount: widget.products.length,
                   itemBuilder: (context, index) {
-                    final product = _products[index];
+                    final product = widget.products[index];
                     final id = product['id'] as String;
                     final name = product['name'] ?? 'Unknown';
                     final unit = product['unit'] ?? '';
@@ -367,7 +377,7 @@ class _DealerOrderScreenState extends State<DealerOrderScreen> {
                     );
                   },
                 ),
-      bottomNavigationBar: _products.isNotEmpty
+      bottomNavigationBar: widget.products.isNotEmpty
           ? SafeArea(
               child: Container(
                 padding: const EdgeInsets.all(16),

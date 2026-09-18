@@ -301,59 +301,10 @@ class _WatcherUploadPageState extends State<WatcherUploadPage> {
                     (v == null || v.trim().isEmpty) ? 'Please describe the issue' : null,
               ),
 
-              const SizedBox(height: 24),
-
-              // ── Status selector ──────────────────────────────────────────
-              _sectionLabel('Status'),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: _statusOptions.map((s) {
-                  final val = s['value']!;
-                  final isActive = val == _selectedStatus;
-                  final color = _colorForStatus(val);
-                  return GestureDetector(
-                    onTap: () => setState(() => _selectedStatus = val),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isActive ? color : Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: color,
-                          width: isActive ? 0 : 1.5,
-                        ),
-                        boxShadow: isActive
-                            ? [
-                                BoxShadow(
-                                  color: color.withValues(alpha: 0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                )
-                              ]
-                            : [],
-                      ),
-                      child: Text(
-                        s['label']!,
-                        style: TextStyle(
-                          color: isActive ? Colors.white : color,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-
               const SizedBox(height: 36),
 
               // ── Submit button ────────────────────────────────────────────
+
               SizedBox(
                 width: double.infinity,
                 height: 52,

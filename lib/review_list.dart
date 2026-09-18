@@ -18,6 +18,7 @@ class ReviewListScreen extends StatefulWidget {
   final int chatBadgeCount;
   final String footerMode; // 'KITCHEN' or 'STOCK'
   final String? branchId;
+  final List<String>? companyIds;
 
   const ReviewListScreen({
     super.key,
@@ -30,6 +31,7 @@ class ReviewListScreen extends StatefulWidget {
     this.chatBadgeCount = 0,
     this.footerMode = 'KITCHEN',
     this.branchId,
+    this.companyIds,
   });
 
   @override
@@ -54,7 +56,10 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
     try {
       if (mounted) setState(() => _isLoading = true);
       // Fetch all (recent 100) reviews without date filter
-      final docs = await ApiService.instance.fetchReviews(branchId: widget.branchId);
+      final docs = await ApiService.instance.fetchReviews(
+        branchId: widget.branchId,
+        companyIds: widget.companyIds,
+      );
 
       // Flatten the structure: Review -> Items -> Item
       final List<Map<String, dynamic>> flattened = [];

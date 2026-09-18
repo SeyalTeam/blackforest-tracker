@@ -259,6 +259,20 @@ class _LoginPageState extends State<LoginPage> {
           await storage.write(key: 'userIsKitchen', value: isKitchen.toString());
           await storage.write(key: 'userIsStock', value: isStock.toString());
 
+          // Extract manager_companies (for manager role)
+          if (userRole == 'manager') {
+            final rawCompanies = fullUser['manager_companies'];
+            final companyIds = <String>[];
+            if (rawCompanies is List) {
+              for (final c in rawCompanies) {
+                final id = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                if (id.isNotEmpty) companyIds.add(id);
+              }
+            }
+            await storage.write(key: 'managerCompanyIds', value: companyIds.join(','));
+            debugPrint('DEBUG: Manager company IDs stored: $companyIds');
+          }
+
           if (isKitchen) {
             final branchObj = fullUser['branch'];
             final kitchenObj = fullUser['kitchen'];
