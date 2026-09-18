@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'manager_dashboard.dart';
 import 'manager_closing_report.dart';
 import 'manager_attendance_report.dart';
+import 'manager_dealer_report.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -69,6 +70,22 @@ class ManagerHomeGrid extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ManagerAttendanceReportScreen(
+                        managerCompanyIds: managerCompanyIds,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildGridItem(
+                context,
+                title: 'Dealer Report',
+                icon: Icons.local_shipping,
+                color: Colors.purple,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerDealerReportScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
                     ),
