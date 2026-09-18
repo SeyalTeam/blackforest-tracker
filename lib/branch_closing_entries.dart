@@ -222,11 +222,12 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
                               ),
 
                             // Add reply button under total declared
-                            SizedBox(
-                              width: double.infinity,
-                              height: 44,
-                              child: ElevatedButton.icon(
-                                onPressed: () async {
+                            if (individualReplies.isEmpty)
+                              SizedBox(
+                                width: double.infinity,
+                                height: 44,
+                                child: ElevatedButton.icon(
+                                  onPressed: () async {
                                   await Navigator.push(
                                     context,
                                     MaterialPageRoute(
