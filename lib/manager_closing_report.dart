@@ -135,7 +135,16 @@ class _ManagerClosingReportScreenState extends State<ManagerClosingReportScreen>
       }
     }
 
-    return grouped;
+    // Filter out branches with 0 entries
+    final filteredGrouped = <String, List<Map<String, dynamic>>>{};
+    for (var entry in grouped.entries) {
+      final validBranches = entry.value.where((stat) => (stat['totalEntries'] as int? ?? 0) > 0).toList();
+      if (validBranches.isNotEmpty) {
+        filteredGrouped[entry.key] = validBranches;
+      }
+    }
+
+    return filteredGrouped;
   }
 
   String _getCompanyName(String companyId) {
