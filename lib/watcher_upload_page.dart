@@ -21,27 +21,7 @@ class _WatcherUploadPageState extends State<WatcherUploadPage> {
 
   File? _pickedImage;
   String? _selectedBranchId;
-  String _selectedStatus = 'pending';
   bool _isSubmitting = false;
-
-  // ── Status options ────────────────────────────────────────────────────────
-
-  static const _statusOptions = [
-    {'value': 'pending', 'label': 'Pending'},
-    {'value': 'urgent', 'label': 'Urgent'},
-    {'value': 'mng_replied', 'label': 'Mng Replied'},
-    {'value': 'st_replied', 'label': 'ST Replied'},
-  ];
-
-  static Color _colorForStatus(String val) {
-    switch (val) {
-      case 'pending':    return const Color(0xFFF59E0B);
-      case 'urgent':     return const Color(0xFFEF4444);
-      case 'mng_replied': return const Color(0xFF3B82F6);
-      case 'st_replied': return const Color(0xFF10B981);
-      default:           return Colors.grey;
-    }
-  }
 
   // ── Image picker ──────────────────────────────────────────────────────────
 
@@ -122,7 +102,7 @@ class _WatcherUploadPageState extends State<WatcherUploadPage> {
         screenshotFile: _pickedImage!,
         branchId: _selectedBranchId!,
         message: _messageCtrl.text.trim(),
-        status: _selectedStatus,
+        status: 'pending',
       );
       if (mounted) {
         Navigator.pop(context, true); // return true = refresh list

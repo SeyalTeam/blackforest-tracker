@@ -23,7 +23,6 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
   static const _statusOptions = [
     {'value': 'pending', 'label': 'Pending'},
-    {'value': 'urgent', 'label': 'Urgent'},
     {'value': 'mng_replied', 'label': 'Mng Replied'},
     {'value': 'st_replied', 'label': 'ST Replied'},
   ];
@@ -31,7 +30,6 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
   static Color _colorForStatus(String? status) {
     switch (status) {
       case 'pending':    return const Color(0xFFF59E0B);
-      case 'urgent':     return const Color(0xFFEF4444);
       case 'mng_replied': return const Color(0xFF3B82F6);
       case 'st_replied': return const Color(0xFF10B981);
       default:           return Colors.grey;
@@ -145,6 +143,27 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: _colorForStatus(currentStatus).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _colorForStatus(currentStatus)),
+              ),
+              child: Text(
+                _labelForStatus(currentStatus),
+                style: TextStyle(
+                  color: _colorForStatus(currentStatus),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -165,40 +184,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
             else
               _imagePlaceholder(),
 
-            const SizedBox(height: 20),
-
-            // ── Status chip ──────────────────────────────────────────────
-            Row(
-              children: [
-                const Text(
-                  'Status',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _colorForStatus(currentStatus).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _colorForStatus(currentStatus)),
-                  ),
-                  child: Text(
-                    _labelForStatus(currentStatus),
-                    style: TextStyle(
-                      color: _colorForStatus(currentStatus),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             // ── Info cards ───────────────────────────────────────────────
             _infoRow(Icons.store_rounded, 'Branch', _branchName()),
