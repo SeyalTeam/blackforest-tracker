@@ -1,7 +1,4 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'api_service.dart';
@@ -17,15 +14,8 @@ class WatcherReportDetail extends StatefulWidget {
 
 class _WatcherReportDetailState extends State<WatcherReportDetail> {
   late Map<String, dynamic> _report;
-  bool _isUpdating = false;
 
   // ── Status helpers ────────────────────────────────────────────────────────
-
-  static const _statusOptions = [
-    {'value': 'pending', 'label': 'Pending'},
-    {'value': 'mng_replied', 'label': 'Mng Replied'},
-    {'value': 'st_replied', 'label': 'ST Replied'},
-  ];
 
   static Color _colorForStatus(String? status) {
     switch (status) {
@@ -37,61 +27,13 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
   }
 
   static String _labelForStatus(String? status) {
-    for (final s in _statusOptions) {
-      if (s['value'] == status) return s['label']!;
-    }
-    return status ?? 'Unknown';
-  }
-
-  // ── API ───────────────────────────────────────────────────────────────────
-
-  Future<void> _updateStatus(String newStatus) async {
-    setState(() => _isUpdating = true);
-    try {
-      final token = await ApiService.storage.read(key: 'token');
-      final id = (_report['id'] ?? _report['_id'])?.toString() ?? '';
-      if (id.isEmpty) return;
-
-      final res = await http.patch(
-        Uri.parse('${ApiService.baseUrl}/cctv-reports/$id'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'status': newStatus}),
-      );
-
-      if (res.statusCode == 200) {
-        final updated = jsonDecode(res.body);
-        if (mounted) {
-          setState(() {
-            _report = Map<String, dynamic>.from(updated['doc'] ?? updated);
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Status updated to ${_labelForStatus(newStatus)}'),
-              backgroundColor: Colors.green[700],
-            ),
-          );
-        }
-      } else {
-        _showError('Failed to update status (${res.statusCode})');
-      }
-    } catch (e) {
-      _showError('Error: $e');
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
+    switch (status) {
+      case 'pending': return 'Pending';
+      case 'mng_replied': return 'Mng Replied';
+      case 'st_replied': return 'ST Replied';
+      default: return status ?? 'Unknown';
     }
   }
-
-  void _showError(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red[700]),
-    );
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
 
   String _resolveImageUrl(dynamic screenshot) {
     if (screenshot == null) return '';
@@ -216,66 +158,6 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                 style: const TextStyle(fontSize: 15, height: 1.5),
               ),
             ),
-
-            const SizedBox(height: 28),
-
-            // ── Change status ────────────────────────────────────────────
-            const Text(
-              'Change Status',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (_isUpdating)
-              const Center(child: CircularProgressIndicator())
-            else
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: _statusOptions.map((s) {
-                  final val = s['value']!;
-                  final isActive = val == currentStatus;
-                  final color = _colorForStatus(val);
-                  return GestureDetector(
-                    onTap: isActive ? null : () => _updateStatus(val),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isActive ? color : Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: color,
-                          width: isActive ? 0 : 1.5,
-                        ),
-                        boxShadow: isActive
-                            ? [
-                                BoxShadow(
-                                  color: color.withValues(alpha: 0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                )
-                              ]
-                            : [],
-                      ),
-                      child: Text(
-                        s['label']!,
-                        style: TextStyle(
-                          color: isActive ? Colors.white : color,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
 
             const SizedBox(height: 32),
           ],

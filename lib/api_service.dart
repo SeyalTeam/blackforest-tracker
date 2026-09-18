@@ -1524,33 +1524,49 @@ class ApiService {
     required String status,
   }) async {
     final token = await _getToken();
-    final uri = Uri.parse('$_baseUrl/cctv-reports');
 
-    // Build multipart request
-    final request = http.MultipartRequest('POST', uri);
-    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    // 1. Upload screenshot to media collection
+    final mediaUri = Uri.parse('$_baseUrl/media');
+    final mediaReq = http.MultipartRequest('POST', mediaUri);
+    if (token != null) mediaReq.headers['Authorization'] = 'Bearer $token';
 
-    // Attach screenshot
     final mimeType = _guessMimeType(screenshotFile.path);
-    request.files.add(
+    mediaReq.files.add(
       await http.MultipartFile.fromPath(
-        'screenshot',
+        'file',
         screenshotFile.path,
         contentType: http_parser.MediaType.parse(mimeType),
       ),
     );
 
-    // JSON fields (PayloadCMS supports _payload JSON field alongside files)
-    request.fields['_payload'] = jsonEncode({
-      'branch': branchId,
-      'message': message,
-      'status': status,
-    });
+    final mediaStreamed = await mediaReq.send();
+    final mediaRes = await http.Response.fromStream(mediaStreamed);
+    
+    if (mediaRes.statusCode != 200 && mediaRes.statusCode != 201) {
+      throw Exception('Failed to upload screenshot to media (${mediaRes.statusCode}): ${mediaRes.body}');
+    }
 
-    final streamed = await request.send();
-    final res = await http.Response.fromStream(streamed);
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception('createCctvReport failed (${res.statusCode}): ${res.body}');
+    final mediaData = jsonDecode(mediaRes.body);
+    final mediaId = mediaData['doc'] != null ? mediaData['doc']['id'] : mediaData['id'];
+
+    // 2. Create the CCTV report with the uploaded media ID
+    final reportUri = Uri.parse('$_baseUrl/cctv-reports');
+    final reportRes = await http.post(
+      reportUri,
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'branch': branchId,
+        'message': message,
+        'status': status,
+        'screenshot': mediaId,
+      }),
+    );
+
+    if (reportRes.statusCode != 200 && reportRes.statusCode != 201) {
+      throw Exception('createCctvReport failed (${reportRes.statusCode}): ${reportRes.body}');
     }
   }
 
