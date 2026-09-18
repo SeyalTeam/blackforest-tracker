@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
 import 'branch_closing_entries.dart';
+import 'manager_closing_reply_screen.dart';
 
 class ManagerClosingReportScreen extends StatefulWidget {
   final List<String> managerCompanyIds;
@@ -431,6 +432,36 @@ class _ManagerClosingReportScreenState extends State<ManagerClosingReportScreen>
                   ),
                 );
               }
+            ),
+
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 40,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerClosingReplyScreen(
+                        branchId: stat['branchId']?.toString() ?? '',
+                        branchName: stat['branchName']?.toString() ?? '',
+                        entries: stat['entries'] as List<dynamic>? ?? [],
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.reply, size: 18),
+                label: const Text('Add Manager Reply', style: TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[700],
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  elevation: 0,
+                ),
+              ),
             ),
           ],
         ),

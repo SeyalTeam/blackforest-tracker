@@ -16,7 +16,6 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
   final NumberFormat _currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
 
   List<dynamic> _replies = [];
-  bool _isLoadingReplies = false;
 
   @override
   void initState() {
@@ -26,7 +25,6 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
 
   Future<void> _fetchReplies() async {
     final entries = widget.stat['entries'] as List<dynamic>? ?? [];
-    final branchId = widget.stat['branchId']?.toString() ?? '';
     if (branchId.isEmpty) return;
 
     String queryDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -39,11 +37,10 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
     }
 
     setState(() {
-      _isLoadingReplies = true;
     });
 
     try {
-      final replies = await ApiService.instance.fetchManagerClosingReplies(branchId: branchId, date: queryDate);
+      final replies = await ApiService.instance.fetchManagerClosingReplies(branchId: branchId, dateStr: queryDate);
       if (mounted) {
         setState(() {
           _replies = replies;
@@ -54,30 +51,18 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
     } finally {
       if (mounted) {
         setState(() {
-          _isLoadingReplies = false;
         });
       }
     }
   }
 
 
-  void _showReplyBottomSheet(List<dynamic> entries, String branchId) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return _ManagerReplyForm(entries: entries, branchId: branchId);
-      },
-    );
-    _fetchReplies(); // Refresh replies after closing the bottom sheet
-  }
+  
 
   @override
   Widget build(BuildContext context) {
     final entries = widget.stat['entries'] as List<dynamic>? ?? [];
     final branchName = widget.stat['branchName']?.toString() ?? 'Branch';
-    final branchId = widget.stat['branchId']?.toString() ?? '';
 
     return Scaffold(
       appBar: AppBar(
@@ -235,14 +220,7 @@ itemBuilder: (context, index) {
                 );
               },
             ),
-      floatingActionButton: entries.isNotEmpty && branchId.isNotEmpty
-          ? FloatingActionButton.extended(
-              onPressed: () => _showReplyBottomSheet(entries, branchId),
-              icon: const Icon(Icons.reply),
-              label: const Text('Manager Reply'),
-              backgroundColor: Colors.indigo,
-            )
-          : null,
+      
     );
   }
 
@@ -299,280 +277,3 @@ itemBuilder: (context, index) {
   }
 }
 
-class _ManagerReplyForm extends StatefulWidget {
-  final List<dynamic> entries;
-  final String branchId;
-
-  const _ManagerReplyForm({required this.entries, required this.branchId});
-
-  @override
-  State<_ManagerReplyForm> createState() => _ManagerReplyFormState();
-}
-
-class _ManagerReplyFormState extends State<_ManagerReplyForm> {
-  String _replyType = 'common';
-  String? _selectedEntryId;
-  final TextEditingController _messageController = TextEditingController();
-
-  final Map<String, TextEditingController> _denominations = {
-    'rs500': TextEditingController(),
-    'rs200': TextEditingController(),
-    'rs100': TextEditingController(),
-    'rs50': TextEditingController(),
-    'rs20': TextEditingController(),
-    'rs10': TextEditingController(),
-    'coins': TextEditingController(),
-  };
-
-  int _totalAmount = 0;
-  bool _isSubmitting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.entries.length == 1) {
-      _selectedEntryId = widget.entries.first['id']?.toString();
-    }
-    for (var controller in _denominations.values) {
-      controller.addListener(_calculateTotal);
-    }
-  }
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    for (var controller in _denominations.values) {
-      controller.dispose();
-    }
-    super.dispose();
-  }
-
-  void _calculateTotal() {
-    int total = 0;
-    int getValue(String key) => int.tryParse(_denominations[key]!.text) ?? 0;
-
-    total += getValue('rs500') * 500;
-    total += getValue('rs200') * 200;
-    total += getValue('rs100') * 100;
-    total += getValue('rs50') * 50;
-    total += getValue('rs20') * 20;
-    total += getValue('rs10') * 10;
-    total += getValue('coins');
-
-    setState(() {
-      _totalAmount = total;
-    });
-  }
-
-  Future<void> _submit() async {
-    if (_messageController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a message')));
-      return;
-    }
-
-    if (widget.entries.length > 1 && _replyType == 'individual' && _selectedEntryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a closing entry')));
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-    });
-
-    try {
-      int getValue(String key) => int.tryParse(_denominations[key]!.text) ?? 0;
-
-      final body = {
-        'branch': widget.branchId,
-        'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        'type': widget.entries.length > 1 ? _replyType : 'common',
-        'closingEntry': _replyType == 'individual' ? _selectedEntryId : null,
-        'message': _messageController.text.trim(),
-        'denominations': {
-          'rs500': getValue('rs500'),
-          'rs200': getValue('rs200'),
-          'rs100': getValue('rs100'),
-          'rs50': getValue('rs50'),
-          'rs20': getValue('rs20'),
-          'rs10': getValue('rs10'),
-          'coins': getValue('coins'),
-        },
-        'totalAmount': _totalAmount,
-      };
-
-      await ApiService.instance.submitManagerClosingReply(body);
-
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply submitted successfully')));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
-    }
-  }
-
-  Widget _buildDenomRow(String label, String key) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          const Text('x', style: TextStyle(color: Colors.grey)),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 3,
-            child: TextField(
-              controller: _denominations[key],
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 24,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Manager Reply & Denomination', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-
-            if (widget.entries.length > 1) ...[
-              const Text('Reply Type', style: TextStyle(fontWeight: FontWeight.bold)),
-              Row(
-                children: [
-                  Radio<String>(
-                    value: 'common',
-                    groupValue: _replyType,
-                    onChanged: (val) {
-                      setState(() {
-                        _replyType = val!;
-                      });
-                    },
-                  ),
-                  const Text('Common'),
-                  const SizedBox(width: 16),
-                  Radio<String>(
-                    value: 'individual',
-                    groupValue: _replyType,
-                    onChanged: (val) {
-                      setState(() {
-                        _replyType = val!;
-                      });
-                    },
-                  ),
-                  const Text('Individual'),
-                ],
-              ),
-              if (_replyType == 'individual') ...[
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: _selectedEntryId,
-                  hint: const Text('Select Closing Entry'),
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  ),
-                  items: widget.entries.map((entry) {
-                    return DropdownMenuItem<String>(
-                      value: entry['id']?.toString(),
-                      child: Text('Entry: ${entry['closingNumber'] ?? 'Unknown'}'),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    setState(() {
-                      _selectedEntryId = val;
-                    });
-                  },
-                ),
-              ],
-              const SizedBox(height: 16),
-            ],
-
-            const Text('Message', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _messageController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'Enter your reply...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            const Text('Cash Denomination', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 16),
-
-            _buildDenomRow('₹ 500', 'rs500'),
-            _buildDenomRow('₹ 200', 'rs200'),
-            _buildDenomRow('₹ 100', 'rs100'),
-            _buildDenomRow('₹ 50', 'rs50'),
-            _buildDenomRow('₹ 20', 'rs20'),
-            _buildDenomRow('₹ 10', 'rs10'),
-            _buildDenomRow('Coins', 'coins'),
-
-            const Divider(height: 32),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                Text(currencyFormat.format(_totalAmount), style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.green[700])),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigo,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                onPressed: _isSubmitting ? null : _submit,
-                child: _isSubmitting 
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Submit Reply', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
