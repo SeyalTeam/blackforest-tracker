@@ -226,11 +226,18 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
                         ),
                       ),
 
-                    // Add reply button for this specific entry
-                    Padding(
-                      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
-                      child: TextButton.icon(
-                        onPressed: () async {
+                    // Add reply button for this specific entry in a separate card
+                    Card(
+                      margin: const EdgeInsets.only(bottom: 24),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        side: BorderSide(color: Colors.blue.withValues(alpha: 0.3)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      color: Colors.blue.withValues(alpha: 0.05),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () async {
                           await Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -245,12 +252,23 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
                           );
                           _fetchReplies(); // Refresh after adding
                         },
-                        icon: const Icon(Icons.reply, size: 16),
-                        label: const Text('Add Reply to this Entry'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.blue[700],
-                          padding: EdgeInsets.zero,
-                          alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.reply, size: 18, color: Colors.blue[700]),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Add Reply to this Entry',
+                                style: TextStyle(
+                                  color: Colors.blue[700],
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
