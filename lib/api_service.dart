@@ -478,7 +478,7 @@ Future<List<dynamic>> fetchManagerClosingReplies({
       // Payload stores dayOnly dates as strings like "2026-09-18T00:00:00.000Z".
       // We can use a like or contains, or just fetch all for the branch and filter locally, but it's better to filter by branch and date.
       // Actually, since there won't be many replies for a branch, we can just fetch by branch and sort by date descending, or limit by date prefix.
-      final url = '$_baseUrl/api/manager-closing-replies?where[branch][equals]=$branchId&limit=50';
+      final url = '$_baseUrl/manager-closing-replies?where[branch][equals]=$branchId&limit=50';
       
       final res = await http.get(
         Uri.parse(url),
@@ -504,7 +504,7 @@ Future<List<dynamic>> fetchManagerClosingReplies({
   Future<void> submitManagerClosingReply(Map<String, dynamic> body) async {
     try {
       final token = await _getToken();
-      final url = '$_baseUrl/api/manager-closing-replies';
+      final url = '$_baseUrl/manager-closing-replies';
       
       final res = await http.post(
         Uri.parse(url),
@@ -521,32 +521,6 @@ Future<List<dynamic>> fetchManagerClosingReplies({
     } catch (e) {
       debugPrint('Error submitting manager closing reply: $e');
       rethrow;
-    }
-  }
-
-  Future<List<dynamic>> fetchManagerClosingReplies({
-    required String branchId,
-    required String date,
-  }) async {
-    try {
-      final token = await _getToken();
-      final url = '$_baseUrl/api/manager-closing-replies?where[branch][equals]=$branchId&where[date][equals]=$date';
-      
-      final res = await http.get(
-        Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
-      );
-
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body);
-        return data['docs'] as List<dynamic>? ?? [];
-      } else {
-        debugPrint('Failed to load manager replies: ${res.statusCode}');
-        return [];
-      }
-    } catch (e) {
-      debugPrint('Error fetching manager replies: $e');
-      return [];
     }
   }
 
