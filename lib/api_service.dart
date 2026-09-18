@@ -402,6 +402,38 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> fetchReturnOrderReport({
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final token = await _getToken();
+      Map<String, String> headers = {};
+      if (token != null) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final now = DateTime.now();
+      final startStr = startDate ?? DateFormat('yyyy-MM-dd').format(now);
+      final endStr = endDate ?? DateFormat('yyyy-MM-dd').format(now);
+
+      String url = '$_baseUrl/reports/return-order';
+      url += '?startDate=$startStr&endDate=$endStr';
+
+      debugPrint('Fetching return order report from: $url');
+      final res = await http.get(Uri.parse(url), headers: headers);
+
+      if (res.statusCode == 200) {
+        return json.decode(res.body);
+      } else {
+        throw Exception('Failed to load return order report: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching return order report: $e');
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> fetchBranchBills({
     required String branchId,
     required DateTime date,

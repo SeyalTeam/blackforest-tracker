@@ -1,0 +1,385 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'api_service.dart';
+import 'branch_return_order_details.dart';
+
+class ManagerReturnOrderReportScreen extends StatefulWidget {
+  final List<String> managerCompanyIds;
+  const ManagerReturnOrderReportScreen({super.key, required this.managerCompanyIds});
+
+  @override
+  State<ManagerReturnOrderReportScreen> createState() => _ManagerReturnOrderReportScreenState();
+}
+
+class _ManagerReturnOrderReportScreenState extends State<ManagerReturnOrderReportScreen> {
+  bool _isLoading = true;
+  String _errorMessage = '';
+  
+  Map<String, dynamic>? _returnOrderReport;
+  List<dynamic> _branches = [];
+  List<dynamic> _companies = [];
+
+  String? _selectedCompanyId;
+  DateTime _selectedDate = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
+
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+
+      final results = await Future.wait([
+        ApiService.instance.fetchReturnOrderReport(startDate: dateStr, endDate: dateStr),
+        ApiService.instance.fetchBranches(forceRefresh: true),
+        ApiService.instance.fetchCompanies(),
+      ]);
+
+      setState(() {
+        _returnOrderReport = results[0] as Map<String, dynamic>;
+        _branches = results[1] as List<dynamic>;
+        _companies = results[2] as List<dynamic>;
+        _isLoading = false;
+        
+        // Auto-select first company if available
+        final grouped = _groupStatsByCompany();
+        if (grouped.isNotEmpty && (_selectedCompanyId == null || !grouped.containsKey(_selectedCompanyId))) {
+          _selectedCompanyId = grouped.keys.first;
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load report: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupStatsByCompany() {
+    final stats = _returnOrderReport?['groups'] as List<dynamic>? ?? [];
+    
+    // Grouping
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+
+    // First, initialize all active branches that belong to the manager's companies
+    for (var b in _branches) {
+      final bName = b['name']?.toString() ?? '';
+      final c = b['company'];
+      final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+      final status = b['status']?.toString().toLowerCase();
+      
+      // Only include active branches (or null/empty for backwards compatibility)
+      final isActive = status == null || status.isEmpty || status == 'active';
+      
+      if (isActive && cId.isNotEmpty && (widget.managerCompanyIds.isEmpty || widget.managerCompanyIds.contains(cId))) {
+        if (!grouped.containsKey(cId)) {
+          grouped[cId] = [];
+        }
+        
+        // Add a 0-value template for this branch
+        grouped[cId]!.add({
+          'branchName': bName,
+          'total': 0.0,
+          'count': 0,
+          'items': [],
+        });
+      }
+    }
+
+    // Now overlay the actual stats from the report
+    for (var stat in stats) {
+      final branchName = stat['branchName']?.toString() ?? '';
+      
+      // Find which company this branch belongs to
+      String foundCompanyId = '';
+      bool isActive = true;
+      for (var b in _branches) {
+        if ((b['name']?.toString() ?? '') == branchName) {
+          final c = b['company'];
+          foundCompanyId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+          final status = b['status']?.toString().toLowerCase();
+          isActive = status == null || status.isEmpty || status == 'active';
+          break;
+        }
+      }
+      
+      if (!isActive) continue;
+      
+      final cId = foundCompanyId.isNotEmpty ? foundCompanyId : 'unknown';
+      
+      if (widget.managerCompanyIds.isNotEmpty && cId != 'unknown' && !widget.managerCompanyIds.contains(cId)) {
+        continue;
+      }
+
+      if (!grouped.containsKey(cId)) {
+        grouped[cId] = [];
+      }
+
+      // Find the template we added earlier and replace it, or add if it wasn't there
+      final existingIndex = grouped[cId]!.indexWhere((s) => s['branchName'] == branchName);
+      if (existingIndex >= 0) {
+        grouped[cId]![existingIndex] = stat as Map<String, dynamic>;
+      } else {
+        grouped[cId]!.add(stat as Map<String, dynamic>);
+      }
+    }
+
+    // Filter out branches with 0 bills (no dealer bills)
+    final filteredGrouped = <String, List<Map<String, dynamic>>>{};
+    for (var entry in grouped.entries) {
+      final validBranches = entry.value.where((stat) => (stat['count'] as int? ?? 0) > 0).toList();
+      if (validBranches.isNotEmpty) {
+        filteredGrouped[entry.key] = validBranches;
+      }
+    }
+
+    return filteredGrouped;
+  }
+
+  String _getCompanyName(String companyId) {
+    if (companyId == 'unknown') return 'Other Branches';
+    for (var c in _companies) {
+      final id = (c['id'] ?? c['_id'])?.toString() ?? '';
+      if (id == companyId) {
+        return c['name']?.toString() ?? 'Unknown Company';
+      }
+    }
+    return 'Unknown Company';
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.blue,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+      _fetchData();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bodyContent;
+
+    if (_isLoading) {
+      bodyContent = const Center(child: CircularProgressIndicator());
+    } else if (_errorMessage.isNotEmpty) {
+      bodyContent = Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_errorMessage, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _fetchData,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      final groupedStats = _groupStatsByCompany();
+
+      if (groupedStats.isEmpty) {
+        bodyContent = const Center(
+          child: Text('No billing data available.', style: TextStyle(color: Colors.grey)),
+        );
+      } else {
+        // Ensure selected company is valid
+        if (_selectedCompanyId == null || !groupedStats.containsKey(_selectedCompanyId)) {
+          _selectedCompanyId = groupedStats.keys.first;
+        }
+
+        final selectedStats = groupedStats[_selectedCompanyId]!;
+        
+        // Sort from top sales to zero
+        selectedStats.sort((a, b) {
+          final amountA = (a['total'] ?? 0).toDouble();
+          final amountB = (b['total'] ?? 0).toDouble();
+          return amountB.compareTo(amountA);
+        });
+
+        final currencyFormat = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
+
+        bodyContent = RefreshIndicator(
+          onRefresh: _fetchData,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Company Tabs
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: groupedStats.keys.map((cId) {
+                      final isSelected = cId == _selectedCompanyId;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: ChoiceChip(
+                          label: Text(_getCompanyName(cId)),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            if (selected) {
+                              setState(() {
+                                _selectedCompanyId = cId;
+                              });
+                            }
+                          },
+                          selectedColor: Colors.blue[600],
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : Colors.black87,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                          backgroundColor: Colors.grey[200],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+              
+              // Branch List
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: selectedStats.length,
+                  itemBuilder: (context, index) {
+                    final stat = selectedStats[index];
+                    return _buildBranchCard(stat, currencyFormat);
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+
+    final dateDisplay = DateFormat('dd MMM yyyy').format(_selectedDate);
+
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Return Order Report', style: TextStyle(fontSize: 16)),
+            Text(
+              dateDisplay,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0.5,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month, color: Colors.blue),
+            onPressed: _pickDate,
+            tooltip: 'Select Date',
+          ),
+        ],
+      ),
+      body: bodyContent,
+    );
+  }
+
+  
+  
+  
+  Widget _buildBranchCard(Map<String, dynamic> stat, NumberFormat format) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BranchReturnOrderDetailsScreen(
+              branchName: stat['branchName']?.toString() ?? 'Unknown Branch',
+              items: stat['items'] as List<dynamic>? ?? [],
+            ),
+          ),
+        );
+      },
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      stat['branchName']?.toString() ?? 'Unknown Branch',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.assignment_return, color: Colors.blue),
+                ],
+              ),
+              const Divider(height: 24),
+              
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('ITEMS RETURNED', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[600])),
+                      Text('${stat['totalQuantity'] ?? 0}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('TOTAL AMOUNT', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[600])),
+                      Text(format.format(stat['totalAmount'] ?? 0), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.orange[800])),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+}
