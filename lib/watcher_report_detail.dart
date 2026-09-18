@@ -159,7 +159,31 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
               ),
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+
+            // ── Manager Reply ────────────────────────────────────────────
+            if ((_report['managerMessage']?.toString() ?? '').isNotEmpty) ...[
+              _replySection(
+                label: 'Manager Reply',
+                message: _report['managerMessage'].toString(),
+                userName: _extractUserName(_report['manager']),
+                color: Colors.blue,
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            // ── Staff Reply ──────────────────────────────────────────────
+            if ((_report['staffMessage']?.toString() ?? '').isNotEmpty) ...[
+              _replySection(
+                label: 'Staff Reply',
+                message: _report['staffMessage'].toString(),
+                userName: _extractUserName(_report['staff']),
+                color: Colors.green,
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -196,6 +220,63 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
               color: Colors.black87,
             ),
             overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _extractUserName(dynamic userObj) {
+    if (userObj == null) return 'Unknown';
+    if (userObj is Map) {
+      return userObj['name']?.toString() ?? 'Unknown';
+    }
+    return 'Unknown';
+  }
+
+  Widget _replySection({
+    required String label,
+    required String message,
+    required String userName,
+    required MaterialColor color,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: color.shade700,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (userName != 'Unknown')
+              Text(
+                'by $userName',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: color.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.shade200),
+          ),
+          child: Text(
+            message,
+            style: TextStyle(fontSize: 15, height: 1.5, color: color.shade900),
           ),
         ),
       ],
