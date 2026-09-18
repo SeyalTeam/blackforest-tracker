@@ -25,6 +25,7 @@ class _BranchClosingEntriesScreenState extends State<BranchClosingEntriesScreen>
 
   Future<void> _fetchReplies() async {
     final entries = widget.stat['entries'] as List<dynamic>? ?? [];
+    final branchId = widget.stat['branchId']?.toString() ?? '';
     if (branchId.isEmpty) return;
 
     String queryDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
