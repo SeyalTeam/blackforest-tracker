@@ -467,6 +467,29 @@ class ApiService {
     }
   }
 
+  Future<void> submitManagerClosingReply(Map<String, dynamic> body) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/api/manager-closing-replies';
+      
+      final res = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: json.encode(body),
+      );
+      
+      if (res.statusCode != 201 && res.statusCode != 200) {
+        throw Exception('Failed to submit reply: ${res.statusCode} ${res.body}');
+      }
+    } catch (e) {
+      debugPrint('Error submitting manager closing reply: $e');
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> fetchBranchBills({
     required String branchId,
     required DateTime date,
