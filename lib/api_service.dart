@@ -501,6 +501,32 @@ Future<List<dynamic>> fetchManagerClosingReplies({
     }
   }
 
+
+  Future<void> updateBranchClosingAccess(String branchId, bool isEnabled) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/branches/$branchId';
+      final res = await http.patch(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'isClosingEntryEnabled': isEnabled}),
+      );
+
+      if (res.statusCode != 200) {
+        throw Exception('Failed to update branch access: ${res.statusCode}');
+      }
+      
+      // Clear branch cache so UI updates next time it fetches branches
+      _cachedBranches = null;
+    } catch (e) {
+      debugPrint('Error updating branch access: $e');
+      rethrow;
+    }
+  }
+
 Future<List<dynamic>> fetchEmployees() async {
     try {
       final token = await _getToken();

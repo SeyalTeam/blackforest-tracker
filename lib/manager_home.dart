@@ -8,6 +8,7 @@ import 'manager_expense_report.dart';
 import 'manager_return_order_report.dart';
 import 'manager_product_time_report.dart';
 import 'manager_employee_list.dart';
+import 'manager_closing_control.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -172,6 +173,23 @@ class ManagerHomeGrid extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const ManagerEmployeeListScreen(),
+                    ),
+                  );
+                },
+              ),
+
+              _buildGridItem(
+                context,
+                title: 'Closing Entry Access',
+                icon: Icons.lock_open,
+                color: Colors.deepOrange,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerClosingControlScreen(
+                        managerCompanyIds: managerCompanyIds,
+                      ),
                     ),
                   );
                 },
