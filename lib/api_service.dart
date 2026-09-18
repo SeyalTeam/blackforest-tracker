@@ -353,7 +353,7 @@ class ApiService {
       final startStr = startDate ?? DateFormat('yyyy-MM-dd').format(now);
       final endStr = endDate ?? DateFormat('yyyy-MM-dd').format(now);
 
-      String url = '$_baseUrl/reports/stockOrder';
+      String url = '$_baseUrl/reports/stock-order';
       url += '?startDate=$startStr&endDate=$endStr';
 
       debugPrint('Fetching stock order report from: $url');

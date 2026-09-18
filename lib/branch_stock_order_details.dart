@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 
 class BranchStockOrderDetailsScreen extends StatelessWidget {
   final String branchName;
-  final List<dynamic> details; // all product details
+  final List<dynamic> details; // pre-filtered branch details
 
   const BranchStockOrderDetailsScreen({
     super.key,
@@ -15,9 +15,6 @@ class BranchStockOrderDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final format = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
 
-    // Filter details for this branch
-    final branchDetails = details.where((d) => d['branchName']?.toString() == branchName).toList();
-    
     return Scaffold(
       appBar: AppBar(
         title: Text('$branchName - Stock Order Details', style: const TextStyle(fontSize: 16)),
@@ -25,14 +22,14 @@ class BranchStockOrderDetailsScreen extends StatelessWidget {
         foregroundColor: Colors.black,
         elevation: 0.5,
       ),
-      body: branchDetails.isEmpty
+      body: details.isEmpty
           ? const Center(child: Text('No stock order details found.'))
           : ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: branchDetails.length,
+              itemCount: details.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
-                final item = branchDetails[index];
+                final item = details[index];
                 
                 final productName = item['productName']?.toString() ?? 'Unknown Product';
                 final deptName = item['departmentName']?.toString() ?? '';
@@ -42,9 +39,8 @@ class BranchStockOrderDetailsScreen extends StatelessWidget {
                 final invoice = item['invoiceNumber']?.toString() ?? 'N/A';
                 
                 final ordQty = item['ordQty'] ?? 0;
-                final sntQty = item['sntQty'] ?? 0;
+                final picQty = item['picQty'] ?? 0;
                 final recQty = item['recQty'] ?? 0;
-                final difQty = item['difQty'] ?? 0;
 
                 return Card(
                   elevation: 0,
@@ -85,9 +81,8 @@ class BranchStockOrderDetailsScreen extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             _buildQtyBox('Ordered', ordQty, Colors.blue),
-                            _buildQtyBox('Sent', sntQty, Colors.orange),
+                            _buildQtyBox('Picked (Driver)', picQty, Colors.orange),
                             _buildQtyBox('Received', recQty, Colors.green),
-                            _buildQtyBox('Diff', difQty, difQty > 0 ? Colors.red : Colors.grey),
                           ],
                         ),
                       ],

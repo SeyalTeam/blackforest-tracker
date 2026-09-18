@@ -316,15 +316,41 @@ class _ManagerStockOrderReportScreenState extends State<ManagerStockOrderReportS
 
   
   
+  
   Widget _buildBranchCard(Map<String, dynamic> stat, NumberFormat format, List<dynamic> allDetails) {
+    final branchName = stat['branchName']?.toString() ?? 'Unknown Branch';
+    final branchDetails = allDetails.where((d) => d['branchName']?.toString() == branchName).toList();
+    
+    double orderValue = 0;
+    double receivedValue = 0;
+    String latestOrderTime = '';
+
+    for (var d in branchDetails) {
+      double price = (d['price'] ?? 0).toDouble();
+      orderValue += ((d['ordQty'] ?? 0) as num).toDouble() * price;
+      receivedValue += ((d['recQty'] ?? 0) as num).toDouble() * price;
+      
+      final ordTime = d['ordTime']?.toString() ?? '';
+      if (ordTime.isNotEmpty) {
+        if (latestOrderTime.isEmpty || ordTime.compareTo(latestOrderTime) > 0) {
+          latestOrderTime = ordTime;
+        }
+      }
+    }
+
+    String timeStr = '--';
+    if (latestOrderTime.isNotEmpty) {
+      timeStr = DateFormat('MMM dd, hh:mm a').format(DateTime.parse(latestOrderTime).toLocal());
+    }
+
     return InkWell(
       onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => BranchStockOrderDetailsScreen(
-              branchName: stat['branchName']?.toString() ?? 'Unknown Branch',
-              details: allDetails,
+              branchName: branchName,
+              details: branchDetails,
             ),
           ),
         );
@@ -344,14 +370,17 @@ class _ManagerStockOrderReportScreenState extends State<ManagerStockOrderReportS
                 children: [
                   Expanded(
                     child: Text(
-                      stat['branchName']?.toString() ?? 'Unknown Branch',
+                      branchName,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                  const Icon(Icons.inventory_2, color: Colors.blue),
+                  Text(
+                    timeStr,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
                 ],
               ),
               const Divider(height: 24),
@@ -362,7 +391,7 @@ class _ManagerStockOrderReportScreenState extends State<ManagerStockOrderReportS
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('TOTAL ORDERS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[500])),
+                        Text('ORDER COUNT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[500])),
                         const SizedBox(height: 4),
                         Text('${stat['totalOrders'] ?? 0}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                       ],
@@ -372,9 +401,9 @@ class _ManagerStockOrderReportScreenState extends State<ManagerStockOrderReportS
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('LIVE ORDERS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[500])),
+                        Text('ORDER VALUE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[500])),
                         const SizedBox(height: 4),
-                        Text('${stat['liveOrders'] ?? 0}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.green[700])),
+                        Text(format.format(orderValue), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blue[700])),
                       ],
                     ),
                   ),
@@ -382,9 +411,9 @@ class _ManagerStockOrderReportScreenState extends State<ManagerStockOrderReportS
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('CLOSED ORDERS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[500])),
+                        Text('RECEIVED VALUE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[500])),
                         const SizedBox(height: 4),
-                        Text('${stat['stockOrders'] ?? 0}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blue[700])),
+                        Text(format.format(receivedValue), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.green[700])),
                       ],
                     ),
                   ),
