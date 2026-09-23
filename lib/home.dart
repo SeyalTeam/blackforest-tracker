@@ -9,6 +9,7 @@ import 'package:http_parser/http_parser.dart';
 import 'login.dart';
 import 'production_requests.dart';
 import 'store_keeper_screens.dart';
+import 'raw_material_instock_screen.dart';
 import 'common_scaffold.dart';
 import 'raw_material_billing.dart';
 import 'raw_material_bill_list.dart';
@@ -2400,6 +2401,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             color: Colors.teal,
                             onTap: () {
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const RawMaterialDealerSelectionScreen()));
+                            },
+                          ),
+                          _buildStoreKeeperGridItem(
+                            context,
+                            title: 'Instock Entry',
+                            icon: Icons.fact_check_rounded,
+                            color: const Color(0xFF11998E),
+                            onTap: () {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const RawMaterialInstockCategoryScreen()));
                             },
                           ),
                           _buildStoreKeeperGridItem(

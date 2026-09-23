@@ -1326,11 +1326,11 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
-  Future<List<dynamic>> fetchRawMaterials() async {
+  Future<List<dynamic>> fetchRawMaterials({int depth = 2}) async {
     try {
       final token = await _getToken();
       final res = await http.get(
-        Uri.parse('$_baseUrl/raw-materials?limit=1000'),
+        Uri.parse('$_baseUrl/raw-materials?limit=1000&depth=$depth'),
         headers: token != null ? {'Authorization': 'Bearer $token'} : {},
       );
       if (res.statusCode == 200) {
@@ -1553,6 +1553,45 @@ Future<List<dynamic>> fetchEmployees() async {
         return jsonDecode(res.body) as Map<String, dynamic>;
       } else {
         throw Exception('Failed to create raw material billing: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createRawMaterialInstockEntry(Map<String, dynamic> payload) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/raw-material-instock-entries'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to create raw material instock entry: ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> fetchRawMaterialInstockEntries({int limit = 100, int depth = 2}) async {
+    try {
+      final token = await _getToken();
+      final res = await http.get(
+        Uri.parse('$_baseUrl/raw-material-instock-entries?limit=$limit&depth=$depth&sort=-date'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        throw Exception('Failed to load raw material instock entries: ${res.body}');
       }
     } catch (e) {
       rethrow;
