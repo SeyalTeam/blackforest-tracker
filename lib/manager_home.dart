@@ -9,6 +9,7 @@ import 'manager_return_order_report.dart';
 import 'manager_product_time_report.dart';
 import 'manager_employee_list.dart';
 import 'manager_closing_control.dart';
+import 'manager_cash_drawer_control.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -188,6 +189,22 @@ class ManagerHomeGrid extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ManagerClosingControlScreen(
+                        managerCompanyIds: managerCompanyIds,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildGridItem(
+                context,
+                title: 'Cash Drawer Access',
+                icon: Icons.account_balance_wallet,
+                color: Colors.brown,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerCashDrawerControlScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
                     ),

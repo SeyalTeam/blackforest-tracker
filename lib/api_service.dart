@@ -501,6 +501,27 @@ Future<List<dynamic>> fetchManagerClosingReplies({
     }
   }
 
+  Future<void> updateBranchCashDrawerAccess(String branchId, bool isEnabled) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/branches/$branchId';
+      final res = await http.patch(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'isCashDrawerEnabled': isEnabled}),
+      );
+      if (res.statusCode != 200) {
+        throw Exception('Failed to update cash drawer access. Status: ${res.statusCode}');
+      }
+    } catch (e) {
+      print('Error updating cash drawer access: $e');
+      rethrow;
+    }
+  }
+
 
   Future<void> updateBranchClosingAccess(String branchId, bool isEnabled) async {
     try {
