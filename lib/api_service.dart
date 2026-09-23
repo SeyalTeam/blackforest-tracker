@@ -1770,6 +1770,35 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
+  /// Manager reply to a CCTV report
+  Future<Map<String, dynamic>> replyToCctvReport({
+    required String id,
+    required String managerMessage,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.patch(
+        Uri.parse('$_baseUrl/cctv-reports/$id'),
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'managerMessage': managerMessage,
+          'status': 'mng_replied',
+        }),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['doc'] ?? data) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to send manager reply (${res.statusCode}): ${res.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   String _guessMimeType(String path) {
     final ext = path.split('.').last.toLowerCase();
     switch (ext) {

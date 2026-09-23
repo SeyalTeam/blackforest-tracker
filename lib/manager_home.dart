@@ -10,6 +10,7 @@ import 'manager_product_time_report.dart';
 import 'manager_employee_list.dart';
 import 'manager_closing_control.dart';
 import 'manager_cash_drawer_control.dart';
+import 'manager_cctv_reports.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -205,6 +206,22 @@ class ManagerHomeGrid extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ManagerCashDrawerControlScreen(
+                        managerCompanyIds: managerCompanyIds,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildGridItem(
+                context,
+                title: 'CCTV Reports',
+                icon: Icons.videocam_rounded,
+                color: Colors.redAccent,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManagerCctvReportsScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
                     ),
