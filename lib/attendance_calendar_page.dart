@@ -40,9 +40,9 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
 
       final token = await _storage.read(key: 'token');
 
-      // Query the attendance collection directly using dateString like
+      // Query the attendance collection directly (fetch latest 100 for this user)
       final url = Uri.parse(
-        '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[dateString][like]=$monthStr&limit=100',
+        '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&sort=-date&limit=100',
       );
 
       final res = await http.get(
