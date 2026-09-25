@@ -33,10 +33,11 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
         _currentMonth.year,
         _currentMonth.month + 1,
         0,
+        23, 59, 59
       );
 
-      final startStr = DateFormat('yyyy-MM-dd').format(startOfMonth);
-      final endStr = DateFormat('yyyy-MM-dd').format(endOfMonth);
+      final startStr = startOfMonth.toUtc().toIso8601String();
+      final endStr = endOfMonth.toUtc().toIso8601String();
 
       // We need the current user ID to filter (or query directly)
       final userStr = await _storage.read(key: 'user');
@@ -50,7 +51,7 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
 
       // Query the attendance collection directly
       final url = Uri.parse(
-        '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[dateString][greater_than_equal]=$startStr&where[dateString][less_than_equal]=$endStr&limit=100',
+        '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[date][greater_than_equal]=$startStr&where[date][less_than_equal]=$endStr&limit=100',
       );
 
       final res = await http.get(
