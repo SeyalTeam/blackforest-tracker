@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'login.dart';
+import 'attendance_manager.dart';
 
 class CommonScaffold extends StatelessWidget {
   final Widget body;
@@ -84,6 +85,7 @@ class CommonScaffold extends StatelessWidget {
               leading: const Icon(Icons.logout),
               title: const Text('Logout'),
               onTap: () async {
+                AttendanceManager.instance.stopForegroundWatcher();
                 const storage = FlutterSecureStorage();
                 await storage.deleteAll();
                 

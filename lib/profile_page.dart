@@ -17,6 +17,7 @@ import 'camera_page.dart';
 import 'login.dart';
 import 'geofence_util.dart';
 import 'notification_service.dart';
+import 'attendance_manager.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -49,6 +50,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _autoPunchOutFired = false; // prevents double-fire on same geofence exit
   bool _autoPunchInFired = false;
   StreamSubscription<String?>? _notificationSubscription;
+  StreamSubscription<Map<String, dynamic>>? _attendanceManagerSub;
   Duration _workDuration = Duration.zero;
   Duration _breakDuration = Duration.zero;
   List<Map<String, dynamic>> _activities = [];
@@ -61,9 +63,20 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadEmployeeData();
     _notificationSubscription = NotificationService().onNotificationClick.listen((payload) {
       if (payload == 'auto_punch_in') {
-        _autoCaptureAndPunchIn();
+        if (_hasActiveSession && !_activeSessionHasPhoto) {
+          _attachSelfieToActiveSession();
+        } else {
+          _autoCaptureAndPunchIn();
+        }
       }
     });
+    _attendanceManagerSub = AttendanceManager.instance.onAttendanceUpdate.listen((event) {
+      debugPrint('ProfilePage: received attendance update: $event');
+      if (mounted) {
+        _fetchAttendance();
+      }
+    });
+    AttendanceManager.instance.checkNow();
   }
 
   @override
@@ -71,6 +84,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _timer?.cancel();
     _geofenceTimer?.cancel();
     _notificationSubscription?.cancel();
+    _attendanceManagerSub?.cancel();
     super.dispose();
   }
 
@@ -659,6 +673,7 @@ class _ProfilePageState extends State<ProfilePage> {
           await _fetchEmployeeProfile();
           await _fetchAttendance();
           _lastPunchOutType = null;
+          await _storage.delete(key: 'lastPunchOutType');
         }
       } else {
         final localMidnight = DateTime(now.year, now.month, now.day);
@@ -682,6 +697,7 @@ class _ProfilePageState extends State<ProfilePage> {
           await _fetchEmployeeProfile();
           await _fetchAttendance();
           _lastPunchOutType = null;
+          await _storage.delete(key: 'lastPunchOutType');
         }
       }
     } catch (e) {
@@ -713,33 +729,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _checkGeofence() async {
     if (!mounted || _isProcessingPunch) return;
-
-    final isInside = await GeofenceUtil.isInsideAnyBranch(context, silent: true);
-    debugPrint('GeofenceWatcher tick: isInside=$isInside, hasActive=$_hasActiveSession, activePhoto=$_activeSessionHasPhoto, autoFired=$_autoPunchInFired');
-
-    if (!mounted) return;
-
-    if (_hasActiveSession) {
-      if (!isInside && !_autoPunchOutFired) {
-        if (!_activeSessionHasPhoto) {
-          debugPrint('Auto punch-out held: selfie photo not added yet');
-          return;
-        }
-        _autoPunchOutFired = true;
-        await _autoPunchOut();
-      }
-    } else {
-      // Auto punch-in proceeds ONLY IF the previous session ended via an AUTO punch-out
-      final shouldAutoPunchIn = _lastPunchOutType == 'auto';
-      debugPrint('GeofenceWatcher tick: isInside=$isInside, shouldAutoPunchIn=$shouldAutoPunchIn (lastPunchOut=$_lastPunchOutType)');
-
-      if (shouldAutoPunchIn && isInside && !_autoPunchInFired) {
-        _autoPunchInFired = true;
-        await _autoPunchInWithoutSelfie();
-      } else if (!isInside) {
-        _autoPunchInFired = false;
-      }
-    }
+    await AttendanceManager.instance.checkNow();
   }
 
   Future<void> _autoPunchInWithoutSelfie() async {
@@ -962,6 +952,7 @@ class _ProfilePageState extends State<ProfilePage> {
           );
         }
         await _fetchAttendance();
+        AttendanceManager.instance.checkNow();
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1192,6 +1183,7 @@ class _ProfilePageState extends State<ProfilePage> {
         await _fetchAttendance();
         _autoPunchInFired = false;
         _lastPunchOutType = 'manual';
+        await _storage.write(key: 'lastPunchOutType', value: 'manual');
       }
     } catch (e) {
       debugPrint('Punch Out Error: $e');
@@ -1241,6 +1233,7 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
+      AttendanceManager.instance.stopForegroundWatcher();
       await _storage.deleteAll();
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(

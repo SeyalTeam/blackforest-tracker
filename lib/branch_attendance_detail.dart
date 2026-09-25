@@ -281,14 +281,30 @@ class _BranchAttendanceDetailScreenState extends State<BranchAttendanceDetailScr
             Icon(icon, size: 16, color: color),
             const SizedBox(width: 8),
             Expanded(
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    isBreak ? 'Break' : 'Session',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+                  Row(
+                    children: [
+                      Text(
+                        isBreak ? 'Break' : 'Session',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('$punchIn → $punchOut', style: const TextStyle(fontSize: 12)),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Text('$punchIn → $punchOut', style: const TextStyle(fontSize: 12)),
+                  if (act['branchName'] != null && act['branchName'].toString().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '🏢 ${act['branchName']}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: act['branchName'] == 'Outside Branch' ? Colors.orange[800] : Colors.blue[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

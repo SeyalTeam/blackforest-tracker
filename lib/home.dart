@@ -33,6 +33,7 @@ import 'chat_page.dart';
 import 'manager_dashboard.dart';
 import 'manager_home.dart';
 import 'watcher_home.dart';
+import 'attendance_manager.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -319,6 +320,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AttendanceManager.instance.startForegroundWatcher();
     _initData();
     _startSyncTimer();
     _startKitchenClockTimer();
@@ -327,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AttendanceManager.instance.stopForegroundWatcher();
     _syncTimer?.cancel();
     _kitchenClockTimer?.cancel();
     _kitchenPageController.dispose();
@@ -337,6 +340,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      AttendanceManager.instance.checkNow();
       if (_isKitchenEnabled) {
         _fetchKitchenOrders(showLoader: false);
         _syncLiveNotifications();
