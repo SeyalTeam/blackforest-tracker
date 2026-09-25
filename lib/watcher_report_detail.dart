@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -22,6 +24,12 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
   final TextEditingController _replyController = TextEditingController();
   bool _isSubmittingReply = false;
   bool _hasModified = false;
+
+  final TextEditingController _watcherReplyController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+  File? _pickedReplyImage;
+  bool _isSubmittingWatcherReply = false;
+
 
   // ── Status helpers ────────────────────────────────────────────────────────
 
@@ -88,6 +96,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
   @override
   void dispose() {
     _replyController.dispose();
+    _watcherReplyController.dispose();
     super.dispose();
   }
 
@@ -130,6 +139,97 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
       }
     } finally {
       if (mounted) setState(() => _isSubmittingReply = false);
+    }
+  }
+
+
+  Future<void> _pickReplyImage(ImageSource source) async {
+    try {
+      final XFile? file = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1920,
+      );
+      if (file != null && mounted) {
+        setState(() => _pickedReplyImage = File(file.path));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not access image source: $e')));
+    }
+  }
+
+  void _showImageSourceDialog() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded),
+              title: const Text('Take Photo'),
+              onTap: () { Navigator.pop(context); _pickReplyImage(ImageSource.camera); },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Choose from Gallery'),
+              onTap: () { Navigator.pop(context); _pickReplyImage(ImageSource.gallery); },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendWatcherReply() async {
+    final text = _watcherReplyController.text.trim();
+    if (text.isEmpty && _pickedReplyImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a reply message or attach a photo')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmittingWatcherReply = true);
+    try {
+      final id = (_report['id'] ?? _report['_id'])?.toString() ?? '';
+      final updated = await ApiService.instance.submitWatcherReplyToCctvReport(
+        id: id,
+        watcherReplyMessage: text,
+        watcherReplyScreenshot: _pickedReplyImage,
+      );
+      if (mounted) {
+        setState(() {
+          _report = Map<String, dynamic>.from(updated);
+          _hasModified = true;
+          _watcherReplyController.clear();
+          _pickedReplyImage = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reply sent successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send reply: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmittingWatcherReply = false);
     }
   }
 
@@ -302,6 +402,161 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                   message: _report['staffMessage'].toString(),
                   userName: _extractUserName(_report['staff']),
                   color: Colors.green,
+                ),
+                const SizedBox(height: 24),
+              ],
+
+
+              // ── Watcher Reply ──────────────────────────────────────────────
+              if ((_report['watcherReplyMessage']?.toString() ?? '').isNotEmpty || _resolveImageUrl(_report['watcherReplyScreenshot']).isNotEmpty) ...[
+                _replySection(
+                  label: 'Watcher Reply',
+                  message: _report['watcherReplyMessage']?.toString() ?? '',
+                  userName: _extractUserName(_report['createdBy']),
+                  color: Colors.orange,
+                  imageUrl: _resolveImageUrl(_report['watcherReplyScreenshot']),
+                ),
+                const SizedBox(height: 24),
+              ],
+
+
+              // ── Watcher Reply Composer (When !isManager and Manager has replied) ─────────────
+              if (!widget.isManager && (_report['managerMessage']?.toString() ?? '').isNotEmpty && (_report['watcherReplyMessage']?.toString() ?? '').isEmpty && _resolveImageUrl(_report['watcherReplyScreenshot']).isEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.reply_rounded, color: Colors.orange.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Reply to Manager',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange.shade900,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      // Image Picker for Watcher Reply
+                      GestureDetector(
+                        onTap: _showImageSourceDialog,
+                        child: Container(
+                          width: double.infinity,
+                          height: _pickedReplyImage != null ? 150 : 60,
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _pickedReplyImage != null ? Colors.orange.shade400 : Colors.orange.shade200,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: _pickedReplyImage != null
+                              ? Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.file(_pickedReplyImage!, fit: BoxFit.cover),
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: GestureDetector(
+                                        onTap: () => setState(() => _pickedReplyImage = null),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.black54,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(Icons.close, color: Colors.white, size: 18),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_photo_alternate_rounded, color: Colors.orange.shade400),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Attach Photo (Optional)',
+                                      style: TextStyle(color: Colors.orange.shade700, fontSize: 14),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _watcherReplyController,
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          hintText: 'Enter your reply...',
+                          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.orange.shade400, width: 1.5),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: _isSubmittingWatcherReply ? null : _sendWatcherReply,
+                          icon: _isSubmittingWatcherReply
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.send_rounded, size: 18),
+                          label: Text(
+                            _isSubmittingWatcherReply ? 'Submitting...' : 'Submit Reply',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade700,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
               ],
@@ -482,6 +737,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
     required String message,
     required String userName,
     required MaterialColor color,
+    String? imageUrl,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -517,9 +773,31 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: color.shade200),
           ),
-          child: Text(
-            message,
-            style: TextStyle(fontSize: 15, height: 1.5, color: color.shade900),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (imageUrl != null && imageUrl.isNotEmpty) ...[
+                GestureDetector(
+                  onTap: () => _viewFullScreenImage(imageUrl),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      imageUrl,
+                      width: double.infinity,
+                      height: 150,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _imagePlaceholder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (message.isNotEmpty)
+                Text(
+                  message,
+                  style: TextStyle(fontSize: 15, height: 1.5, color: color.shade900),
+                ),
+            ],
           ),
         ),
       ],

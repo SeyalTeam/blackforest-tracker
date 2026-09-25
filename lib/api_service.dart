@@ -1809,6 +1809,55 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
+
+  /// Watcher reply to a CCTV report (after manager reply)
+  Future<Map<String, dynamic>> submitWatcherReplyToCctvReport({
+    required String id,
+    required String watcherReplyMessage,
+    File? watcherReplyScreenshot,
+  }) async {
+    final token = await _getToken();
+
+    String? mediaId;
+    if (watcherReplyScreenshot != null) {
+      final mediaUri = Uri.parse('$_baseUrl/media');
+      final mediaReq = http.MultipartRequest('POST', mediaUri);
+      mediaReq.headers.addAll({
+        if (token != null) 'Authorization': 'Bearer $token',
+      });
+      mediaReq.files.add(
+        await http.MultipartFile.fromPath('file', watcherReplyScreenshot.path),
+      );
+
+      final mediaStream = await mediaReq.send();
+      final mediaRes = await http.Response.fromStream(mediaStream);
+      if (mediaRes.statusCode == 200 || mediaRes.statusCode == 201) {
+        final mediaData = jsonDecode(mediaRes.body);
+        mediaId = mediaData['doc'] != null ? mediaData['doc']['id'] : mediaData['id'];
+      }
+    }
+
+    final res = await http.patch(
+      Uri.parse('$_baseUrl/cctv-reports/$id'),
+      headers: {
+        if (token != null) 'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'watcherReplyMessage': watcherReplyMessage,
+        'status': 'watcher_replied',
+        if (mediaId != null) 'watcherReplyScreenshot': mediaId,
+      }),
+    );
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      return (data['doc'] ?? data) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to send watcher reply (${res.statusCode}): ${res.body}');
+    }
+  }
+
   /// Manager reply to a CCTV report
   Future<Map<String, dynamic>> replyToCctvReport({
     required String id,
