@@ -46,7 +46,7 @@ class _ProfilePageState extends State<ProfilePage> {
   List<dynamic> _rawActivities = [];
 
   Timer? _timer;
-  Timer? _geofenceTimer;          // polls GPS every 60s while session is active
+  Timer? _geofenceTimer; // polls GPS every 60s while session is active
   bool _autoPunchOutFired = false; // prevents double-fire on same geofence exit
   bool _autoPunchInFired = false;
   StreamSubscription<String?>? _notificationSubscription;
@@ -56,31 +56,32 @@ class _ProfilePageState extends State<ProfilePage> {
   List<Map<String, dynamic>> _activities = [];
   String? _dayType; // 'full_day' | 'half_day' | null
 
-
   @override
-    void initState() {
+  void initState() {
     super.initState();
     _loadEmployeeData();
-    _notificationSubscription = NotificationService().onNotificationClick.listen((payload) {
-      if (payload == 'auto_punch_in') {
-        if (_hasActiveSession && !_activeSessionHasPhoto) {
-          _attachSelfieToActiveSession();
-        } else {
-          _autoCaptureAndPunchIn();
-        }
-      }
-    });
-    _attendanceManagerSub = AttendanceManager.instance.onAttendanceUpdate.listen((event) {
-      debugPrint('ProfilePage: received attendance update: $event');
-      if (mounted) {
-        _fetchAttendance();
-      }
-    });
+    _notificationSubscription = NotificationService().onNotificationClick
+        .listen((payload) {
+          if (payload == 'auto_punch_in') {
+            if (_hasActiveSession && !_activeSessionHasPhoto) {
+              _attachSelfieToActiveSession();
+            } else {
+              _autoCaptureAndPunchIn();
+            }
+          }
+        });
+    _attendanceManagerSub = AttendanceManager.instance.onAttendanceUpdate
+        .listen((event) {
+          debugPrint('ProfilePage: received attendance update: $event');
+          if (mounted) {
+            _fetchAttendance();
+          }
+        });
     AttendanceManager.instance.checkNow();
   }
 
   @override
-    void dispose() {
+  void dispose() {
     _timer?.cancel();
     _geofenceTimer?.cancel();
     _notificationSubscription?.cancel();
@@ -152,7 +153,8 @@ class _ProfilePageState extends State<ProfilePage> {
         final photo = employee['photo'];
         String? photoUrl;
         if (photo is Map) {
-          photoUrl = photo['thumbnailURL']?.toString() ??
+          photoUrl =
+              photo['thumbnailURL']?.toString() ??
               photo['thumbnailUrl']?.toString() ??
               photo['url']?.toString();
         } else if (photo is String) {
@@ -207,7 +209,8 @@ class _ProfilePageState extends State<ProfilePage> {
         .toIso8601String();
 
     try {
-      final url = '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[date][greater_than_equal]=$queryDate&sort=-date&limit=10';
+      final url =
+          '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[date][greater_than_equal]=$queryDate&sort=-date&limit=10';
       final response = await http.get(
         Uri.parse(url),
         headers: token.isNotEmpty ? {'Authorization': 'Bearer $token'} : {},
@@ -216,7 +219,8 @@ class _ProfilePageState extends State<ProfilePage> {
       if (response.statusCode != 200) return;
 
       final data = jsonDecode(response.body);
-      final docs = (data is Map<String, dynamic> ? data['docs'] : null) as List?;
+      final docs =
+          (data is Map<String, dynamic> ? data['docs'] : null) as List?;
       if (docs == null) return;
 
       final allActivities = <Map<String, dynamic>>[];
@@ -242,14 +246,14 @@ class _ProfilePageState extends State<ProfilePage> {
           _rawActivities = [];
           _dayType = null;
         }
-
       } else {
         _attendanceDocId = null;
         _rawActivities = [];
       }
 
       for (final dynamic doc in docs) {
-        final activities = (doc is Map<String, dynamic> ? doc['activities'] : null) as List?;
+        final activities =
+            (doc is Map<String, dynamic> ? doc['activities'] : null) as List?;
         if (activities == null) continue;
 
         for (final dynamic rawActivity in activities) {
@@ -259,18 +263,23 @@ class _ProfilePageState extends State<ProfilePage> {
           final punchOutStr = rawActivity['punchOut']?.toString();
           final status = rawActivity['status']?.toString();
           final durationSeconds = _toInt(rawActivity['durationSeconds']);
-          final breakDurationSeconds = _toInt(rawActivity['breakDurationSeconds']);
-
+          final breakDurationSeconds = _toInt(
+            rawActivity['breakDurationSeconds'],
+          );
 
           if (punchInStr == null || punchInStr.isEmpty) continue;
 
           final punchIn = DateTime.tryParse(punchInStr)?.toLocal();
-          final punchOut = punchOutStr != null ? DateTime.tryParse(punchOutStr)?.toLocal() : null;
+          final punchOut = punchOutStr != null
+              ? DateTime.tryParse(punchOutStr)?.toLocal()
+              : null;
 
           if (punchIn == null) continue;
 
           final inTimeStr = DateFormat('hh:mm a').format(punchIn);
-          final outTimeStr = punchOut != null ? DateFormat('hh:mm a').format(punchOut) : 'Active';
+          final outTimeStr = punchOut != null
+              ? DateFormat('hh:mm a').format(punchOut)
+              : 'Active';
 
           if (type == 'session') {
             // ── Stale active session guard (FIRST — before any accumulation) ──
@@ -279,20 +288,25 @@ class _ProfilePageState extends State<ProfilePage> {
             // entirely so it never inflates today's work timer.
             if (status == 'active' && punchIn.isBefore(localMidnight)) {
               final endOfDay = DateTime(
-                punchIn.year, punchIn.month, punchIn.day, 23, 59, 59,
+                punchIn.year,
+                punchIn.month,
+                punchIn.day,
+                23,
+                59,
+                59,
               );
               final durationSecs = endOfDay.difference(punchIn).inSeconds;
 
-              final ownerDoc = docs.firstWhere(
-                (d) {
-                  final acts = (d is Map ? d['activities'] : null) as List?;
-                  return acts?.any((a) =>
-                    a is Map &&
-                    a['punchIn']?.toString() == punchInStr &&
-                    a['status'] == 'active') ?? false;
-                },
-                orElse: () => null,
-              );
+              final ownerDoc = docs.firstWhere((d) {
+                final acts = (d is Map ? d['activities'] : null) as List?;
+                return acts?.any(
+                      (a) =>
+                          a is Map &&
+                          a['punchIn']?.toString() == punchInStr &&
+                          a['status'] == 'active',
+                    ) ??
+                    false;
+              }, orElse: () => null);
 
               if (ownerDoc != null) {
                 final ownerDocId = ownerDoc['id']?.toString();
@@ -311,19 +325,26 @@ class _ProfilePageState extends State<ProfilePage> {
                   }
                 }
                 final storedToken = token;
-                if (ownerDocId != null && storedToken != null && storedToken.isNotEmpty) {
-                  http.patch(
-                    Uri.parse('${ApiService.baseUrl}/attendance/$ownerDocId'),
-                    headers: {
-                      'Authorization': 'Bearer $storedToken',
-                      'Content-Type': 'application/json',
-                    },
-                    body: jsonEncode({'activities': ownerActivities}),
-                  ).then((_) {
-                    if (mounted) _fetchAttendance();
-                  }).catchError((e) {
-                    debugPrint('Stale session auto-close error: $e');
-                  });
+                if (ownerDocId != null &&
+                    storedToken != null &&
+                    storedToken.isNotEmpty) {
+                  http
+                      .patch(
+                        Uri.parse(
+                          '${ApiService.baseUrl}/attendance/$ownerDocId',
+                        ),
+                        headers: {
+                          'Authorization': 'Bearer $storedToken',
+                          'Content-Type': 'application/json',
+                        },
+                        body: jsonEncode({'activities': ownerActivities}),
+                      )
+                      .then((_) {
+                        if (mounted) _fetchAttendance();
+                      })
+                      .catchError((e) {
+                        debugPrint('Stale session auto-close error: $e');
+                      });
                 }
               }
               // Skip entirely — don't add to totalWork, don't show in UI
@@ -332,13 +353,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
             // ── Only count today's sessions toward the work timer ─────────
             if (punchOut != null) {
-              if (latestPunchOutTime == null || punchOut.isAfter(latestPunchOutTime)) {
+              if (latestPunchOutTime == null ||
+                  punchOut.isAfter(latestPunchOutTime)) {
                 latestPunchOutTime = punchOut;
                 latestPunchOutType = rawActivity['punchOutType']?.toString();
               }
             }
 
-            final isToday = punchIn.isAfter(localMidnight) ||
+            final isToday =
+                punchIn.isAfter(localMidnight) ||
                 (punchOut != null && punchOut.isAfter(localMidnight));
 
             final duration = punchOut != null
@@ -362,11 +385,13 @@ class _ProfilePageState extends State<ProfilePage> {
                 'title': breakDur.inHours > 0
                     ? '${breakDur.inHours}h ${breakDur.inMinutes % 60}m Break'
                     : breakDur.inMinutes > 0
-                        ? '${breakDur.inMinutes} Min Break'
-                        : '${breakDur.inSeconds} Sec Break',
+                    ? '${breakDur.inMinutes} Min Break'
+                    : '${breakDur.inSeconds} Sec Break',
                 'color': const Color(0xFFFFE0B2),
                 'textColor': Colors.orange[900],
-                'startTime': punchIn.subtract(Duration(seconds: breakDurationSeconds)),
+                'startTime': punchIn.subtract(
+                  Duration(seconds: breakDurationSeconds),
+                ),
               });
             }
 
@@ -385,14 +410,18 @@ class _ProfilePageState extends State<ProfilePage> {
               // Normal active session for today — start the live ticker
               activeSessionFound = true;
               final capturedImg = rawActivity['capturedImage'];
-              activePhotoFound = capturedImg != null && capturedImg.toString().trim().isNotEmpty;
+              activePhotoFound =
+                  capturedImg != null &&
+                  capturedImg.toString().trim().isNotEmpty;
               final activeStart = punchIn;
-              final pastWork = totalWork - DateTime.now().difference(activeStart);
+              final pastWork =
+                  totalWork - DateTime.now().difference(activeStart);
               _timer?.cancel();
               _timer = Timer.periodic(const Duration(seconds: 1), (_) {
                 if (!mounted) return;
                 setState(() {
-                  _workDuration = pastWork + DateTime.now().difference(activeStart);
+                  _workDuration =
+                      pastWork + DateTime.now().difference(activeStart);
                 });
               });
             }
@@ -419,7 +448,6 @@ class _ProfilePageState extends State<ProfilePage> {
               });
             }
           }
-
         }
       }
 
@@ -430,7 +458,9 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       setState(() {
         allActivities.sort(
-          (a, b) => (b['startTime'] as DateTime).compareTo(a['startTime'] as DateTime),
+          (a, b) => (b['startTime'] as DateTime).compareTo(
+            a['startTime'] as DateTime,
+          ),
         );
         _activities = allActivities;
         _workDuration = totalWork;
@@ -455,14 +485,14 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // Start or stop the geofence watcher based on session state
       if (activeSessionFound) {
-        _autoPunchOutFired = false; // reset so a fresh punch-out can trigger auto punch-out
+        _autoPunchOutFired =
+            false; // reset so a fresh punch-out can trigger auto punch-out
       } else {
-        _autoPunchInFired = false; // reset so auto punch-in is enabled whenever not in a session
+        _autoPunchInFired =
+            false; // reset so auto punch-in is enabled whenever not in a session
         _autoPunchOutFired = false;
       }
       _startGeofenceWatcher();
-
-
     } catch (e) {
       debugPrint('Error fetching attendance: $e');
     }
@@ -543,14 +573,18 @@ class _ProfilePageState extends State<ProfilePage> {
 
       final response = await request.send();
       final body = await response.stream.bytesToString();
-      debugPrint('DEBUG: Selfie upload response status: ${response.statusCode}, body: $body');
+      debugPrint(
+        'DEBUG: Selfie upload response status: ${response.statusCode}, body: $body',
+      );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(body);
         final doc = data['doc'] ?? data;
         return doc['id']?.toString();
       } else {
-        debugPrint('DEBUG: Selfie upload failed. Status: ${response.statusCode}, Body: $body');
+        debugPrint(
+          'DEBUG: Selfie upload failed. Status: ${response.statusCode}, Body: $body',
+        );
       }
     } catch (e) {
       debugPrint('Upload error: $e');
@@ -568,9 +602,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
     final cameras = await availableCameras();
     if (cameras.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No camera found')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No camera found')));
       return;
     }
 
@@ -590,7 +624,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _submitPunchIn({bool isAuto = false}) async {
-    if (_capturedPunchInPhoto == null || _hasActiveSession || _isProcessingPunch) return;
+    if (_capturedPunchInPhoto == null ||
+        _hasActiveSession ||
+        _isProcessingPunch)
+      return;
 
     setState(() {
       _isProcessingPunch = true;
@@ -663,7 +700,12 @@ class _ProfilePageState extends State<ProfilePage> {
         final url = '${ApiService.baseUrl}/attendance/$_attendanceDocId';
         final response = await http.patch(
           Uri.parse(url),
-          headers: token.isNotEmpty ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'} : {},
+          headers: token.isNotEmpty
+              ? {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                }
+              : {},
           body: jsonEncode({'activities': updatedActivities}),
         );
         if (response.statusCode == 200) {
@@ -682,7 +724,12 @@ class _ProfilePageState extends State<ProfilePage> {
         final url = '${ApiService.baseUrl}/attendance';
         final response = await http.post(
           Uri.parse(url),
-          headers: token.isNotEmpty ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'} : {},
+          headers: token.isNotEmpty
+              ? {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                }
+              : {},
           body: jsonEncode({
             'user': userId,
             'date': localMidnight.toUtc().toIso8601String(),
@@ -718,7 +765,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void _startGeofenceWatcher() {
     _geofenceTimer?.cancel();
     _geofenceTimer = null;
-    
+
     // Check IMMEDIATELY on start / refresh
     _checkGeofence();
 
@@ -778,11 +825,16 @@ class _ProfilePageState extends State<ProfilePage> {
         final response = await http.patch(
           Uri.parse(url),
           headers: token.isNotEmpty
-              ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+              ? {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                }
               : {},
           body: jsonEncode({'activities': updatedActivities}),
         );
-        debugPrint('AutoPunchIn PATCH response: ${response.statusCode} -> ${response.body}');
+        debugPrint(
+          'AutoPunchIn PATCH response: ${response.statusCode} -> ${response.body}',
+        );
         if (response.statusCode == 200) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -811,7 +863,9 @@ class _ProfilePageState extends State<ProfilePage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Auto punch-in rejected by server (${response.statusCode}): ${response.body}'),
+                content: Text(
+                  'Auto punch-in rejected by server (${response.statusCode}): ${response.body}',
+                ),
                 backgroundColor: Colors.red[800],
                 duration: const Duration(seconds: 5),
               ),
@@ -826,7 +880,10 @@ class _ProfilePageState extends State<ProfilePage> {
         final response = await http.post(
           Uri.parse(url),
           headers: token.isNotEmpty
-              ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+              ? {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                }
               : {},
           body: jsonEncode({
             'user': userId,
@@ -835,7 +892,9 @@ class _ProfilePageState extends State<ProfilePage> {
             'activities': [newActivity],
           }),
         );
-        debugPrint('AutoPunchIn POST response: ${response.statusCode} -> ${response.body}');
+        debugPrint(
+          'AutoPunchIn POST response: ${response.statusCode} -> ${response.body}',
+        );
         if (response.statusCode == 200 || response.statusCode == 201) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -864,7 +923,9 @@ class _ProfilePageState extends State<ProfilePage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Auto punch-in rejected by server (${response.statusCode}): ${response.body}'),
+                content: Text(
+                  'Auto punch-in rejected by server (${response.statusCode}): ${response.body}',
+                ),
                 backgroundColor: Colors.red[800],
                 duration: const Duration(seconds: 5),
               ),
@@ -888,9 +949,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
     final cameras = await availableCameras();
     if (cameras.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No camera found')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No camera found')));
       return;
     }
 
@@ -926,7 +987,9 @@ class _ProfilePageState extends State<ProfilePage> {
       final updatedActivities = List.from(_rawActivities);
       for (var i = updatedActivities.length - 1; i >= 0; i--) {
         final activity = updatedActivities[i];
-        if (activity is Map && activity['type'] == 'session' && activity['status'] == 'active') {
+        if (activity is Map &&
+            activity['type'] == 'session' &&
+            activity['status'] == 'active') {
           activity['capturedImage'] = mediaId;
           break;
         }
@@ -936,7 +999,10 @@ class _ProfilePageState extends State<ProfilePage> {
       final response = await http.patch(
         Uri.parse(url),
         headers: token.isNotEmpty
-            ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+            ? {
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json',
+              }
             : {},
         body: jsonEncode({'activities': updatedActivities}),
       );
@@ -945,7 +1011,9 @@ class _ProfilePageState extends State<ProfilePage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Selfie attached successfully! You can now punch out when done.'),
+              content: Text(
+                'Selfie attached successfully! You can now punch out when done.',
+              ),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 4),
             ),
@@ -956,7 +1024,11 @@ class _ProfilePageState extends State<ProfilePage> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to update attendance: ${response.statusCode}')),
+            SnackBar(
+              content: Text(
+                'Failed to update attendance: ${response.statusCode}',
+              ),
+            ),
           );
         }
       }
@@ -1026,7 +1098,8 @@ class _ProfilePageState extends State<ProfilePage> {
   /// Identical to _punchOut() but stamps punchOutType:'auto' and shows a
   /// different banner explaining the reason.
   Future<void> _autoPunchOut() async {
-    if (!_hasActiveSession || _attendanceDocId == null || _isProcessingPunch) return;
+    if (!_hasActiveSession || _attendanceDocId == null || _isProcessingPunch)
+      return;
 
     setState(() => _isProcessingPunch = true);
 
@@ -1049,7 +1122,8 @@ class _ProfilePageState extends State<ProfilePage> {
           activity['punchOut'] = punchOutTime.toUtc().toIso8601String();
           activity['status'] = 'closed';
           activity['durationSeconds'] = durationSecs;
-          activity['punchOutType'] = 'auto'; // ← marks this as geofence-triggered
+          activity['punchOutType'] =
+              'auto'; // ← marks this as geofence-triggered
           break;
         }
       }
@@ -1058,7 +1132,10 @@ class _ProfilePageState extends State<ProfilePage> {
       final response = await http.patch(
         Uri.parse(url),
         headers: token.isNotEmpty
-            ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}
+            ? {
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json',
+              }
             : {},
         body: jsonEncode({'activities': updatedActivities}),
       );
@@ -1102,13 +1179,16 @@ class _ProfilePageState extends State<ProfilePage> {
   // ── Manual Punch Out ────────────────────────────────────────────────────────
 
   Future<void> _punchOut() async {
-    if (!_hasActiveSession || _attendanceDocId == null || _isProcessingPunch) return;
+    if (!_hasActiveSession || _attendanceDocId == null || _isProcessingPunch)
+      return;
 
     if (!_activeSessionHasPhoto) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Row(
             children: [
               Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
@@ -1171,7 +1251,12 @@ class _ProfilePageState extends State<ProfilePage> {
       final url = '${ApiService.baseUrl}/attendance/$_attendanceDocId';
       final response = await http.patch(
         Uri.parse(url),
-        headers: token.isNotEmpty ? {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'} : {},
+        headers: token.isNotEmpty
+            ? {
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json',
+              }
+            : {},
         body: jsonEncode({'activities': updatedActivities}),
       );
 
@@ -1285,7 +1370,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     children: [
                       GestureDetector(
                         onTap: _hasActiveSession
-                            ? (!_activeSessionHasPhoto ? _attachSelfieToActiveSession : null)
+                            ? (!_activeSessionHasPhoto
+                                  ? _attachSelfieToActiveSession
+                                  : null)
                             : _capturePhoto,
                         child: Stack(
                           alignment: Alignment.center,
@@ -1296,7 +1383,9 @@ class _ProfilePageState extends State<ProfilePage> {
                                 shape: BoxShape.circle,
                                 border: Border.all(
                                   color: _hasActiveSession
-                                      ? (_activeSessionHasPhoto ? Colors.green : Colors.red)
+                                      ? (_activeSessionHasPhoto
+                                            ? Colors.green
+                                            : Colors.red)
                                       : Colors.grey[300]!,
                                   width: _hasActiveSession ? 3 : 2,
                                 ),
@@ -1312,12 +1401,21 @@ class _ProfilePageState extends State<ProfilePage> {
                                 radius: 50,
                                 backgroundColor: Colors.white,
                                 backgroundImage: _capturedPunchInPhoto != null
-                                    ? FileImage(_capturedPunchInPhoto!) as ImageProvider
-                                    : (_employeePhotoUrl != null && _employeePhotoUrl!.isNotEmpty
-                                        ? NetworkImage(_employeePhotoUrl!)
-                                        : null),
-                                child: _capturedPunchInPhoto == null && (_employeePhotoUrl == null || _employeePhotoUrl!.isEmpty)
-                                    ? Icon(Icons.person, size: 50, color: Colors.grey[400])
+                                    ? FileImage(_capturedPunchInPhoto!)
+                                          as ImageProvider
+                                    : (_employeePhotoUrl != null &&
+                                              _employeePhotoUrl!.isNotEmpty
+                                          ? NetworkImage(_employeePhotoUrl!)
+                                          : null),
+                                child:
+                                    _capturedPunchInPhoto == null &&
+                                        (_employeePhotoUrl == null ||
+                                            _employeePhotoUrl!.isEmpty)
+                                    ? Icon(
+                                        Icons.person,
+                                        size: 50,
+                                        color: Colors.grey[400],
+                                      )
                                     : null,
                               ),
                             ),
@@ -1331,7 +1429,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                     color: Colors.blue,
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                                  child: const Icon(
+                                    Icons.camera_alt,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ),
                               ),
                             if (_hasActiveSession && !_activeSessionHasPhoto)
@@ -1344,7 +1446,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                     color: Colors.red,
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(Icons.add_a_photo, color: Colors.white, size: 18),
+                                  child: const Icon(
+                                    Icons.add_a_photo,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ),
                               ),
                           ],
@@ -1356,11 +1462,17 @@ class _ProfilePageState extends State<ProfilePage> {
                           onTap: _attachSelfieToActiveSession,
                           child: Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFFFEBEE),
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.redAccent, width: 1.5),
+                              border: Border.all(
+                                color: Colors.redAccent,
+                                width: 1.5,
+                              ),
                             ),
                             child: Row(
                               children: [
@@ -1370,12 +1482,17 @@ class _ProfilePageState extends State<ProfilePage> {
                                     color: Colors.red,
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                                  child: const Icon(
+                                    Icons.warning_amber_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ),
                                 const SizedBox(width: 12),
                                 const Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         'Selfie Required for Punch-In',
@@ -1396,7 +1513,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                     ],
                                   ),
                                 ),
-                                const Icon(Icons.camera_alt, color: Colors.red, size: 20),
+                                const Icon(
+                                  Icons.camera_alt,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
                               ],
                             ),
                           ),
@@ -1449,7 +1570,8 @@ class _ProfilePageState extends State<ProfilePage> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      if (_employeeRole == 'manager' && _managerCompanyNames.isNotEmpty)
+                      if (_employeeRole == 'manager' &&
+                          _managerCompanyNames.isNotEmpty)
                         Text(
                           _managerCompanyNames.join(' • '),
                           style: const TextStyle(
@@ -1474,7 +1596,10 @@ class _ProfilePageState extends State<ProfilePage> {
                         Container(
                           width: double.infinity,
                           margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFE3F2FD),
                             borderRadius: BorderRadius.circular(14),
@@ -1488,7 +1613,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                   color: Color(0xFF1976D2),
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(Icons.my_location, color: Colors.white, size: 16),
+                                child: const Icon(
+                                  Icons.my_location,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -1522,14 +1651,20 @@ class _ProfilePageState extends State<ProfilePage> {
                                   backgroundColor: const Color(0xFF1976D2),
                                   foregroundColor: Colors.white,
                                   elevation: 0,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
                                   minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                 ),
-                                onPressed: _isProcessingPunch ? null : () => _checkGeofence(),
+                                onPressed: _isProcessingPunch
+                                    ? null
+                                    : () => _checkGeofence(),
                                 child: _isProcessingPunch
                                     ? const SizedBox(
                                         width: 14,
@@ -1582,17 +1717,47 @@ class _ProfilePageState extends State<ProfilePage> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                _buildTimeBox(_formatTwoDigits(_workDuration.inHours), 'Hour'),
-                                const Text(':', style: TextStyle(color: Colors.white70, fontSize: 28, fontWeight: FontWeight.w300)),
-                                _buildTimeBox(_formatTwoDigits(_workDuration.inMinutes % 60), 'Min'),
-                                const Text(':', style: TextStyle(color: Colors.white70, fontSize: 28, fontWeight: FontWeight.w300)),
-                                _buildTimeBox(_formatTwoDigits(_workDuration.inSeconds % 60), 'Sec'),
+                                _buildTimeBox(
+                                  _formatTwoDigits(_workDuration.inHours),
+                                  'Hour',
+                                ),
+                                const Text(
+                                  ':',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w300,
+                                  ),
+                                ),
+                                _buildTimeBox(
+                                  _formatTwoDigits(
+                                    _workDuration.inMinutes % 60,
+                                  ),
+                                  'Min',
+                                ),
+                                const Text(
+                                  ':',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w300,
+                                  ),
+                                ),
+                                _buildTimeBox(
+                                  _formatTwoDigits(
+                                    _workDuration.inSeconds % 60,
+                                  ),
+                                  'Sec',
+                                ),
                               ],
                             ),
                             if (_dayType != null) ...[
                               const SizedBox(height: 12),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
                                   color: _dayType == 'full_day'
                                       ? Colors.green.withValues(alpha: 0.25)
@@ -1619,7 +1784,9 @@ class _ProfilePageState extends State<ProfilePage> {
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
-                                      _dayType == 'full_day' ? 'Full Day' : 'Half Day',
+                                      _dayType == 'full_day'
+                                          ? 'Full Day'
+                                          : 'Half Day',
                                       style: TextStyle(
                                         color: _dayType == 'full_day'
                                             ? Colors.greenAccent
@@ -1639,12 +1806,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
                       const SizedBox(height: 16),
 
-                      if (!_hasActiveSession && _capturedPunchInPhoto != null) ...[
+                      if (!_hasActiveSession &&
+                          _capturedPunchInPhoto != null) ...[
                         SizedBox(
                           width: double.infinity,
                           height: 50,
                           child: ElevatedButton.icon(
-                            onPressed: _isProcessingPunch ? null : () => _submitPunchIn(isAuto: false),
+                            onPressed: _isProcessingPunch
+                                ? null
+                                : () => _submitPunchIn(isAuto: false),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
                               foregroundColor: Colors.white,
@@ -1663,7 +1833,9 @@ class _ProfilePageState extends State<ProfilePage> {
                                   )
                                 : const Icon(Icons.login, size: 20),
                             label: Text(
-                              _isProcessingPunch ? 'Punching in...' : 'Punch In',
+                              _isProcessingPunch
+                                  ? 'Punching in...'
+                                  : 'Punch In',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
@@ -1699,7 +1871,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                     color: Colors.orange[800],
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(Icons.coffee, color: Colors.white, size: 18),
+                                  child: const Icon(
+                                    Icons.coffee,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ),
                                 const SizedBox(width: 14),
                                 Text(
@@ -1725,15 +1901,15 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-
-
                       ],
 
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
                           style: FilledButton.styleFrom(
-                            backgroundColor: _hasActiveSession ? Colors.orange[800] : const Color(0xFFD32F2F),
+                            backgroundColor: _hasActiveSession
+                                ? Colors.orange[800]
+                                : const Color(0xFFD32F2F),
                             foregroundColor: Colors.white,
                             minimumSize: const Size.fromHeight(52),
                             shape: RoundedRectangleBorder(
@@ -1742,7 +1918,9 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                           onPressed: (_isLoggingOut || _isProcessingPunch)
                               ? null
-                              : (_hasActiveSession ? _punchOut : _confirmLogout),
+                              : (_hasActiveSession
+                                    ? _punchOut
+                                    : _confirmLogout),
                           icon: (_isLoggingOut || _isProcessingPunch)
                               ? const SizedBox(
                                   width: 18,
@@ -1755,15 +1933,17 @@ class _ProfilePageState extends State<ProfilePage> {
                                   ),
                                 )
                               : Icon(
-                                  _hasActiveSession ? Icons.punch_clock : Icons.logout_rounded,
+                                  _hasActiveSession
+                                      ? Icons.punch_clock
+                                      : Icons.logout_rounded,
                                   size: 20,
                                 ),
                           label: Text(
                             _isProcessingPunch
                                 ? 'Processing...'
                                 : _isLoggingOut
-                                    ? 'Logging out...'
-                                    : (_hasActiveSession ? 'Punch Out' : 'Logout'),
+                                ? 'Logging out...'
+                                : (_hasActiveSession ? 'Punch Out' : 'Logout'),
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
@@ -1773,175 +1953,287 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
 
                       const SizedBox(height: 24),
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Your activity',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (_activities.isEmpty)
-                        Container(
+                      GestureDetector(
+                        onTap: () => _showActivitiesBottomSheet(context),
+                        child: Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'No activity for today',
-                              style: TextStyle(color: Colors.black54),
-                            ),
-                          ),
-                        ),
-                      ..._activities.map((activity) {
-                        if (activity['type'] == 'break') {
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: activity['color'] as Color,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Center(
-                              child: Text(
-                                activity['title']?.toString() ?? '',
-                                style: TextStyle(
-                                  color: (activity['textColor'] as Color?) ?? Colors.orange[900],
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey[200]!),
+                            borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.03),
+                                color: Colors.black.withValues(alpha: 0.04),
                                 blurRadius: 10,
-                                offset: const Offset(0, 2),
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                            border: Border.all(color: Colors.grey[200]!),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withValues(alpha: 0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.history,
+                                  color: Colors.blue,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Your Activity',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'View your punch-in and break history',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_forward_ios,
+                                color: Colors.grey[400],
+                                size: 16,
                               ),
                             ],
                           ),
-                          child: IntrinsicHeight(
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.withValues(alpha: 0.1),
-                                      borderRadius: const BorderRadius.only(
-                                        topLeft: Radius.circular(12),
-                                        bottomLeft: Radius.circular(12),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Icon(
-                                              Icons.login,
-                                              size: 18,
-                                              color: Colors.green,
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              'Punch In',
-                                              style: TextStyle(
-                                                color: Colors.green[800],
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          activity['inTime']?.toString() ?? '-',
-                                          style: const TextStyle(
-                                            color: Colors.black87,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                Container(width: 1, color: Colors.grey[300]),
-                                Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: activity['isActive'] == true
-                                          ? Colors.white
-                                          : Colors.red.withValues(alpha: 0.08),
-                                      borderRadius: const BorderRadius.only(
-                                        topRight: Radius.circular(12),
-                                        bottomRight: Radius.circular(12),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.logout,
-                                              size: 18,
-                                              color: activity['isActive'] == true ? Colors.grey : Colors.red,
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              'Punch Out',
-                                              style: TextStyle(
-                                                color: activity['isActive'] == true ? Colors.grey[600] : Colors.red[800],
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          activity['outTime']?.toString() ?? '-',
-                                          style: TextStyle(
-                                            color: activity['isActive'] == true ? Colors.green[700] : Colors.red[700],
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }),
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
       ),
+    );
+  }
+
+  void _showActivitiesBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.7,
+          decoration: const BoxDecoration(
+            color: Color(0xFFF8F9FA),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 20),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Your Activity',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 8,
+                  ),
+                  children: [
+                    if (_activities.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'No activity for today',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        ),
+                      ),
+                    ..._activities.map((activity) {
+                      if (activity['type'] == 'break') {
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: activity['color'] as Color,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Text(
+                              activity['title']?.toString() ?? '',
+                              style: TextStyle(
+                                color:
+                                    (activity['textColor'] as Color?) ??
+                                    Colors.orange[900],
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[200]!),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.03),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: IntrinsicHeight(
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withValues(alpha: 0.1),
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(12),
+                                      bottomLeft: Radius.circular(12),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.login,
+                                            size: 18,
+                                            color: Colors.green,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            'Punch In',
+                                            style: TextStyle(
+                                              color: Colors.green[800],
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        activity['inTime']?.toString() ?? '-',
+                                        style: const TextStyle(
+                                          color: Colors.black87,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              Container(width: 1, color: Colors.grey[300]),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: activity['isActive'] == true
+                                        ? Colors.white
+                                        : Colors.red.withValues(alpha: 0.08),
+                                    borderRadius: const BorderRadius.only(
+                                      topRight: Radius.circular(12),
+                                      bottomRight: Radius.circular(12),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.logout,
+                                            size: 18,
+                                            color: activity['isActive'] == true
+                                                ? Colors.grey
+                                                : Colors.red,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            'Punch Out',
+                                            style: TextStyle(
+                                              color:
+                                                  activity['isActive'] == true
+                                                  ? Colors.grey[600]
+                                                  : Colors.red[800],
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        activity['outTime']?.toString() ?? '-',
+                                        style: TextStyle(
+                                          color: activity['isActive'] == true
+                                              ? Colors.green[700]
+                                              : Colors.red[700],
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1958,10 +2250,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         Text(
           label,
-          style: const TextStyle(
-            color: Colors.white38,
-            fontSize: 10,
-          ),
+          style: const TextStyle(color: Colors.white38, fontSize: 10),
         ),
       ],
     );
