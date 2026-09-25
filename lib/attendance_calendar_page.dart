@@ -28,16 +28,7 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
   Future<void> _fetchMonthlyAttendance() async {
     setState(() => _isLoading = true);
     try {
-      final startOfMonth = DateTime(_currentMonth.year, _currentMonth.month, 1);
-      final endOfMonth = DateTime(
-        _currentMonth.year,
-        _currentMonth.month + 1,
-        0,
-        23, 59, 59
-      );
-
-      final startStr = startOfMonth.toUtc().toIso8601String();
-      final endStr = endOfMonth.toUtc().toIso8601String();
+      final monthStr = DateFormat('yyyy-MM').format(_currentMonth);
 
       // We need the current user ID to filter (or query directly)
       final userStr = await _storage.read(key: 'user');
@@ -49,9 +40,9 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
 
       final token = await _storage.read(key: 'token');
 
-      // Query the attendance collection directly
+      // Query the attendance collection directly using dateString like
       final url = Uri.parse(
-        '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[date][greater_than_equal]=$startStr&where[date][less_than_equal]=$endStr&limit=100',
+        '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[dateString][like]=$monthStr&limit=100',
       );
 
       final res = await http.get(
@@ -292,7 +283,8 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
     // Status Logic
     bool isPresent = attendance != null;
     bool isHalfDay = attendance?['dayType'] == 'half_day';
-    bool isAbsent = !isPresent && date.isBefore(DateTime.now());
+    final now = DateTime.now();
+    bool isAbsent = !isPresent && date.isBefore(DateTime(now.year, now.month, now.day));
     bool isSunday = date.weekday == 7;
 
     // Colors based on image
