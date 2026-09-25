@@ -213,11 +213,6 @@ class AttendanceManager {
           _consecutiveOutsideTicks++;
 
           if (_consecutiveOutsideTicks >= 1) {
-            if (!activePhotoFound) {
-              debugPrint('AttendanceManager: Outside branch but active session missing selfie photo. Holding auto punch-out.');
-              return;
-            }
-
             // Punch out
             final punchInStr = activeSession['punchIn']?.toString() ?? '';
             final punchInTime = DateTime.tryParse(punchInStr)?.toLocal() ?? now;
