@@ -1901,5 +1901,65 @@ Future<List<dynamic>> fetchEmployees() async {
         return 'image/jpeg';
     }
   }
+
+  Future<Map<String, dynamic>> fetchMyDailyTasks({String? dateString}) async {
+    try {
+      final token = await _getToken();
+      String url = '$_baseUrl/tasks/my-daily-tasks';
+      if (dateString != null && dateString.isNotEmpty) {
+        url += '?dateString=$dateString';
+      }
+      final res = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to load daily tasks: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching daily tasks: $e');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> toggleDailyTask({
+    required String taskId,
+    bool? completed,
+    String? dateString,
+    String? notes,
+  }) async {
+    try {
+      final token = await _getToken();
+      final res = await http.post(
+        Uri.parse('$_baseUrl/tasks/toggle-daily-task'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'taskId': taskId,
+          if (completed != null) 'completed': completed,
+          if (dateString != null) 'dateString': dateString,
+          if (notes != null) 'notes': notes,
+        }),
+      );
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed to toggle daily task: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error toggling daily task: $e');
+      rethrow;
+    }
+  }
 }
 
