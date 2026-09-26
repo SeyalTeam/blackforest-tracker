@@ -14,6 +14,11 @@ class AttendanceCalendarPage extends StatefulWidget {
 
 class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
   DateTime _currentMonth = DateTime.now();
+  DateTime _selectedDate = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
   Map<String, Map<String, dynamic>> _attendanceMap = {};
   bool _isLoading = true;
 
@@ -147,6 +152,8 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
                   _buildLegend(),
                   const SizedBox(height: 24),
                   _buildPendingRegularization(),
+                  const SizedBox(height: 24),
+                  _buildSelectedDateActivity(),
                 ],
               ),
             ),
@@ -279,7 +286,8 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
     bool isHalfDay = attendance?['dayType'] == 'half_day';
     bool isLate = attendance?['isLate'] == true;
     final now = DateTime.now();
-    bool isAbsent = !isPresent && date.isBefore(DateTime(now.year, now.month, now.day));
+    bool isAbsent =
+        !isPresent && date.isBefore(DateTime(now.year, now.month, now.day));
     bool isSunday = date.weekday == 7;
 
     // Colors based on image
@@ -307,45 +315,58 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
       textColor = Colors.red[800]!;
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(6),
-        border: border,
-      ),
-      child: Stack(
-        children: [
-          Center(
-            child: Text(
-              '${date.day}',
-              style: TextStyle(
-                color: textColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+    final isSelected =
+        dateStr == DateFormat('yyyy-MM-dd').format(_selectedDate);
+    if (isSelected) {
+      border = Border.all(color: Colors.black87, width: 2);
+    }
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedDate = date;
+        });
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(6),
+          border: border,
+        ),
+        child: Stack(
+          children: [
+            Center(
+              child: Text(
+                '${date.day}',
+                style: TextStyle(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ),
-          ),
-          if (isHalfDay)
-            const Positioned(
-              bottom: 4,
-              left: 4,
-              child: Icon(
-                Icons.access_time_filled,
-                color: Colors.orange,
-                size: 10,
+            if (isHalfDay)
+              const Positioned(
+                bottom: 4,
+                left: 4,
+                child: Icon(
+                  Icons.access_time_filled,
+                  color: Colors.orange,
+                  size: 10,
+                ),
               ),
-            ),
-          if (isLate)
-            const Positioned(
-              bottom: 4,
-              right: 4,
-              child: Icon(
-                Icons.running_with_errors,
-                color: Colors.redAccent,
-                size: 12,
+            if (isLate)
+              const Positioned(
+                bottom: 4,
+                right: 4,
+                child: Icon(
+                  Icons.running_with_errors,
+                  color: Colors.redAccent,
+                  size: 12,
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -360,10 +381,18 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
         _buildLegendItem('Present', Colors.green),
         _buildLegendItem('Absent', Colors.red),
         _buildLegendItem('On leave', Colors.purple),
-        _buildLegendItem('Half Day', Colors.orange, icon: Icons.access_time_filled),
+        _buildLegendItem(
+          'Half Day',
+          Colors.orange,
+          icon: Icons.access_time_filled,
+        ),
         _buildLegendItem('Week Off', Colors.blueGrey),
         _buildLegendItem('Holiday', Colors.teal),
-        _buildLegendItem('Late', Colors.redAccent, icon: Icons.running_with_errors),
+        _buildLegendItem(
+          'Late',
+          Colors.redAccent,
+          icon: Icons.running_with_errors,
+        ),
         _buildLegendItem(
           'Punch Error',
           Colors.orange,
@@ -417,6 +446,258 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
           ),
         ],
       ),
+    );
+  }
+
+  List<Map<String, dynamic>> _processActivitiesForDate(List rawActivities) {
+    final List<Map<String, dynamic>> allActivities = [];
+
+    for (final rawActivity in rawActivities) {
+      if (rawActivity['type'] != 'session') continue;
+
+      final punchInStr = rawActivity['punchIn'];
+      if (punchInStr == null) continue;
+
+      final punchIn = DateTime.parse(punchInStr.toString()).toLocal();
+      final punchOutStr = rawActivity['punchOut'];
+      final status = rawActivity['status']?.toString();
+      final breakDurationSeconds =
+          (rawActivity['breakDurationSeconds'] as num?)?.toInt() ?? 0;
+
+      final inTimeStr = DateFormat('hh:mm a').format(punchIn);
+      String outTimeStr = '-';
+      if (punchOutStr != null) {
+        final punchOut = DateTime.parse(punchOutStr.toString()).toLocal();
+        outTimeStr = DateFormat('hh:mm a').format(punchOut);
+      }
+
+      if (breakDurationSeconds > 0) {
+        final breakDur = Duration(seconds: breakDurationSeconds);
+        allActivities.add({
+          'type': 'break',
+          'title': breakDur.inHours > 0
+              ? '${breakDur.inHours}h ${breakDur.inMinutes % 60}m Break'
+              : breakDur.inMinutes > 0
+              ? '${breakDur.inMinutes} Min Break'
+              : '${breakDur.inSeconds} Sec Break',
+          'color': const Color(0xFFFFE0B2),
+          'textColor': Colors.orange[900],
+          'startTime': punchIn.subtract(
+            Duration(seconds: breakDurationSeconds),
+          ),
+        });
+      }
+
+      allActivities.add({
+        'type': 'session',
+        'inTime': inTimeStr,
+        'outTime': outTimeStr,
+        'color': Colors.white,
+        'startTime': punchIn,
+        'isActive': status == 'active',
+      });
+    }
+
+    allActivities.sort((a, b) {
+      final tA = a['startTime'] as DateTime;
+      final tB = b['startTime'] as DateTime;
+      return tB.compareTo(tA);
+    });
+
+    return allActivities;
+  }
+
+  Widget _buildSelectedDateActivity() {
+    final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    final isToday = dateStr == DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final title = isToday
+        ? 'Today\'s Activity'
+        : '${DateFormat('MMM d, yyyy').format(_selectedDate)} Activity';
+
+    final attendance = _attendanceMap[dateStr];
+    final rawActivities = (attendance?['activities'] as List?) ?? [];
+    final activities = _processActivitiesForDate(rawActivities);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.history, color: Colors.black87),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (activities.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            child: Center(
+              child: Text(
+                isToday
+                    ? 'No activity for today yet'
+                    : 'No activity on this date',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+          )
+        else
+          ...activities.map((activity) {
+            if (activity['type'] == 'break') {
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: activity['color'] as Color,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    activity['title']?.toString() ?? '',
+                    style: TextStyle(
+                      color:
+                          (activity['textColor'] as Color?) ??
+                          Colors.orange[900],
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              );
+            }
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[200]!),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.1),
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(12),
+                            bottomLeft: Radius.circular(12),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.login,
+                                  size: 18,
+                                  color: Colors.green,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Punch In',
+                                  style: TextStyle(
+                                    color: Colors.green[800],
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              activity['inTime']?.toString() ?? '-',
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Container(width: 1, color: Colors.grey[300]),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: activity['isActive'] == true
+                              ? Colors.white
+                              : Colors.red.withValues(alpha: 0.08),
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(12),
+                            bottomRight: Radius.circular(12),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.logout,
+                                  size: 18,
+                                  color: activity['isActive'] == true
+                                      ? Colors.grey
+                                      : Colors.red,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Punch Out',
+                                  style: TextStyle(
+                                    color: activity['isActive'] == true
+                                        ? Colors.grey[600]
+                                        : Colors.red[800],
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              activity['outTime']?.toString() ?? '-',
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
     );
   }
 
