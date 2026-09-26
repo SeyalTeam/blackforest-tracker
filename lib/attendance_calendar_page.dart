@@ -31,13 +31,7 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
       final monthStr = DateFormat('yyyy-MM').format(_currentMonth);
 
       // We need the current user ID to filter (or query directly)
-      final userStr = await _storage.read(key: 'user');
-      String? userId;
-      if (userStr != null) {
-        final userData = json.decode(userStr);
-        userId = userData['id']?.toString();
-      }
-
+      final userId = await _storage.read(key: 'userId');
       final token = await _storage.read(key: 'token');
 
       // Query the attendance collection directly (fetch latest 100 for this user)
@@ -47,7 +41,7 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
 
       final res = await http.get(
         url,
-        headers: {if (token != null) 'Authorization': 'JWT $token'},
+        headers: {if (token != null) 'Authorization': 'Bearer $token'},
       );
 
       final newMap = <String, Map<String, dynamic>>{};
