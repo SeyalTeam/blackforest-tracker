@@ -277,6 +277,7 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
     // Status Logic
     bool isPresent = attendance != null;
     bool isHalfDay = attendance?['dayType'] == 'half_day';
+    bool isLate = attendance?['isLate'] == true;
     final now = DateTime.now();
     bool isAbsent = !isPresent && date.isBefore(DateTime(now.year, now.month, now.day));
     bool isSunday = date.weekday == 7;
@@ -325,16 +326,23 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
             ),
           ),
           if (isHalfDay)
-            Positioned(
+            const Positioned(
               bottom: 4,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Icon(
-                  Icons.access_time_filled,
-                  color: Colors.orange,
-                  size: 10,
-                ),
+              left: 4,
+              child: Icon(
+                Icons.access_time_filled,
+                color: Colors.orange,
+                size: 10,
+              ),
+            ),
+          if (isLate)
+            const Positioned(
+              bottom: 4,
+              right: 4,
+              child: Icon(
+                Icons.running_with_errors,
+                color: Colors.redAccent,
+                size: 12,
               ),
             ),
         ],
@@ -352,10 +360,10 @@ class _AttendanceCalendarPageState extends State<AttendanceCalendarPage> {
         _buildLegendItem('Present', Colors.green),
         _buildLegendItem('Absent', Colors.red),
         _buildLegendItem('On leave', Colors.purple),
-        _buildLegendItem('Half Day', Colors.orange),
+        _buildLegendItem('Half Day', Colors.orange, icon: Icons.access_time_filled),
         _buildLegendItem('Week Off', Colors.blueGrey),
         _buildLegendItem('Holiday', Colors.teal),
-        _buildLegendItem('Late', Colors.orange, icon: Icons.access_time_filled),
+        _buildLegendItem('Late', Colors.redAccent, icon: Icons.running_with_errors),
         _buildLegendItem(
           'Punch Error',
           Colors.orange,
