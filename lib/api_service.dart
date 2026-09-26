@@ -1933,6 +1933,23 @@ Future<List<dynamic>> fetchEmployees() async {
     // Direct collection fallback (Guaranteed to return tasks even before server endpoint redeploy!)
     try {
       final userRole = ((await storage.read(key: 'userRole')) ?? '').toLowerCase().trim();
+      final userId = await storage.read(key: 'userId');
+
+      // Attempt to resolve employee info from profile
+      String? empId;
+      String empTeam = '';
+      try {
+        final profile = await fetchUserProfile();
+        final userDoc = profile['user'] is Map ? profile['user'] : profile;
+        final empObj = userDoc['employee'];
+        if (empObj is Map) {
+          empId = (empObj['id'] ?? empObj['_id'])?.toString();
+          empTeam = (empObj['team']?.toString() ?? '').toLowerCase().trim();
+        } else if (empObj != null) {
+          empId = empObj.toString();
+        }
+      } catch (_) {}
+
       final tasksRes = await http.get(
         Uri.parse('$_baseUrl/tasks?limit=500&depth=1'),
         headers: {
@@ -1975,13 +1992,38 @@ Future<List<dynamic>> fetchEmployees() async {
           final assignedRole = (t['assignedRole']?.toString() ?? '').toLowerCase().trim();
           final taskRole = assignedRole.isNotEmpty ? assignedRole : (colRole.isNotEmpty ? colRole : colTitle);
 
+          final assignmentType = (t['assignmentType']?.toString() ?? 'role').toLowerCase();
+
+          // Individual match
+          final tEmp = t['assignedEmployee'];
+          final tEmpId = tEmp is Map ? tEmp['id']?.toString() : tEmp?.toString();
+          final tUser = t['assignedUser'];
+          final tUserId = tUser is Map ? tUser['id']?.toString() : tUser?.toString();
+
+          final matchesInd = (empId != null && tEmpId == empId) ||
+              (userId != null && (tUserId == userId || tEmpId == userId));
+
+          // Role match (supports ALL roles: kitchen, chef, waiter, cashier, manager, supervisor, delivery, driver, etc.)
           final matchesRole = taskRole == 'all' ||
-              taskRole == userRole ||
-              (userRole == 'manager' && (taskRole == 'manager' || colRole == 'manager' || colTitle == 'manager')) ||
+              (userRole.isNotEmpty && taskRole == userRole) ||
+              (empTeam.isNotEmpty && taskRole == empTeam) ||
               userRole == 'admin' ||
               userRole == 'superadmin';
 
-          return matchesRole;
+          if (assignmentType == 'individual') {
+            return matchesInd;
+          }
+          if (assignmentType == 'role') {
+            return matchesRole;
+          }
+          if (assignmentType == 'both') {
+            return matchesInd || matchesRole;
+          }
+          if (assignmentType == 'unassigned') {
+            return true;
+          }
+
+          return matchesInd || matchesRole;
         }).map((t) {
           final id = t['id']?.toString() ?? '';
           final comp = completionMap[id];
