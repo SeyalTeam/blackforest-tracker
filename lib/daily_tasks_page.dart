@@ -17,6 +17,7 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
   List<Map<String, dynamic>> _tasks = [];
   final Set<String> _togglingTaskIds = {};
   String _filter = 'all'; // 'all' | 'pending' | 'completed'
+  String _frequencyFilter = 'all'; // 'all' | 'daily' | 'weekly' | 'monthly' | 'hourly'
 
   @override
   void initState() {
@@ -613,9 +614,16 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
 
     List<Map<String, dynamic>> displayedTasks = _tasks;
     if (_filter == 'pending') {
-      displayedTasks = _tasks.where((t) => t['completed'] != true).toList();
+      displayedTasks = displayedTasks.where((t) => t['completed'] != true).toList();
     } else if (_filter == 'completed') {
-      displayedTasks = _tasks.where((t) => t['completed'] == true).toList();
+      displayedTasks = displayedTasks.where((t) => t['completed'] == true).toList();
+    }
+
+    if (_frequencyFilter != 'all') {
+      displayedTasks = displayedTasks.where((t) {
+        final f = (t['frequency']?.toString().toLowerCase().trim() ?? 'daily');
+        return f == _frequencyFilter;
+      }).toList();
     }
 
     final todayFormatted = DateFormat('EEEE, d MMMM yyyy').format(DateTime.now());
@@ -624,7 +632,7 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         title: const Text(
-          'Daily Work Tasks',
+          'Work Tasks',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         centerTitle: false,
@@ -750,7 +758,7 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
               const SizedBox(height: 20),
 
               // 2. FILTER TABS (All | Pending | Completed)
-              if (totalCount > 0)
+              if (totalCount > 0) ...[
                 Row(
                   children: [
                     _buildFilterChip('All', 'all', totalCount),
@@ -760,6 +768,20 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                     _buildFilterChip('Completed', 'completed', completedCount),
                   ],
                 ),
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildFrequencyChip('All Periods', 'all', Icons.tune_rounded),
+                      _buildFrequencyChip('Daily', 'daily', Icons.repeat_rounded),
+                      _buildFrequencyChip('Weekly', 'weekly', Icons.date_range_rounded),
+                      _buildFrequencyChip('Monthly', 'monthly', Icons.calendar_month_rounded),
+                      _buildFrequencyChip('Hourly', 'hourly', Icons.access_time_rounded),
+                    ],
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 16),
 
@@ -841,12 +863,61 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                     final assignedRole = task['assignedRole']?.toString() ?? '';
                     final completedAtStr = task['completedAt']?.toString();
 
-                    String? formattedTime;
+                    final frequency = task['frequency']?.toString().toLowerCase().trim() ?? 'daily';
+
+                    Color freqBg = Colors.blue.withValues(alpha: 0.08);
+                    Color freqFg = Colors.blue[800]!;
+                    Color freqBorder = Colors.blue.withValues(alpha: 0.25);
+                    IconData freqIcon = Icons.repeat_rounded;
+                    String freqLabel = 'DAILY';
+
+                    if (frequency == 'hourly') {
+                      freqBg = Colors.amber.withValues(alpha: 0.12);
+                      freqFg = Colors.amber[900]!;
+                      freqBorder = Colors.amber.withValues(alpha: 0.35);
+                      freqIcon = Icons.access_time_rounded;
+                      freqLabel = 'HOURLY';
+                    } else if (frequency == 'weekly') {
+                      freqBg = Colors.indigo.withValues(alpha: 0.1);
+                      freqFg = const Color(0xFF2E3192);
+                      freqBorder = Colors.indigo.withValues(alpha: 0.25);
+                      freqIcon = Icons.date_range_rounded;
+                      freqLabel = 'WEEKLY';
+                    } else if (frequency == 'monthly') {
+                      freqBg = Colors.teal.withValues(alpha: 0.1);
+                      freqFg = Colors.teal[800]!;
+                      freqBorder = Colors.teal.withValues(alpha: 0.25);
+                      freqIcon = Icons.calendar_month_rounded;
+                      freqLabel = 'MONTHLY';
+                    }
+
+                    String completionStatusText = 'Done';
                     if (completedAtStr != null && completedAtStr.isNotEmpty) {
                       try {
                         final dt = DateTime.parse(completedAtStr).toLocal();
-                        formattedTime = DateFormat('hh:mm a').format(dt);
-                      } catch (_) {}
+                        final now = DateTime.now();
+                        final isToday = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+                        final timeStr = DateFormat('hh:mm a').format(dt);
+                        if (frequency == 'hourly') {
+                          completionStatusText = 'Done this hour • $timeStr';
+                        } else if (frequency == 'weekly') {
+                          if (isToday) {
+                            completionStatusText = 'Done this week • Today $timeStr';
+                          } else {
+                            completionStatusText = 'Done this week • ${DateFormat('EEE, MMM d').format(dt)}';
+                          }
+                        } else if (frequency == 'monthly') {
+                          if (isToday) {
+                            completionStatusText = 'Done this month • Today $timeStr';
+                          } else {
+                            completionStatusText = 'Done this month • ${DateFormat('MMM d').format(dt)}';
+                          }
+                        } else {
+                          completionStatusText = 'Done today at $timeStr';
+                        }
+                      } catch (_) {
+                        completionStatusText = 'Done';
+                      }
                     }
 
                     Color priorityBg = Colors.grey[100]!;
@@ -968,6 +1039,40 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                                           ),
                                         ),
                                       ),
+                                      // Recurrence frequency badge (HOURLY, DAILY, WEEKLY, MONTHLY)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: freqBg,
+                                          borderRadius: BorderRadius.circular(5),
+                                          border: Border.all(
+                                            color: freqBorder,
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              freqIcon,
+                                              size: 10.5,
+                                              color: freqFg,
+                                            ),
+                                            const SizedBox(width: 3.5),
+                                            Text(
+                                              freqLabel,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: freqFg,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                       if (assignedRole.isNotEmpty)
                                         Container(
                                           padding: const EdgeInsets.symmetric(
@@ -1033,23 +1138,38 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                                             ),
                                           ),
                                         ),
-                                      if (isCompleted && formattedTime != null)
+                                      if (isCompleted)
                                         Container(
                                           padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
+                                            horizontal: 7,
+                                            vertical: 3,
                                           ),
                                           decoration: BoxDecoration(
                                             color: Colors.green.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            'Done at $formattedTime',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.green[800],
+                                            borderRadius: BorderRadius.circular(5),
+                                            border: Border.all(
+                                              color: Colors.green.withValues(alpha: 0.3),
+                                              width: 0.8,
                                             ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.check_circle_rounded,
+                                                size: 11,
+                                                color: Colors.green[800],
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                completionStatusText,
+                                                style: TextStyle(
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.green[800],
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                     ],
@@ -1138,4 +1258,48 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
       ),
     );
   }
+
+  Widget _buildFrequencyChip(String label, String value, IconData icon) {
+    final isSelected = _frequencyFilter == value;
+    final count = value == 'all'
+        ? _tasks.length
+        : _tasks.where((t) => (t['frequency']?.toString().toLowerCase().trim() ?? 'daily') == value).length;
+
+    if (value != 'all' && count == 0) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: () => setState(() => _frequencyFilter = value),
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF2E3192) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF2E3192) : Colors.grey[300]!,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 13,
+              color: isSelected ? Colors.white : Colors.grey[700],
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '$label ($count)',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected ? Colors.white : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
