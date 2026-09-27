@@ -1975,9 +1975,27 @@ Future<List<dynamic>> fetchEmployees() async {
           if (compRes.statusCode == 200) {
             final compJson = jsonDecode(compRes.body);
             for (final c in (compJson['docs'] as List? ?? [])) {
-              final tId = c['task'] is Map ? c['task']['id'] : c['task']?.toString();
-              if (tId != null) {
-                completionMap[tId] = c;
+              if (c['tasks'] is List) {
+                final docUser = c['user'] is Map ? c['user']['id']?.toString() : c['user']?.toString();
+                final docEmp = c['employee'] is Map ? c['employee']['id']?.toString() : c['employee']?.toString();
+                final isMatch = (userId != null && (docUser == userId || docEmp == userId)) ||
+                    (empId != null && (docEmp == empId || docUser == empId));
+                if (isMatch) {
+                  for (final item in (c['tasks'] as List)) {
+                    final tId = item['task'] is Map ? item['task']['id']?.toString() : item['task']?.toString();
+                    if (tId != null) {
+                      completionMap[tId] = {
+                        ...Map<String, dynamic>.from(item as Map),
+                        'id': c['id'],
+                      };
+                    }
+                  }
+                }
+              } else {
+                final tId = c['task'] is Map ? c['task']['id'] : c['task']?.toString();
+                if (tId != null) {
+                  completionMap[tId] = c;
+                }
               }
             }
           }
@@ -2094,8 +2112,20 @@ Future<List<dynamic>> fetchEmployees() async {
     // Direct collection fallback:
     try {
       final userId = await storage.read(key: 'userId');
+      String? empId;
+      try {
+        final profile = await fetchUserProfile();
+        final userDoc = profile['user'] is Map ? profile['user'] : profile;
+        final empObj = userDoc['employee'];
+        if (empObj is Map) {
+          empId = (empObj['id'] ?? empObj['_id'])?.toString();
+        } else if (empObj != null) {
+          empId = empObj.toString();
+        }
+      } catch (_) {}
+
       final checkRes = await http.get(
-        Uri.parse('$_baseUrl/task-completions?where[task][equals]=$taskId&where[dateString][equals]=$today&limit=1'),
+        Uri.parse('$_baseUrl/task-completions?where[dateString][equals]=$today&limit=100&depth=0'),
         headers: {
           'Accept': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
@@ -2104,9 +2134,53 @@ Future<List<dynamic>> fetchEmployees() async {
       if (checkRes.statusCode == 200) {
         final checkJson = jsonDecode(checkRes.body);
         final docs = (checkJson['docs'] as List?) ?? [];
-        if (docs.isNotEmpty) {
-          final docId = docs[0]['id'];
-          final isComp = completed ?? !(docs[0]['completed'] == true);
+
+        // Find existing doc for current user/employee today
+        Map<String, dynamic>? existingDoc;
+        for (final doc in docs) {
+          final docUser = doc['user'] is Map ? doc['user']['id']?.toString() : doc['user']?.toString();
+          final docEmp = doc['employee'] is Map ? doc['employee']['id']?.toString() : doc['employee']?.toString();
+          if ((userId != null && (docUser == userId || docEmp == userId)) ||
+              (empId != null && (docEmp == empId || docUser == empId))) {
+            existingDoc = Map<String, dynamic>.from(doc as Map);
+            break;
+          }
+        }
+
+        if (existingDoc != null) {
+          final docId = existingDoc['id'];
+          final currentTasks = List<Map<String, dynamic>>.from(
+            (existingDoc['tasks'] as List? ?? []).map((t) => Map<String, dynamic>.from(t as Map)),
+          );
+
+          final taskIdx = currentTasks.indexWhere((t) {
+            final id = t['task'] is Map ? t['task']['id']?.toString() : t['task']?.toString();
+            return id == taskId;
+          });
+
+          final bool isComp;
+          final String? compAt;
+          if (taskIdx != -1) {
+            isComp = completed ?? !(currentTasks[taskIdx]['completed'] == true);
+            compAt = isComp ? (currentTasks[taskIdx]['completedAt'] ?? DateTime.now().toIso8601String()) : null;
+            currentTasks[taskIdx] = {
+              ...currentTasks[taskIdx],
+              'task': taskId,
+              'completed': isComp,
+              'completedAt': compAt,
+              if (notes != null) 'notes': notes,
+            };
+          } else {
+            isComp = completed ?? true;
+            compAt = isComp ? DateTime.now().toIso8601String() : null;
+            currentTasks.add({
+              'task': taskId,
+              'completed': isComp,
+              'completedAt': compAt,
+              'notes': notes ?? '',
+            });
+          }
+
           final patchRes = await http.patch(
             Uri.parse('$_baseUrl/task-completions/$docId'),
             headers: {
@@ -2115,16 +2189,15 @@ Future<List<dynamic>> fetchEmployees() async {
               if (token != null) 'Authorization': 'Bearer $token',
             },
             body: jsonEncode({
-              'completed': isComp,
-              'completedAt': isComp ? DateTime.now().toIso8601String() : null,
-              if (notes != null) 'notes': notes,
+              'tasks': currentTasks,
             }),
           );
           if (patchRes.statusCode == 200) {
-            return {'success': true, 'completed': isComp, 'doc': jsonDecode(patchRes.body)};
+            return {'success': true, 'completed': isComp, 'completedAt': compAt, 'doc': jsonDecode(patchRes.body)};
           }
         } else {
           final isComp = completed ?? true;
+          final compAt = isComp ? DateTime.now().toIso8601String() : null;
           final postRes = await http.post(
             Uri.parse('$_baseUrl/task-completions'),
             headers: {
@@ -2133,17 +2206,22 @@ Future<List<dynamic>> fetchEmployees() async {
               if (token != null) 'Authorization': 'Bearer $token',
             },
             body: jsonEncode({
-              'task': taskId,
               'user': userId,
+              if (empId != null) 'employee': empId,
               'dateString': today,
               'date': DateTime.now().toIso8601String(),
-              'completed': isComp,
-              'completedAt': isComp ? DateTime.now().toIso8601String() : null,
-              'notes': notes ?? '',
+              'tasks': [
+                {
+                  'task': taskId,
+                  'completed': isComp,
+                  'completedAt': compAt,
+                  'notes': notes ?? '',
+                }
+              ],
             }),
           );
           if (postRes.statusCode == 200 || postRes.statusCode == 201) {
-            return {'success': true, 'completed': isComp, 'doc': jsonDecode(postRes.body)};
+            return {'success': true, 'completed': isComp, 'completedAt': compAt, 'doc': jsonDecode(postRes.body)};
           }
         }
       }
