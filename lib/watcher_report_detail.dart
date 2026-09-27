@@ -28,6 +28,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
   final TextEditingController _watcherReplyController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   File? _pickedReplyImage;
+  File? _managerProofPhoto;
   bool _isSubmittingWatcherReply = false;
 
 
@@ -102,9 +103,10 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
   Future<void> _sendManagerReply() async {
     final text = _replyController.text.trim();
-    if (text.isEmpty) {
+    final existingProof = _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']);
+    if (text.isEmpty && _managerProofPhoto == null && existingProof.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a reply message')),
+        const SnackBar(content: Text('Please enter a reply message or upload a proof photo')),
       );
       return;
     }
@@ -115,11 +117,13 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
       final updated = await ApiService.instance.replyToCctvReport(
         id: id,
         managerMessage: text,
+        proofPhoto: _managerProofPhoto,
       );
       if (mounted) {
         setState(() {
           _report = Map<String, dynamic>.from(updated);
           _hasModified = true;
+          _managerProofPhoto = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -142,8 +146,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
     }
   }
 
-
-  Future<void> _pickReplyImage(ImageSource source) async {
+  Future<void> _pickImage(ImageSource source, {bool isForManager = false}) async {
     try {
       final XFile? file = await _picker.pickImage(
         source: source,
@@ -151,14 +154,22 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
         maxWidth: 1920,
       );
       if (file != null && mounted) {
-        setState(() => _pickedReplyImage = File(file.path));
+        setState(() {
+          if (isForManager) {
+            _managerProofPhoto = File(file.path);
+          } else {
+            _pickedReplyImage = File(file.path);
+          }
+        });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not access image source: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not access image source: $e')));
+      }
     }
   }
 
-  void _showImageSourceDialog() {
+  void _showImageSourceDialog({bool isForManager = false}) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -173,13 +184,13 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
             const SizedBox(height: 16),
             ListTile(
               leading: const Icon(Icons.camera_alt_rounded),
-              title: const Text('Take Photo'),
-              onTap: () { Navigator.pop(context); _pickReplyImage(ImageSource.camera); },
+              title: Text(isForManager ? 'Take Proof Photo (Camera)' : 'Take Photo'),
+              onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera, isForManager: isForManager); },
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded),
-              title: const Text('Choose from Gallery'),
-              onTap: () { Navigator.pop(context); _pickReplyImage(ImageSource.gallery); },
+              title: Text(isForManager ? 'Choose Proof from Gallery' : 'Choose from Gallery'),
+              onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, isForManager: isForManager); },
             ),
             const SizedBox(height: 8),
           ],
@@ -384,13 +395,16 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
               const SizedBox(height: 24),
 
-              // ── Manager Reply (View Mode for Watcher or Existing for Manager) ────
-              if (!widget.isManager && (_report['managerMessage']?.toString() ?? '').isNotEmpty) ...[
+              // ── Manager Reply (View Mode for Watcher) ────
+              if (!widget.isManager &&
+                  ((_report['managerMessage']?.toString() ?? '').isNotEmpty ||
+                      _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']).isNotEmpty)) ...[
                 _replySection(
                   label: 'Manager Reply',
-                  message: _report['managerMessage'].toString(),
+                  message: _report['managerMessage']?.toString() ?? '',
                   userName: _extractUserName(_report['manager']),
                   color: Colors.blue,
+                  imageUrl: _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']),
                 ),
                 const SizedBox(height: 24),
               ],
@@ -457,7 +471,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                       
                       // Image Picker for Watcher Reply
                       GestureDetector(
-                        onTap: _showImageSourceDialog,
+                        onTap: () => _showImageSourceDialog(isForManager: false),
                         child: Container(
                           width: double.infinity,
                           height: _pickedReplyImage != null ? 150 : 60,
@@ -617,7 +631,233 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                             ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
+
+                      // ── Proof Photo for Manager ────────────────────────────────
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.add_a_photo_rounded, size: 16, color: Colors.blue.shade800),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Proof Photo',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.blue.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']).isNotEmpty && _managerProofPhoto == null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.green.shade200),
+                              ),
+                              child: Text(
+                                'Proof Uploaded',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.green.shade700,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Existing Proof Photo (if uploaded previously and no new photo selected yet)
+                      Builder(builder: (context) {
+                        final existingProof = _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']);
+                        if (_managerProofPhoto == null && existingProof.isNotEmpty) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            padding: const EdgeInsets.all(10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Current Proof:',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    TextButton.icon(
+                                      onPressed: () => _showImageSourceDialog(isForManager: true),
+                                      icon: const Icon(Icons.refresh_rounded, size: 14),
+                                      label: const Text('Change Photo', style: TextStyle(fontSize: 12)),
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                GestureDetector(
+                                  onTap: () => _viewFullScreenImage(existingProof),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Stack(
+                                      alignment: Alignment.bottomRight,
+                                      children: [
+                                        Image.network(
+                                          existingProof,
+                                          width: double.infinity,
+                                          height: 160,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => _imagePlaceholder(),
+                                        ),
+                                        Container(
+                                          margin: const EdgeInsets.all(8),
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black54,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                              SizedBox(width: 4),
+                                              Text('Tap to View', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        // Proof Photo Picker / Preview for Manager
+                        return GestureDetector(
+                          onTap: () => _showImageSourceDialog(isForManager: true),
+                          child: Container(
+                            width: double.infinity,
+                            height: _managerProofPhoto != null ? 180 : 75,
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _managerProofPhoto != null ? Colors.blue.shade500 : Colors.blue.shade300,
+                                width: _managerProofPhoto != null ? 1.5 : 1,
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: _managerProofPhoto != null
+                                ? Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Image.file(_managerProofPhoto!, fit: BoxFit.cover),
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: GestureDetector(
+                                          onTap: () => setState(() => _managerProofPhoto = null),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.black54,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(Icons.close, color: Colors.white, size: 18),
+                                          ),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        bottom: 8,
+                                        left: 8,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black87,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 14),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                'Proof photo attached',
+                                                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.shade100,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(Icons.camera_alt_rounded, color: Colors.blue.shade700, size: 20),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Take / Upload Proof Photo',
+                                            style: TextStyle(
+                                              color: Colors.blue.shade900,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          Text(
+                                            'Tap to capture photo or pick from gallery',
+                                            style: TextStyle(
+                                              color: Colors.blue.shade600,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                        );
+                      }),
+
+                      const SizedBox(height: 16),
+                      Text(
+                        'Reply Message',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.blue.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: _replyController,
                         maxLines: 4,

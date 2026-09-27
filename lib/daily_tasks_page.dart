@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
 
@@ -10,6 +12,7 @@ class DailyTasksPage extends StatefulWidget {
 }
 
 class _DailyTasksPageState extends State<DailyTasksPage> {
+  final ImagePicker _picker = ImagePicker();
   bool _isLoading = true;
   List<Map<String, dynamic>> _tasks = [];
   final Set<String> _togglingTaskIds = {};
@@ -46,6 +49,43 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _handleTaskAction(Map<String, dynamic> task) {
+    final taskId = task['id']?.toString() ?? '';
+    final isCompleted = task['completed'] == true;
+    final requiresPhoto = task['requiresPhoto'] == true;
+
+    if (isCompleted) {
+      // Confirm unmark if task is completed
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Mark as Incomplete?'),
+          content: Text('Are you sure you want to mark "${task['title']}" as not completed?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _toggleTask(taskId, isCompleted);
+              },
+              child: const Text('Unmark', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Completing task: check if photo proof required
+      if (requiresPhoto) {
+        _showPhotoProofSheet(task);
+      } else {
+        _toggleTask(taskId, isCompleted);
+      }
     }
   }
 
@@ -107,6 +147,462 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
         });
       }
     }
+  }
+
+  void _showPhotoProofSheet(Map<String, dynamic> task) {
+    final taskId = task['id']?.toString() ?? '';
+    final title = task['title']?.toString() ?? 'Task';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        File? capturedImage;
+        bool isSubmitting = false;
+        final notesController = TextEditingController();
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> pickImage(ImageSource source) async {
+              try {
+                final XFile? file = await _picker.pickImage(
+                  source: source,
+                  imageQuality: 80,
+                  maxWidth: 1600,
+                );
+                if (file != null) {
+                  setSheetState(() {
+                    capturedImage = File(file.path);
+                  });
+                }
+              } catch (e) {
+                debugPrint('Error capturing photo: $e');
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Could not access camera/gallery: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            }
+
+            Future<void> submit() async {
+              if (capturedImage == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please take a photo before completing this task.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              setSheetState(() => isSubmitting = true);
+              try {
+                // 1. Upload photo to media collection
+                final uploadRes = await ApiService.instance.uploadTaskProofImage(capturedImage!);
+                final photoId = uploadRes['id']?.toString();
+                final photoUrl = uploadRes['url']?.toString();
+
+                // 2. Toggle task complete with photo proof
+                final res = await ApiService.instance.toggleDailyTask(
+                  taskId: taskId,
+                  completed: true,
+                  photoId: photoId,
+                  photoUrl: photoUrl,
+                  notes: notesController.text.trim().isNotEmpty ? notesController.text.trim() : null,
+                );
+
+                if (res['success'] == true) {
+                  if (mounted) {
+                    setState(() {
+                      final idx = _tasks.indexWhere((t) => t['id']?.toString() == taskId);
+                      if (idx != -1) {
+                        _tasks[idx]['completed'] = true;
+                        _tasks[idx]['completedAt'] = DateTime.now().toIso8601String();
+                        _tasks[idx]['photo'] = photoId;
+                        _tasks[idx]['photoUrl'] = photoUrl;
+                        if (notesController.text.trim().isNotEmpty) {
+                          _tasks[idx]['notes'] = notesController.text.trim();
+                        }
+                      }
+                    });
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text('Task "$title" completed with photo proof!')),
+                          ],
+                        ),
+                        backgroundColor: Colors.green[700],
+                      ),
+                    );
+                  }
+                } else {
+                  throw Exception(res['message'] ?? 'Failed to update task completion');
+                }
+              } catch (e) {
+                debugPrint('Error uploading task photo: $e');
+                if (context.mounted) {
+                  setSheetState(() => isSubmitting = false);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Upload failed: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            }
+
+            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+            return Container(
+              padding: EdgeInsets.only(
+                top: 20,
+                left: 20,
+                right: 20,
+                bottom: 20 + bottomInset,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Handle bar
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Header
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt_rounded,
+                            color: Colors.amber,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Photo Proof Required',
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                title,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.grey),
+                          onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Photo Area
+                    if (capturedImage != null) ...[
+                      Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Image.file(
+                              capturedImage!,
+                              height: 220,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: CircleAvatar(
+                              backgroundColor: Colors.black54,
+                              radius: 18,
+                              child: IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.white, size: 18),
+                                padding: EdgeInsets.zero,
+                                onPressed: isSubmitting
+                                    ? null
+                                    : () => setSheetState(() => capturedImage = null),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton.icon(
+                            onPressed: isSubmitting ? null : () => pickImage(ImageSource.camera),
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('Retake with Camera'),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: isSubmitting ? null : () => pickImage(ImageSource.gallery),
+                            icon: const Icon(Icons.photo_library, size: 16),
+                            label: const Text('Gallery'),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF9FAFB),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey[300]!),
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.indigo.withValues(alpha: 0.08),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.add_a_photo_rounded,
+                                size: 36,
+                                color: Color(0xFF2E3192),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Take photo proof of completed work',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Camera capture is required to verify this task.',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: () => pickImage(ImageSource.camera),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2E3192),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                  icon: const Icon(Icons.camera_alt, size: 18),
+                                  label: const Text(
+                                    'Open Camera',
+                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                OutlinedButton.icon(
+                                  onPressed: () => pickImage(ImageSource.gallery),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.photo_library, size: 18),
+                                  label: const Text('Gallery'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 16),
+
+                    // Notes (optional)
+                    TextField(
+                      controller: notesController,
+                      enabled: !isSubmitting,
+                      decoration: InputDecoration(
+                        hintText: 'Notes / Remarks (optional)',
+                        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 13),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // Submit button
+                    ElevatedButton(
+                      onPressed: (capturedImage == null || isSubmitting) ? null : submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey[300],
+                        disabledForegroundColor: Colors.grey[500],
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: isSubmitting
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Verify & Mark Completed',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showImagePreviewDialog(String imageUrl, String title) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: const BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.photo, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+              child: Container(
+                color: Colors.black,
+                constraints: const BoxConstraints(maxHeight: 500),
+                child: InteractiveViewer(
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const SizedBox(
+                        height: 250,
+                        child: Center(
+                          child: CircularProgressIndicator(color: Colors.white),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) => const SizedBox(
+                      height: 200,
+                      child: Center(
+                        child: Text(
+                          'Failed to load image',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -322,7 +818,7 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                   padding: const EdgeInsets.symmetric(vertical: 30),
                   child: Center(
                     child: Text(
-                      'No ${_filter} tasks',
+                      'No $_filter tasks',
                       style: TextStyle(color: Colors.grey[600], fontSize: 14),
                     ),
                   ),
@@ -367,7 +863,7 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                     }
 
                     return InkWell(
-                      onTap: isToggling ? null : () => _toggleTask(taskId, isCompleted),
+                      onTap: isToggling ? null : () => _handleTaskAction(task),
                       borderRadius: BorderRadius.circular(14),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
@@ -415,7 +911,7 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                                         ),
                                         onChanged: isToggling
                                             ? null
-                                            : (_) => _toggleTask(taskId, isCompleted),
+                                            : (_) => _handleTaskAction(task),
                                       ),
                               ),
                             ),
@@ -491,6 +987,52 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                                             ),
                                           ),
                                         ),
+                                      if (task['requiresPhoto'] == true)
+                                        GestureDetector(
+                                          onTap: isCompleted && (task['photoUrl'] != null && task['photoUrl'].toString().isNotEmpty)
+                                              ? () => _showImagePreviewDialog(task['photoUrl'].toString(), title)
+                                              : (isToggling ? null : () => _handleTaskAction(task)),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 7,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: isCompleted
+                                                  ? Colors.teal.withValues(alpha: 0.12)
+                                                  : Colors.amber.withValues(alpha: 0.16),
+                                              borderRadius: BorderRadius.circular(5),
+                                              border: Border.all(
+                                                color: isCompleted
+                                                    ? Colors.teal.withValues(alpha: 0.35)
+                                                    : Colors.amber.withValues(alpha: 0.45),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  isCompleted ? Icons.camera_alt : Icons.add_a_photo,
+                                                  size: 11,
+                                                  color: isCompleted ? Colors.teal[800] : Colors.amber[900],
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  isCompleted ? 'PHOTO PROOF' : 'PHOTO REQUIRED',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isCompleted ? Colors.teal[800] : Colors.amber[900],
+                                                  ),
+                                                ),
+                                                if (isCompleted && task['photoUrl'] != null && task['photoUrl'].toString().isNotEmpty) ...[
+                                                  const SizedBox(width: 3),
+                                                  Icon(Icons.open_in_new, size: 10, color: Colors.teal[800]),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        ),
                                       if (isCompleted && formattedTime != null)
                                         Container(
                                           padding: const EdgeInsets.symmetric(
@@ -515,6 +1057,28 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                                 ],
                               ),
                             ),
+                            if (isCompleted && task['photoUrl'] != null && task['photoUrl'].toString().isNotEmpty) ...[
+                              const SizedBox(width: 10),
+                              GestureDetector(
+                                onTap: () => _showImagePreviewDialog(task['photoUrl'].toString(), title),
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.grey[300]!),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(7),
+                                    child: Image.network(
+                                      task['photoUrl'].toString(),
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 20, color: Colors.grey),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

@@ -324,6 +324,8 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
     final branchName = (branch is Map ? branch['name'] : '')?.toString() ?? '—';
     final message = report['message']?.toString() ?? '';
     final mngReply = report['managerMessage']?.toString() ?? '';
+    final mngProof = _resolveImageUrl(report['managerScreenshot'] ?? report['proofPhoto']);
+    final hasMngReplied = mngReply.isNotEmpty || mngProof.isNotEmpty;
     final imgUrl = _resolveImageUrl(report['screenshot']);
     final dateStr = _formatDate(report['createdAt']);
     final statusColor = _colorForStatus(status);
@@ -461,24 +463,28 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
-                color: mngReply.isNotEmpty ? Colors.blue.shade50 : Colors.amber.shade50,
+                color: hasMngReplied ? Colors.blue.shade50 : Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
                   Icon(
-                    mngReply.isNotEmpty ? Icons.reply_rounded : Icons.pending_actions_rounded,
+                    hasMngReplied ? Icons.reply_rounded : Icons.pending_actions_rounded,
                     size: 15,
-                    color: mngReply.isNotEmpty ? Colors.blue.shade700 : Colors.amber.shade800,
+                    color: hasMngReplied ? Colors.blue.shade700 : Colors.amber.shade800,
                   ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      mngReply.isNotEmpty ? 'Reply: $mngReply' : 'Waiting for manager action (Tap to reply)',
+                      hasMngReplied
+                          ? (mngProof.isNotEmpty && mngReply.isNotEmpty
+                              ? 'Reply: $mngReply (📷 Proof attached)'
+                              : (mngProof.isNotEmpty ? '📷 Proof photo uploaded' : 'Reply: $mngReply'))
+                          : 'Waiting for manager action (Tap to reply)',
                       style: TextStyle(
                         fontSize: 12,
-                        color: mngReply.isNotEmpty ? Colors.blue.shade800 : Colors.amber.shade900,
-                        fontWeight: mngReply.isNotEmpty ? FontWeight.w500 : FontWeight.w600,
+                        color: hasMngReplied ? Colors.blue.shade800 : Colors.amber.shade900,
+                        fontWeight: hasMngReplied ? FontWeight.w500 : FontWeight.w600,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

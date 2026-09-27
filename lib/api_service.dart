@@ -1858,23 +1858,52 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
-  /// Manager reply to a CCTV report
+  /// Manager reply to a CCTV report with optional proof photo
   Future<Map<String, dynamic>> replyToCctvReport({
     required String id,
     required String managerMessage,
+    File? proofPhoto,
   }) async {
     try {
       final token = await _getToken();
+
+      String? mediaId;
+      if (proofPhoto != null) {
+        final mediaUri = Uri.parse('$_baseUrl/media');
+        final mediaReq = http.MultipartRequest('POST', mediaUri);
+        mediaReq.headers.addAll({
+          if (token != null) 'Authorization': 'Bearer $token',
+        });
+        mediaReq.files.add(
+          await http.MultipartFile.fromPath('file', proofPhoto.path),
+        );
+
+        final mediaStream = await mediaReq.send();
+        final mediaRes = await http.Response.fromStream(mediaStream);
+        if (mediaRes.statusCode == 200 || mediaRes.statusCode == 201) {
+          final mediaData = jsonDecode(mediaRes.body);
+          mediaId = mediaData['doc'] != null ? mediaData['doc']['id'] : mediaData['id'];
+        } else {
+          debugPrint('Failed to upload proof photo: ${mediaRes.statusCode} ${mediaRes.body}');
+        }
+      }
+
+      final bodyData = <String, dynamic>{
+        'managerMessage': managerMessage,
+        'status': 'mng_replied',
+      };
+      if (mediaId != null) {
+        bodyData['managerScreenshot'] = mediaId;
+        bodyData['proofPhoto'] = mediaId;
+      }
+
       final res = await http.patch(
         Uri.parse('$_baseUrl/cctv-reports/$id'),
         headers: {
           if (token != null) 'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({
-          'managerMessage': managerMessage,
-          'status': 'mng_replied',
-        }),
+        body: jsonEncode(bodyData),
       );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -2052,9 +2081,12 @@ Future<List<dynamic>> fetchEmployees() async {
             'priority': t['priority'] ?? 'medium',
             'isDaily': t['isDaily'] ?? true,
             'assignedRole': t['assignedRole'] ?? (t['column'] is Map ? t['column']['title'] : null),
+            'requiresPhoto': t['requiresPhoto'] == true,
             'completed': comp != null ? (comp['completed'] == true) : false,
             'completedAt': comp?['completedAt'],
             'completionId': comp?['id'],
+            'photo': comp?['photo'],
+            'photoUrl': comp?['photoUrl'],
             'notes': comp?['notes'] ?? '',
           };
         }).toList();
@@ -2072,11 +2104,48 @@ Future<List<dynamic>> fetchEmployees() async {
     return {'success': false, 'tasks': []};
   }
 
+  /// Upload task completion photo proof to Payload media collection
+  Future<Map<String, dynamic>> uploadTaskProofImage(File imageFile) async {
+    final token = await _getToken();
+    final mediaUri = Uri.parse('$_baseUrl/media?prefix=tasks');
+    final mediaReq = http.MultipartRequest('POST', mediaUri);
+    if (token != null) mediaReq.headers['Authorization'] = 'Bearer $token';
+
+    final mimeType = _guessMimeType(imageFile.path);
+    mediaReq.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        imageFile.path,
+        contentType: http_parser.MediaType.parse(mimeType),
+      ),
+    );
+
+    final mediaStreamed = await mediaReq.send();
+    final mediaRes = await http.Response.fromStream(mediaStreamed);
+
+    if (mediaRes.statusCode != 200 && mediaRes.statusCode != 201) {
+      throw Exception('Failed to upload image (${mediaRes.statusCode}): ${mediaRes.body}');
+    }
+
+    final mediaData = jsonDecode(mediaRes.body);
+    final doc = mediaData['doc'] is Map ? mediaData['doc'] : mediaData;
+    final mediaId = doc['id']?.toString() ?? '';
+    final mediaUrl = doc['url']?.toString() ?? doc['thumbnailURL']?.toString() ?? '';
+
+    return {
+      'id': mediaId,
+      'url': mediaUrl,
+      'doc': doc,
+    };
+  }
+
   Future<Map<String, dynamic>> toggleDailyTask({
     required String taskId,
     bool? completed,
     String? dateString,
     String? notes,
+    String? photoId,
+    String? photoUrl,
   }) async {
     final token = await _getToken();
     final today = dateString ?? DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -2101,6 +2170,8 @@ Future<List<dynamic>> fetchEmployees() async {
             if (completed != null) 'completed': completed,
             'dateString': today,
             if (notes != null) 'notes': notes,
+            if (photoId != null) 'photo': photoId,
+            if (photoUrl != null) 'photoUrl': photoUrl,
           }),
         );
         if (res.statusCode == 200) {
@@ -2168,6 +2239,8 @@ Future<List<dynamic>> fetchEmployees() async {
               'task': taskId,
               'completed': isComp,
               'completedAt': compAt,
+              if (photoId != null) 'photo': photoId,
+              if (photoUrl != null) 'photoUrl': photoUrl,
               if (notes != null) 'notes': notes,
             };
           } else {
@@ -2177,6 +2250,8 @@ Future<List<dynamic>> fetchEmployees() async {
               'task': taskId,
               'completed': isComp,
               'completedAt': compAt,
+              if (photoId != null) 'photo': photoId,
+              if (photoUrl != null) 'photoUrl': photoUrl,
               'notes': notes ?? '',
             });
           }
@@ -2215,6 +2290,8 @@ Future<List<dynamic>> fetchEmployees() async {
                   'task': taskId,
                   'completed': isComp,
                   'completedAt': compAt,
+                  if (photoId != null) 'photo': photoId,
+                  if (photoUrl != null) 'photoUrl': photoUrl,
                   'notes': notes ?? '',
                 }
               ],
