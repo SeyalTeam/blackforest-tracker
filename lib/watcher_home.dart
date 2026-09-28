@@ -317,7 +317,15 @@ class _WatcherHomeState extends State<WatcherHome> {
           screenshot['thumbnailUrl']?.toString() ??
           screenshot['url']?.toString() ??
           '';
+      if (raw.isEmpty && screenshot['filename'] != null) {
+        final filename = screenshot['filename'].toString();
+        final prefix = screenshot['prefix']?.toString() ?? '';
+        raw = prefix.isNotEmpty ? '/media/file/$prefix/$filename' : '/media/file/$filename';
+      }
     } else if (screenshot is String) {
+      if (!screenshot.contains('/') && !screenshot.contains('.')) {
+        return '';
+      }
       raw = screenshot;
     }
     if (raw.isEmpty) return '';
@@ -524,6 +532,35 @@ class _WatcherHomeState extends State<WatcherHome> {
                         height: 1.4,
                       ),
                     ),
+                    Builder(builder: (context) {
+                      final mngReply = report['managerMessage']?.toString() ?? '';
+                      final mngProof = _resolveImageUrl(report['proofPhoto'] ?? report['managerScreenshot']);
+                      final hasMngReply = mngReply.isNotEmpty || mngProof.isNotEmpty;
+                      if (!hasMngReply) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
+                          children: [
+                            Icon(Icons.reply_rounded, size: 13, color: Colors.blue.shade700),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                mngProof.isNotEmpty
+                                    ? (mngReply.isNotEmpty ? 'Manager: $mngReply 📷' : 'Manager: 📷 Proof attached')
+                                    : 'Manager: $mngReply',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.blue.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                     const SizedBox(height: 8),
                     // Date
                     Row(

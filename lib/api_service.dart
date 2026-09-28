@@ -1810,6 +1810,26 @@ Future<List<dynamic>> fetchEmployees() async {
   }
 
 
+  /// Fetch a single CCTV report by ID with full depth
+  Future<Map<String, dynamic>?> fetchCctvReportById(String id) async {
+    try {
+      final token = await _getToken();
+      final uri = Uri.parse('$_baseUrl/cctv-reports/$id?depth=2');
+      final res = await http.get(
+        uri,
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['doc'] ?? data) as Map<String, dynamic>;
+      } else {
+        debugPrint('fetchCctvReportById: ${res.statusCode} ${res.body}');
+      }
+    } catch (e) {
+      debugPrint('fetchCctvReportById error: $e');
+    }
+    return null;
+  }
   /// Watcher reply to a CCTV report (after manager reply)
   Future<Map<String, dynamic>> submitWatcherReplyToCctvReport({
     required String id,
@@ -1819,40 +1839,57 @@ Future<List<dynamic>> fetchEmployees() async {
     final token = await _getToken();
 
     String? mediaId;
+    Map<String, dynamic>? mediaDoc;
     if (watcherReplyScreenshot != null) {
       final mediaUri = Uri.parse('$_baseUrl/media');
       final mediaReq = http.MultipartRequest('POST', mediaUri);
-      mediaReq.headers.addAll({
-        if (token != null) 'Authorization': 'Bearer $token',
-      });
+      if (token != null) mediaReq.headers['Authorization'] = 'Bearer $token';
+
+      final mimeType = _guessMimeType(watcherReplyScreenshot.path);
       mediaReq.files.add(
-        await http.MultipartFile.fromPath('file', watcherReplyScreenshot.path),
+        await http.MultipartFile.fromPath(
+          'file',
+          watcherReplyScreenshot.path,
+          contentType: http_parser.MediaType.parse(mimeType),
+        ),
       );
 
       final mediaStream = await mediaReq.send();
       final mediaRes = await http.Response.fromStream(mediaStream);
-      if (mediaRes.statusCode == 200 || mediaRes.statusCode == 201) {
-        final mediaData = jsonDecode(mediaRes.body);
-        mediaId = mediaData['doc'] != null ? mediaData['doc']['id'] : mediaData['id'];
+      if (mediaRes.statusCode != 200 && mediaRes.statusCode != 201) {
+        throw Exception('Failed to upload watcher screenshot (${mediaRes.statusCode}): ${mediaRes.body}');
       }
+      final mediaData = jsonDecode(mediaRes.body);
+      mediaDoc = (mediaData['doc'] ?? mediaData) as Map<String, dynamic>;
+      mediaId = mediaDoc['id']?.toString() ?? mediaData['id']?.toString();
+    }
+
+    final bodyData = <String, dynamic>{
+      'watcherReplyMessage': watcherReplyMessage,
+      'status': 'watcher_replied',
+    };
+    if (mediaId != null) {
+      bodyData['watcherReplyScreenshot'] = mediaId;
     }
 
     final res = await http.patch(
-      Uri.parse('$_baseUrl/cctv-reports/$id'),
+      Uri.parse('$_baseUrl/cctv-reports/$id?depth=2'),
       headers: {
         if (token != null) 'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({
-        'watcherReplyMessage': watcherReplyMessage,
-        'status': 'watcher_replied',
-        if (mediaId != null) 'watcherReplyScreenshot': mediaId,
-      }),
+      body: jsonEncode(bodyData),
     );
 
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body);
-      return (data['doc'] ?? data) as Map<String, dynamic>;
+      final Map<String, dynamic> doc = Map<String, dynamic>.from((data['doc'] ?? data) as Map);
+      if (mediaDoc != null) {
+        if (doc['watcherReplyScreenshot'] == null || doc['watcherReplyScreenshot'] is String) {
+          doc['watcherReplyScreenshot'] = mediaDoc;
+        }
+      }
+      return doc;
     } else {
       throw Exception('Failed to send watcher reply (${res.statusCode}): ${res.body}');
     }
@@ -1868,24 +1905,31 @@ Future<List<dynamic>> fetchEmployees() async {
       final token = await _getToken();
 
       String? mediaId;
+      Map<String, dynamic>? mediaDoc;
+
       if (proofPhoto != null) {
         final mediaUri = Uri.parse('$_baseUrl/media');
         final mediaReq = http.MultipartRequest('POST', mediaUri);
-        mediaReq.headers.addAll({
-          if (token != null) 'Authorization': 'Bearer $token',
-        });
+        if (token != null) mediaReq.headers['Authorization'] = 'Bearer $token';
+
+        final mimeType = _guessMimeType(proofPhoto.path);
         mediaReq.files.add(
-          await http.MultipartFile.fromPath('file', proofPhoto.path),
+          await http.MultipartFile.fromPath(
+            'file',
+            proofPhoto.path,
+            contentType: http_parser.MediaType.parse(mimeType),
+          ),
         );
 
         final mediaStream = await mediaReq.send();
         final mediaRes = await http.Response.fromStream(mediaStream);
-        if (mediaRes.statusCode == 200 || mediaRes.statusCode == 201) {
-          final mediaData = jsonDecode(mediaRes.body);
-          mediaId = mediaData['doc'] != null ? mediaData['doc']['id'] : mediaData['id'];
-        } else {
-          debugPrint('Failed to upload proof photo: ${mediaRes.statusCode} ${mediaRes.body}');
+        if (mediaRes.statusCode != 200 && mediaRes.statusCode != 201) {
+          throw Exception('Failed to upload proof photo (${mediaRes.statusCode}): ${mediaRes.body}');
         }
+
+        final mediaData = jsonDecode(mediaRes.body);
+        mediaDoc = (mediaData['doc'] ?? mediaData) as Map<String, dynamic>;
+        mediaId = mediaDoc['id']?.toString() ?? mediaData['id']?.toString();
       }
 
       final bodyData = <String, dynamic>{
@@ -1893,21 +1937,27 @@ Future<List<dynamic>> fetchEmployees() async {
         'status': 'mng_replied',
       };
       if (mediaId != null) {
-        bodyData['managerScreenshot'] = mediaId;
         bodyData['proofPhoto'] = mediaId;
       }
 
       final res = await http.patch(
-        Uri.parse('$_baseUrl/cctv-reports/$id'),
+        Uri.parse('$_baseUrl/cctv-reports/$id?depth=2'),
         headers: {
           if (token != null) 'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
         body: jsonEncode(bodyData),
       );
+
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        return (data['doc'] ?? data) as Map<String, dynamic>;
+        final Map<String, dynamic> doc = Map<String, dynamic>.from((data['doc'] ?? data) as Map);
+        if (mediaDoc != null) {
+          if (doc['proofPhoto'] == null || doc['proofPhoto'] is String) {
+            doc['proofPhoto'] = mediaDoc;
+          }
+        }
+        return doc;
       } else {
         throw Exception('Failed to send manager reply (${res.statusCode}): ${res.body}');
       }

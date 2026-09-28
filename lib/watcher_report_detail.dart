@@ -60,12 +60,24 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
           screenshot['thumbnailURL']?.toString() ??
           screenshot['thumbnailUrl']?.toString() ??
           '';
+      if (raw.isEmpty && screenshot['filename'] != null) {
+        final filename = screenshot['filename'].toString();
+        final prefix = screenshot['prefix']?.toString() ?? '';
+        raw = prefix.isNotEmpty ? '/media/file/$prefix/$filename' : '/media/file/$filename';
+      }
     } else if (screenshot is String) {
+      if (!screenshot.contains('/') && !screenshot.contains('.')) {
+        return '';
+      }
       raw = screenshot;
     }
     if (raw.isEmpty) return '';
     if (raw.startsWith('http')) return raw;
     return '${ApiService.baseUrl.replaceFirst('/api', '')}$raw';
+  }
+
+  dynamic _getManagerProofScreenshot() {
+    return _report['proofPhoto'] ?? _report['managerScreenshot'];
   }
 
   String _branchName() {
@@ -92,6 +104,47 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
     if (widget.isManager && existingReply.isNotEmpty) {
       _replyController.text = existingReply;
     }
+    _fetchFreshReport();
+  }
+
+  Future<void> _fetchFreshReport() async {
+    final id = (_report['id'] ?? _report['_id'])?.toString() ?? '';
+    if (id.isEmpty) return;
+    try {
+      final fresh = await ApiService.instance.fetchCctvReportById(id);
+      if (fresh != null && mounted) {
+        setState(() {
+          _report = Map<String, dynamic>.from(fresh);
+          final existingReply = _report['managerMessage']?.toString() ?? '';
+          if (widget.isManager && existingReply.isNotEmpty && _replyController.text.isEmpty) {
+            _replyController.text = existingReply;
+          }
+        });
+        _ensureMediaPopulated();
+      } else {
+        _ensureMediaPopulated();
+      }
+    } catch (_) {
+      _ensureMediaPopulated();
+    }
+  }
+
+  Future<void> _ensureMediaPopulated() async {
+    bool changed = false;
+    final keys = ['screenshot', 'proofPhoto', 'managerScreenshot', 'watcherReplyScreenshot'];
+    for (final key in keys) {
+      final val = _report[key];
+      if (val is String && val.length == 24 && !val.contains('/') && !val.contains('.')) {
+        try {
+          final media = await ApiService.instance.fetchMediaById(val);
+          _report[key] = media;
+          changed = true;
+        } catch (_) {}
+      }
+    }
+    if (changed && mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -103,7 +156,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
   Future<void> _sendManagerReply() async {
     final text = _replyController.text.trim();
-    final existingProof = _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']);
+    final existingProof = _resolveImageUrl(_getManagerProofScreenshot());
     if (text.isEmpty && _managerProofPhoto == null && existingProof.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a reply message or upload a proof photo')),
@@ -395,16 +448,15 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
               const SizedBox(height: 24),
 
-              // ── Manager Reply (View Mode for Watcher) ────
-              if (!widget.isManager &&
-                  ((_report['managerMessage']?.toString() ?? '').isNotEmpty ||
-                      _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']).isNotEmpty)) ...[
+              // ── Manager Reply (Visible for Watcher and Manager) ────
+              if (((_report['managerMessage']?.toString() ?? '').isNotEmpty ||
+                      _resolveImageUrl(_getManagerProofScreenshot()).isNotEmpty)) ...[
                 _replySection(
-                  label: 'Manager Reply',
+                  label: widget.isManager ? 'Your Submitted Reply' : 'Manager Reply',
                   message: _report['managerMessage']?.toString() ?? '',
                   userName: _extractUserName(_report['manager']),
                   color: Colors.blue,
-                  imageUrl: _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']),
+                  imageUrl: _resolveImageUrl(_getManagerProofScreenshot()),
                 ),
                 const SizedBox(height: 24),
               ],
@@ -651,7 +703,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                               ),
                             ],
                           ),
-                          if (_resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']).isNotEmpty && _managerProofPhoto == null)
+                          if (_resolveImageUrl(_getManagerProofScreenshot()).isNotEmpty && _managerProofPhoto == null)
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
@@ -674,7 +726,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
                       // Existing Proof Photo (if uploaded previously and no new photo selected yet)
                       Builder(builder: (context) {
-                        final existingProof = _resolveImageUrl(_report['managerScreenshot'] ?? _report['proofPhoto']);
+                        final existingProof = _resolveImageUrl(_getManagerProofScreenshot());
                         if (_managerProofPhoto == null && existingProof.isNotEmpty) {
                           return Container(
                             margin: const EdgeInsets.only(bottom: 12),

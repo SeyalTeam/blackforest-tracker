@@ -81,7 +81,15 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
           screenshot['thumbnailUrl']?.toString() ??
           screenshot['url']?.toString() ??
           '';
+      if (raw.isEmpty && screenshot['filename'] != null) {
+        final filename = screenshot['filename'].toString();
+        final prefix = screenshot['prefix']?.toString() ?? '';
+        raw = prefix.isNotEmpty ? '/media/file/$prefix/$filename' : '/media/file/$filename';
+      }
     } else if (screenshot is String) {
+      if (!screenshot.contains('/') && !screenshot.contains('.')) {
+        return '';
+      }
       raw = screenshot;
     }
     if (raw.isEmpty) return '';
@@ -324,7 +332,7 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
     final branchName = (branch is Map ? branch['name'] : '')?.toString() ?? '—';
     final message = report['message']?.toString() ?? '';
     final mngReply = report['managerMessage']?.toString() ?? '';
-    final mngProof = _resolveImageUrl(report['managerScreenshot'] ?? report['proofPhoto']);
+    final mngProof = _resolveImageUrl(report['proofPhoto'] ?? report['managerScreenshot']);
     final hasMngReplied = mngReply.isNotEmpty || mngProof.isNotEmpty;
     final imgUrl = _resolveImageUrl(report['screenshot']);
     final dateStr = _formatDate(report['createdAt']);

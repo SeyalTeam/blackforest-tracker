@@ -3,6 +3,11 @@ allprojects {
         google()
         mavenCentral()
     }
+    configurations.all {
+        resolutionStrategy {
+            force("androidx.concurrent:concurrent-futures:1.2.0")
+        }
+    }
 }
 
 val newBuildDir: Directory =
@@ -17,6 +22,13 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+}
+
+subprojects {
+    plugins.withId("com.android.library") {
+        dependencies.add("compileOnly", "androidx.concurrent:concurrent-futures:1.2.0")
+        dependencies.add("implementation", "androidx.concurrent:concurrent-futures:1.2.0")
+    }
 }
 
 tasks.register<Delete>("clean") {
