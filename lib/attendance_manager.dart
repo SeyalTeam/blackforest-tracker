@@ -25,7 +25,13 @@ class AttendanceManager {
 
   /// Starts the app-wide foreground geofence watcher that runs every 15-20 seconds
   /// regardless of which page the user is viewing.
-  void startForegroundWatcher() {
+  void startForegroundWatcher() async {
+    final userRole = (await _storage.read(key: 'userRole'))?.toLowerCase();
+    if (userRole == 'watcher') {
+      debugPrint('AttendanceManager: Skipping foreground watcher for watcher role.');
+      return;
+    }
+
     _foregroundTimer?.cancel();
     _foregroundTimer = null;
 
@@ -63,9 +69,15 @@ class AttendanceManager {
     try {
       final token = await _storage.read(key: 'token');
       final userId = await _storage.read(key: 'userId');
+      final userRole = (await _storage.read(key: 'userRole'))?.toLowerCase();
 
       if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
         // User not logged in, nothing to do
+        return;
+      }
+
+      if (userRole == 'watcher') {
+        // Watchers work from home and are exempt from branch geofence auto punch-in / auto punch-out
         return;
       }
 

@@ -142,30 +142,9 @@ class _LoginPageState extends State<LoginPage> {
         _isLoading = true;
       });
 
-      // GPS Geofence Check
-      final isInside = await GeofenceUtil.isInsideAnyBranch(context);
-      if (!isInside && mounted) {
-        setState(() => _isLoading = false);
-        return; // Block login if not inside branch circle
-      }
-
-
-      // Ensure Private IP is fetched before proceeding
+      // Fetch Private IP if available
       if (_privateIp == null) {
         await _fetchIp();
-        if (_privateIp == null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Working on network identification... Please try again in 2 seconds.',
-                ),
-              ),
-            );
-            setState(() => _isLoading = false);
-            return;
-          }
-        }
       }
 
       try {
@@ -219,8 +198,6 @@ class _LoginPageState extends State<LoginPage> {
           final token = data['token'];
           final user = data['user'] ?? {};
 
-          setState(() => _isLoading = false);
-
           // FETCH FULL PROFILE to ensure nested fields like user.kitchen are populated
           Map<String, dynamic> fullUser = user;
           try {
@@ -237,6 +214,22 @@ class _LoginPageState extends State<LoginPage> {
           debugPrint(
             'DEBUG: Login success. Role: $userRole, Name: $userName, ID: $userId',
           );
+
+          // Watcher, admin, and superadmin do not require branch geofence circle to login
+          final isExemptFromGeofence = userRole == 'watcher' ||
+              userRole == 'admin' ||
+              userRole == 'superadmin';
+
+          if (!isExemptFromGeofence) {
+            if (!mounted) return;
+            final isInside = await GeofenceUtil.isInsideAnyBranch(context);
+            if (!isInside && mounted) {
+              setState(() => _isLoading = false);
+              return; // Block login if not inside branch circle
+            }
+          }
+
+          setState(() => _isLoading = false);
 
           final isKitchen = fullUser['isKitchen'] is bool
               ? fullUser['isKitchen'] as bool

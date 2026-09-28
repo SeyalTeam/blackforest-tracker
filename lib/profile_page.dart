@@ -639,11 +639,17 @@ class _ProfilePageState extends State<ProfilePage> {
       _isProcessingPunch = true;
     });
 
-    // GPS Geofence Check
-    final isInside = await GeofenceUtil.isInsideAnyBranch(context);
-    if (!isInside && mounted) {
-      setState(() => _isProcessingPunch = false);
-      return; // Block punch in if not inside branch circle
+    final role = (_employeeRole ?? await _storage.read(key: 'userRole'))?.toLowerCase();
+    final isWatcher = role == 'watcher';
+
+    // GPS Geofence Check (bypassed for watcher working from home)
+    if (!isWatcher) {
+      if (!mounted) return;
+      final isInside = await GeofenceUtil.isInsideAnyBranch(context);
+      if (!isInside && mounted) {
+        setState(() => _isProcessingPunch = false);
+        return; // Block punch in if not inside branch circle
+      }
     }
 
     try {
@@ -766,11 +772,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
   // ── Geofence watcher ────────────────────────────────────────────────────────
 
-  /// Starts a 60-second periodic GPS check. If the employee is outside every
-  /// branch geofence while a session is active, auto punch-out fires once.
-  void _startGeofenceWatcher() {
+  void _startGeofenceWatcher() async {
     _geofenceTimer?.cancel();
     _geofenceTimer = null;
+
+    final role = (_employeeRole ?? await _storage.read(key: 'userRole'))?.toLowerCase();
+    if (role == 'watcher') {
+      debugPrint('Geofence watcher skipped for watcher role');
+      return;
+    }
 
     // Check IMMEDIATELY on start / refresh
     _checkGeofence();
