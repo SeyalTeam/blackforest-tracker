@@ -294,8 +294,8 @@ class _WatcherHomeState extends State<WatcherHome> {
   static Color _colorForStatus(String? status) {
     switch (status) {
       case 'pending':     return const Color(0xFFF59E0B);
-      case 'mng_replied': return const Color(0xFF3B82F6);
-      case 'st_replied':  return const Color(0xFF10B981);
+      case 'closed':
+      case 'mng_replied': return const Color(0xFF10B981);
       default:            return Colors.grey;
     }
   }
@@ -303,8 +303,8 @@ class _WatcherHomeState extends State<WatcherHome> {
   static String _labelForStatus(String? status) {
     switch (status) {
       case 'pending':     return 'Pending';
-      case 'mng_replied': return 'Mng Replied';
-      case 'st_replied':  return 'ST Replied';
+      case 'closed':
+      case 'mng_replied': return 'Closed';
       default:            return status ?? '—';
     }
   }

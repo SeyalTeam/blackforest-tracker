@@ -25,30 +25,34 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
   bool _isSubmittingReply = false;
   bool _hasModified = false;
 
-  final TextEditingController _watcherReplyController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
-  File? _pickedReplyImage;
   File? _managerProofPhoto;
-  bool _isSubmittingWatcherReply = false;
 
+  bool get _isClosed {
+    final status = _report['status']?.toString();
+    return status == 'closed' ||
+        status == 'mng_replied' ||
+        (_report['managerMessage']?.toString() ?? '').isNotEmpty ||
+        _resolveImageUrl(_getManagerProofScreenshot()).isNotEmpty;
+  }
 
   // ── Status helpers ────────────────────────────────────────────────────────
 
   static Color _colorForStatus(String? status) {
     switch (status) {
-      case 'pending':    return const Color(0xFFF59E0B);
-      case 'mng_replied': return const Color(0xFF3B82F6);
-      case 'st_replied': return const Color(0xFF10B981);
-      default:           return Colors.grey;
+      case 'pending':     return const Color(0xFFF59E0B);
+      case 'closed':
+      case 'mng_replied': return const Color(0xFF10B981);
+      default:            return Colors.grey;
     }
   }
 
   static String _labelForStatus(String? status) {
     switch (status) {
-      case 'pending': return 'Pending';
-      case 'mng_replied': return 'Mng Replied';
-      case 'st_replied': return 'ST Replied';
-      default: return status ?? 'Unknown';
+      case 'pending':     return 'Pending';
+      case 'closed':
+      case 'mng_replied': return 'Closed';
+      default:            return status ?? 'Unknown';
     }
   }
 
@@ -150,7 +154,6 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
   @override
   void dispose() {
     _replyController.dispose();
-    _watcherReplyController.dispose();
     super.dispose();
   }
 
@@ -180,7 +183,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Reply sent successfully!'),
+            content: Text('Reply submitted and issue closed successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -199,7 +202,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
     }
   }
 
-  Future<void> _pickImage(ImageSource source, {bool isForManager = false}) async {
+  Future<void> _pickProofPhoto(ImageSource source) async {
     try {
       final XFile? file = await _picker.pickImage(
         source: source,
@@ -208,11 +211,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
       );
       if (file != null && mounted) {
         setState(() {
-          if (isForManager) {
-            _managerProofPhoto = File(file.path);
-          } else {
-            _pickedReplyImage = File(file.path);
-          }
+          _managerProofPhoto = File(file.path);
         });
       }
     } catch (e) {
@@ -222,7 +221,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
     }
   }
 
-  void _showImageSourceDialog({bool isForManager = false}) {
+  void _showProofSourceDialog() {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -237,64 +236,19 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
             const SizedBox(height: 16),
             ListTile(
               leading: const Icon(Icons.camera_alt_rounded),
-              title: Text(isForManager ? 'Take Proof Photo (Camera)' : 'Take Photo'),
-              onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera, isForManager: isForManager); },
+              title: const Text('Take Proof Photo (Camera)'),
+              onTap: () { Navigator.pop(context); _pickProofPhoto(ImageSource.camera); },
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded),
-              title: Text(isForManager ? 'Choose Proof from Gallery' : 'Choose from Gallery'),
-              onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, isForManager: isForManager); },
+              title: const Text('Choose Proof from Gallery'),
+              onTap: () { Navigator.pop(context); _pickProofPhoto(ImageSource.gallery); },
             ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
-  }
-
-  Future<void> _sendWatcherReply() async {
-    final text = _watcherReplyController.text.trim();
-    if (text.isEmpty && _pickedReplyImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a reply message or attach a photo')),
-      );
-      return;
-    }
-
-    setState(() => _isSubmittingWatcherReply = true);
-    try {
-      final id = (_report['id'] ?? _report['_id'])?.toString() ?? '';
-      final updated = await ApiService.instance.submitWatcherReplyToCctvReport(
-        id: id,
-        watcherReplyMessage: text,
-        watcherReplyScreenshot: _pickedReplyImage,
-      );
-      if (mounted) {
-        setState(() {
-          _report = Map<String, dynamic>.from(updated);
-          _hasModified = true;
-          _watcherReplyController.clear();
-          _pickedReplyImage = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Reply sent successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to send reply: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSubmittingWatcherReply = false);
-    }
   }
 
   void _viewFullScreenImage(String imgUrl) {
@@ -448,176 +402,61 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
               const SizedBox(height: 24),
 
-              // ── Manager Reply (Visible for Watcher and Manager) ────
-              if (((_report['managerMessage']?.toString() ?? '').isNotEmpty ||
-                      _resolveImageUrl(_getManagerProofScreenshot()).isNotEmpty)) ...[
+              // ── Manager Reply (Visible when Manager has replied / closed) ────
+              if (_isClosed) ...[
                 _replySection(
                   label: widget.isManager ? 'Your Submitted Reply' : 'Manager Reply',
                   message: _report['managerMessage']?.toString() ?? '',
                   userName: _extractUserName(_report['manager']),
-                  color: Colors.blue,
+                  color: Colors.green,
                   imageUrl: _resolveImageUrl(_getManagerProofScreenshot()),
                 ),
-                const SizedBox(height: 24),
-              ],
-
-              // ── Staff Reply ──────────────────────────────────────────────
-              if ((_report['staffMessage']?.toString() ?? '').isNotEmpty) ...[
-                _replySection(
-                  label: 'Staff Reply',
-                  message: _report['staffMessage'].toString(),
-                  userName: _extractUserName(_report['staff']),
-                  color: Colors.green,
-                ),
-                const SizedBox(height: 24),
-              ],
-
-
-              // ── Watcher Reply ──────────────────────────────────────────────
-              if ((_report['watcherReplyMessage']?.toString() ?? '').isNotEmpty || _resolveImageUrl(_report['watcherReplyScreenshot']).isNotEmpty) ...[
-                _replySection(
-                  label: 'Watcher Reply',
-                  message: _report['watcherReplyMessage']?.toString() ?? '',
-                  userName: _extractUserName(_report['createdBy']),
-                  color: Colors.orange,
-                  imageUrl: _resolveImageUrl(_report['watcherReplyScreenshot']),
-                ),
-                const SizedBox(height: 24),
-              ],
-
-
-              // ── Watcher Reply Composer (When !isManager and Manager has replied) ─────────────
-              if (!widget.isManager && (_report['managerMessage']?.toString() ?? '').isNotEmpty && (_report['watcherReplyMessage']?.toString() ?? '').isEmpty && _resolveImageUrl(_report['watcherReplyScreenshot']).isEmpty) ...[
+                const SizedBox(height: 14),
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 2),
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 20),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Issue Closed: The manager has reviewed this mistake and uploaded proof.',
+                          style: TextStyle(
+                            color: Color(0xFF065F46),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ],
-                    border: Border.all(color: Colors.orange.shade200),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+                const SizedBox(height: 24),
+              ] else if (!widget.isManager) ...[
+                // Watcher waiting for manager
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.shade200),
+                  ),
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.reply_rounded, color: Colors.orange.shade700, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Reply to Manager',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange.shade900,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      
-                      // Image Picker for Watcher Reply
-                      GestureDetector(
-                        onTap: () => _showImageSourceDialog(isForManager: false),
-                        child: Container(
-                          width: double.infinity,
-                          height: _pickedReplyImage != null ? 150 : 60,
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _pickedReplyImage != null ? Colors.orange.shade400 : Colors.orange.shade200,
-                            ),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: _pickedReplyImage != null
-                              ? Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    Image.file(_pickedReplyImage!, fit: BoxFit.cover),
-                                    Positioned(
-                                      top: 8,
-                                      right: 8,
-                                      child: GestureDetector(
-                                        onTap: () => setState(() => _pickedReplyImage = null),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.black54,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(Icons.close, color: Colors.white, size: 18),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.add_photo_alternate_rounded, color: Colors.orange.shade400),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Attach Photo (Optional)',
-                                      style: TextStyle(color: Colors.orange.shade700, fontSize: 14),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _watcherReplyController,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          hintText: 'Enter your reply...',
-                          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Colors.grey.shade200),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Colors.grey.shade200),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Colors.orange.shade400, width: 1.5),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: _isSubmittingWatcherReply ? null : _sendWatcherReply,
-                          icon: _isSubmittingWatcherReply
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.send_rounded, size: 18),
-                          label: Text(
-                            _isSubmittingWatcherReply ? 'Submitting...' : 'Submit Reply',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange.shade700,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 0,
+                      Icon(Icons.hourglass_top_rounded, color: Colors.amber.shade800, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Pending Manager Reply: Awaiting branch manager to review this mistake and upload proof photo.',
+                          style: TextStyle(
+                            color: Colors.amber.shade900,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
@@ -627,8 +466,8 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                 const SizedBox(height: 24),
               ],
 
-              // ── Manager Reply Composer (When isManager is true) ─────────────
-              if (widget.isManager) ...[
+              // ── Manager Reply Composer (When isManager is true and not closed) ─────────────
+              if (widget.isManager && !_isClosed) ...[
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -751,7 +590,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                                       ),
                                     ),
                                     TextButton.icon(
-                                      onPressed: () => _showImageSourceDialog(isForManager: true),
+                                      onPressed: () => _showProofSourceDialog(),
                                       icon: const Icon(Icons.refresh_rounded, size: 14),
                                       label: const Text('Change Photo', style: TextStyle(fontSize: 12)),
                                       style: TextButton.styleFrom(
@@ -804,7 +643,7 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
 
                         // Proof Photo Picker / Preview for Manager
                         return GestureDetector(
-                          onTap: () => _showImageSourceDialog(isForManager: true),
+                          onTap: () => _showProofSourceDialog(),
                           child: Container(
                             width: double.infinity,
                             height: _managerProofPhoto != null ? 180 : 75,
@@ -947,17 +786,13 @@ class _WatcherReportDetailState extends State<WatcherReportDetail> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.send_rounded, size: 18),
+                              : const Icon(Icons.check_circle_outline_rounded, size: 18),
                           label: Text(
-                            _isSubmittingReply
-                                ? 'Submitting...'
-                                : ((_report['managerMessage']?.toString() ?? '').isNotEmpty
-                                    ? 'Update Reply'
-                                    : 'Submit Reply'),
+                            _isSubmittingReply ? 'Submitting...' : 'Submit Reply & Close',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade700,
+                            backgroundColor: const Color(0xFF10B981),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),

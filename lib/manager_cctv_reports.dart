@@ -101,9 +101,8 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
     switch (status) {
       case 'pending':
         return const Color(0xFFF59E0B);
+      case 'closed':
       case 'mng_replied':
-        return const Color(0xFF3B82F6);
-      case 'st_replied':
         return const Color(0xFF10B981);
       default:
         return Colors.grey;
@@ -114,10 +113,9 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
     switch (status) {
       case 'pending':
         return 'Pending';
+      case 'closed':
       case 'mng_replied':
-        return 'Mng Replied';
-      case 'st_replied':
-        return 'ST Replied';
+        return 'Closed';
       default:
         return status ?? '—';
     }
@@ -133,8 +131,12 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
   List<Map<String, dynamic>> get _displayedReports {
     return _reports.where((r) {
       final status = r['status']?.toString() ?? 'pending';
-      if (_selectedStatusFilter != 'all' && status != _selectedStatusFilter) {
-        return false;
+      if (_selectedStatusFilter != 'all') {
+        if (_selectedStatusFilter == 'closed') {
+          if (status != 'closed' && status != 'mng_replied') return false;
+        } else if (status != _selectedStatusFilter) {
+          return false;
+        }
       }
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
@@ -152,6 +154,12 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
 
   int _countForStatus(String status) {
     if (status == 'all') return _reports.length;
+    if (status == 'closed') {
+      return _reports.where((r) {
+        final s = (r['status'] ?? 'pending').toString();
+        return s == 'closed' || s == 'mng_replied';
+      }).length;
+    }
     return _reports.where((r) => (r['status'] ?? 'pending') == status).length;
   }
 
@@ -214,9 +222,7 @@ class _ManagerCctvReportsScreenState extends State<ManagerCctvReportsScreen> {
                       const SizedBox(width: 8),
                       _buildFilterChip('pending', 'Pending'),
                       const SizedBox(width: 8),
-                      _buildFilterChip('mng_replied', 'Mng Replied'),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('st_replied', 'ST Replied'),
+                      _buildFilterChip('closed', 'Closed'),
                     ],
                   ),
                 ),

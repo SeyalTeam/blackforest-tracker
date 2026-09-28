@@ -1934,7 +1934,7 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final bodyData = <String, dynamic>{
         'managerMessage': managerMessage,
-        'status': 'mng_replied',
+        'status': 'closed',
       };
       if (mediaId != null) {
         bodyData['proofPhoto'] = mediaId;
