@@ -60,16 +60,25 @@ class GeofenceUtil {
     Position? position = existingPosition;
     if (position == null) {
       try {
+        // First try high accuracy GPS fix
         position = await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.medium,
+            accuracy: LocationAccuracy.high,
           ),
-        ).timeout(const Duration(seconds: 6));
+        ).timeout(const Duration(seconds: 8));
       } catch (e) {
-        debugPrint('GeofenceUtil getCurrentPosition error: $e. Trying last known...');
+        debugPrint('GeofenceUtil getCurrentPosition high accuracy failed/timeout: $e. Trying medium...');
         try {
-          position = await Geolocator.getLastKnownPosition();
-        } catch (_) {}
+          position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+            ),
+          ).timeout(const Duration(seconds: 4));
+        } catch (_) {
+          try {
+            position = await Geolocator.getLastKnownPosition();
+          } catch (_) {}
+        }
       }
     }
 
@@ -80,6 +89,9 @@ class GeofenceUtil {
         errorMessage: 'Failed to get current GPS location.',
       );
     }
+
+    debugPrint(
+        'GeofenceUtil: Got position (${position.latitude}, ${position.longitude}) with accuracy: ${position.accuracy.toStringAsFixed(1)}m');
 
     try {
       final data = await ApiService.instance.fetchBranchGeoSettings();
@@ -95,8 +107,14 @@ class GeofenceUtil {
           final lng = loc['longitude'];
           final radiusStr = loc['radius'];
           final radius = (radiusStr is num) ? radiusStr.toDouble() : 100.0;
-          // Add 30m indoor GPS drift tolerance
-          final effectiveRadius = radius + 30.0;
+          // Indoor GPS drift tolerance:
+          // Concrete roofs, metal structures, and store layout create 20-50m drift.
+          // Base tolerance is 60m. If the phone's reported accuracy uncertainty is higher than 30m,
+          // safely incorporate the delta (capped to 40m extra) so users inside the building are not rejected.
+          final double extraAccuracy = (position.accuracy > 30.0 && position.accuracy <= 100.0)
+              ? (position.accuracy - 30.0)
+              : 0.0;
+          final double effectiveRadius = radius + 60.0 + extraAccuracy;
 
           if (lat != null && lng != null) {
             final double latD =
@@ -124,7 +142,7 @@ class GeofenceUtil {
 
             if (distance <= effectiveRadius) {
               debugPrint(
-                  'GeofenceUtil: INSIDE branch "$branchName"! distance: ${distance.toStringAsFixed(1)}m <= effective: ${effectiveRadius}m');
+                  'GeofenceUtil: INSIDE branch "$branchName"! distance: ${distance.toStringAsFixed(1)}m <= effective: ${effectiveRadius.toStringAsFixed(1)}m (base: ${radius}m, buffer: ${(effectiveRadius - radius).toStringAsFixed(1)}m)');
               return GeofenceResult(
                 isInside: true,
                 position: position,
@@ -138,7 +156,7 @@ class GeofenceUtil {
         }
 
         debugPrint(
-            'GeofenceUtil: OUTSIDE all branches. Nearest: ${nearestDistance.toStringAsFixed(1)}m (allowed: ${nearestRadius}m)');
+            'GeofenceUtil: OUTSIDE all branches. Nearest: ${nearestDistance.toStringAsFixed(1)}m (allowed: ${nearestRadius.toStringAsFixed(1)}m)');
         return GeofenceResult(
           isInside: false,
           position: position,
