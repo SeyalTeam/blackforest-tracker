@@ -30,7 +30,7 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   final _storage = const FlutterSecureStorage();
-  bool _profileLoading = true;
+  bool _profileLoading = false;
   String? _employeeName;
   String? _employeeRole;
   List<String> _managerCompanyNames = [];
@@ -1505,16 +1505,22 @@ class _ProfilePageState extends State<ProfilePage> {
         width: double.infinity,
         height: double.infinity,
         color: const Color(0xFFF8F9FA),
-        child: _profileLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.blue))
-            : RefreshIndicator(
-                onRefresh: () async {
-                  await _fetchEmployeeProfile();
-                  await _fetchAttendance();
-                  await _fetchDailyTasks();
-                  _autoPunchInFired = false;
-                  await _checkGeofence();
-                },
+        child: AnimatedCrossFade(
+          duration: const Duration(milliseconds: 250),
+          crossFadeState: _profileLoading
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+          firstChild: const Center(
+            child: CircularProgressIndicator(color: Colors.blue),
+          ),
+          secondChild: RefreshIndicator(
+            onRefresh: () async {
+              await _fetchEmployeeProfile();
+              await _fetchAttendance();
+              await _fetchDailyTasks();
+              _autoPunchInFired = false;
+              await _checkGeofence();
+            },
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(24, 10, 24, 40),
