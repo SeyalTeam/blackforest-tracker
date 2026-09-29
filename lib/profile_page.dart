@@ -100,6 +100,10 @@ class _ProfilePageState extends State<ProfilePage> {
       final cachedName = await _storage.read(key: 'userName');
       final cachedRole = await _storage.read(key: 'userRole');
       final cachedKitchenName = await _storage.read(key: 'userKitchenName');
+      final cachedBranchName = await _storage.read(key: 'userBranchName');
+      final cachedEmpId = await _storage.read(key: 'employeeId');
+      final cachedCompaniesStr = await _storage.read(key: 'managerCompanyNames');
+      final cachedHasPhotoStr = await _storage.read(key: 'activeSessionHasPhoto');
       final cachedPunchIn = await _storage.read(key: 'activePunchIn');
       final cachedPastSecsStr = await _storage.read(key: 'pastWorkSeconds');
 
@@ -135,6 +139,18 @@ class _ProfilePageState extends State<ProfilePage> {
           _employeeRole = cachedRole;
           if (cachedKitchenName != null && cachedKitchenName.isNotEmpty) {
             _kitchenName = cachedKitchenName;
+          }
+          if (cachedBranchName != null && cachedBranchName.isNotEmpty) {
+            _branchName = cachedBranchName;
+          }
+          if (cachedEmpId != null && cachedEmpId.isNotEmpty) {
+            _employeeId = cachedEmpId;
+          }
+          if (cachedCompaniesStr != null && cachedCompaniesStr.isNotEmpty) {
+            _managerCompanyNames = cachedCompaniesStr.split('||');
+          }
+          if (cachedHasPhotoStr != null) {
+            _activeSessionHasPhoto = cachedHasPhotoStr == 'true';
           }
           if (hasCachedActive) {
             _workDuration = initialWorkDuration;
@@ -311,6 +327,18 @@ class _ProfilePageState extends State<ProfilePage> {
 
         if (kName != null && kName.isNotEmpty) {
           await _storage.write(key: 'userKitchenName', value: kName);
+        }
+        if (bName != null && bName.isNotEmpty) {
+          await _storage.write(key: 'userBranchName', value: bName);
+        }
+        if (code != null && code.isNotEmpty) {
+          await _storage.write(key: 'employeeId', value: code);
+        }
+        if (companyNames.isNotEmpty) {
+          await _storage.write(
+            key: 'managerCompanyNames',
+            value: companyNames.join('||'),
+          );
         }
 
         if (mounted) {
@@ -563,6 +591,7 @@ class _ProfilePageState extends State<ProfilePage> {
               // Cache active session start & past work for instant initial render
               _storage.write(key: 'activePunchIn', value: activeStart.toIso8601String());
               _storage.write(key: 'pastWorkSeconds', value: pastWork.inSeconds.toString());
+              _storage.write(key: 'activeSessionHasPhoto', value: activePhotoFound.toString());
             }
           } else if (type == 'break') {
             final duration = punchOut != null
@@ -1614,73 +1643,79 @@ class _ProfilePageState extends State<ProfilePage> {
                           ],
                         ),
                       ),
-                      if (_hasActiveSession && !_activeSessionHasPhoto) ...[
-                        const SizedBox(height: 12),
-                        GestureDetector(
-                          onTap: _attachSelfieToActiveSession,
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFEBEE),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: Colors.redAccent,
-                                width: 1.5,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(7),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.red,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.warning_amber_rounded,
-                                    color: Colors.white,
-                                    size: 18,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                const Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Selfie Required for Punch-In',
-                                        style: TextStyle(
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        child: (_hasActiveSession && !_activeSessionHasPhoto)
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: GestureDetector(
+                                  onTap: _attachSelfieToActiveSession,
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFEBEE),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: Colors.redAccent,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(7),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.red,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.warning_amber_rounded,
+                                            color: Colors.white,
+                                            size: 18,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        const Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Selfie Required for Punch-In',
+                                                style: TextStyle(
+                                                  color: Colors.red,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                ),
+                                              ),
+                                              SizedBox(height: 2),
+                                              Text(
+                                                'Tap here to add selfie. Punch-out is blocked until added.',
+                                                style: TextStyle(
+                                                  color: Colors.black87,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const Icon(
+                                          Icons.camera_alt,
                                           color: Colors.red,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
+                                          size: 20,
                                         ),
-                                      ),
-                                      SizedBox(height: 2),
-                                      Text(
-                                        'Tap here to add selfie. Punch-out is blocked until added.',
-                                        style: TextStyle(
-                                          color: Colors.black87,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                const Icon(
-                                  Icons.camera_alt,
-                                  color: Colors.red,
-                                  size: 20,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                              )
+                            : const SizedBox.shrink(),
+                      ),
                       const SizedBox(height: 15),
                       Wrap(
                         alignment: WrapAlignment.center,
