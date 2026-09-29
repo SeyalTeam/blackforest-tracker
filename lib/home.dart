@@ -497,7 +497,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (rawPhotoUrl != null && rawPhotoUrl.isNotEmpty) {
             final resolved = rawPhotoUrl.startsWith('http')
                 ? rawPhotoUrl
-                : 'https://dev1-blacforest.vseyal.com$rawPhotoUrl';
+                : 'https://blackforest.vseyal.com$rawPhotoUrl';
             if (mounted) {
               setState(() {
                 _profilePhotoUrl = resolved;
@@ -5100,7 +5100,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (extracted.startsWith('http')) {
               return extracted;
             }
-            return 'https://dev1-blacforest.vseyal.com$extracted';
+            return 'https://blackforest.vseyal.com$extracted';
           }
         }
       }
@@ -7207,7 +7207,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -7238,7 +7238,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -7258,7 +7258,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -10398,7 +10398,7 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
       imageUrl = img;
     }
     if (imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
     return imageUrl;
   }
@@ -10421,7 +10421,7 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
             if (extracted.startsWith('http')) {
               return extracted;
             }
-            return 'https://dev1-blacforest.vseyal.com$extracted';
+            return 'https://blackforest.vseyal.com$extracted';
           }
         }
       }

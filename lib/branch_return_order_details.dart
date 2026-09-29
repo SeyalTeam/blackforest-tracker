@@ -45,7 +45,7 @@ class BranchReturnOrderDetailsScreen extends StatelessWidget {
                 // Fix relative URLs
                 String fullImageUrl = imageUrl;
                 if (imageUrl.isNotEmpty && imageUrl.startsWith('/')) {
-                  fullImageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
+                  fullImageUrl = 'https://blackforest.vseyal.com$imageUrl';
                 }
 
                 Color statusColor = Colors.orange;

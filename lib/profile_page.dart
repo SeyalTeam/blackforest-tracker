@@ -108,12 +108,17 @@ class _ProfilePageState extends State<ProfilePage> {
           if (cachedKitchenName != null && cachedKitchenName.isNotEmpty) {
             _kitchenName = cachedKitchenName;
           }
+          // Render cached profile info immediately for zero-lag UI
+          _profileLoading = false;
         });
       }
 
-      await _fetchEmployeeProfile();
-      await _fetchAttendance();
-      await _fetchDailyTasks();
+      // Fetch fresh network updates in parallel
+      await Future.wait([
+        _fetchEmployeeProfile(),
+        _fetchAttendance(),
+        _fetchDailyTasks(),
+      ]);
     } catch (e) {
       debugPrint('Error loading employee data: $e');
     } finally {
@@ -144,7 +149,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ? normalizedInput
         : '/$normalizedInput';
 
-    return 'https://dev1-blacforest.vseyal.com$relative';
+    return 'https://blackforest.vseyal.com$relative';
   }
 
   Future<void> _fetchEmployeeProfile() async {
