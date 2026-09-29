@@ -106,9 +106,18 @@ class _ProfilePageState extends State<ProfilePage> {
       final cachedHasPhotoStr = await _storage.read(key: 'activeSessionHasPhoto');
       final cachedPunchIn = await _storage.read(key: 'activePunchIn');
       final cachedPastSecsStr = await _storage.read(key: 'pastWorkSeconds');
+      final cachedBreakSecsStr = await _storage.read(key: 'totalBreakSeconds');
 
       Duration initialWorkDuration = Duration.zero;
+      Duration initialBreakDuration = Duration.zero;
       bool hasCachedActive = false;
+
+      if (cachedBreakSecsStr != null && cachedBreakSecsStr.isNotEmpty) {
+        final breakSecs = int.tryParse(cachedBreakSecsStr) ?? 0;
+        if (breakSecs > 0) {
+          initialBreakDuration = Duration(seconds: breakSecs);
+        }
+      }
 
       if (cachedPunchIn != null && cachedPunchIn.isNotEmpty) {
         final activeStart = DateTime.tryParse(cachedPunchIn);
@@ -151,6 +160,9 @@ class _ProfilePageState extends State<ProfilePage> {
           }
           if (cachedHasPhotoStr != null) {
             _activeSessionHasPhoto = cachedHasPhotoStr == 'true';
+          }
+          if (initialBreakDuration > Duration.zero) {
+            _breakDuration = initialBreakDuration;
           }
           if (hasCachedActive) {
             _workDuration = initialWorkDuration;
@@ -635,6 +647,10 @@ class _ProfilePageState extends State<ProfilePage> {
         _activities = allActivities;
         _workDuration = totalWork;
         _breakDuration = totalBreak;
+        _storage.write(
+          key: 'totalBreakSeconds',
+          value: totalBreak.inSeconds.toString(),
+        );
         _hasActiveSession = activeSessionFound;
         _activeSessionHasPhoto = activePhotoFound;
         _lastPunchOutType = latestPunchOutType;
@@ -2065,62 +2081,72 @@ class _ProfilePageState extends State<ProfilePage> {
                         const SizedBox(height: 16),
                       ],
 
-                      if (_breakDuration > Duration.zero) ...[
-                        SizedBox(
-                          height: 52,
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFE0B2),
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.orange.withValues(alpha: 0.15),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(7),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange[800],
-                                    shape: BoxShape.circle,
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        child: _breakDuration > Duration.zero
+                            ? Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: SizedBox(
+                                  height: 52,
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFE0B2),
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.orange.withValues(
+                                            alpha: 0.15,
+                                          ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 3),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(7),
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange[800],
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.coffee,
+                                            color: Colors.white,
+                                            size: 18,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Text(
+                                          'Total Break  ',
+                                          style: TextStyle(
+                                            color: Colors.orange[900],
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          '${_formatTwoDigits(_breakDuration.inHours)}h : ${_formatTwoDigits(_breakDuration.inMinutes % 60)}m',
+                                          style: TextStyle(
+                                            color: Colors.orange[900],
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 22,
+                                            letterSpacing: 1.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  child: const Icon(
-                                    Icons.coffee,
-                                    color: Colors.white,
-                                    size: 18,
-                                  ),
                                 ),
-                                const SizedBox(width: 14),
-                                Text(
-                                  'Total Break  ',
-                                  style: TextStyle(
-                                    color: Colors.orange[900],
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  '${_formatTwoDigits(_breakDuration.inHours)}h : ${_formatTwoDigits(_breakDuration.inMinutes % 60)}m',
-                                  style: TextStyle(
-                                    color: Colors.orange[900],
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 22,
-                                    letterSpacing: 1.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
+                              )
+                            : const SizedBox.shrink(),
+                      ),
 
                       SizedBox(
                         width: double.infinity,
