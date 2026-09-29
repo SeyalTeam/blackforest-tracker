@@ -100,6 +100,34 @@ class _ProfilePageState extends State<ProfilePage> {
       final cachedName = await _storage.read(key: 'userName');
       final cachedRole = await _storage.read(key: 'userRole');
       final cachedKitchenName = await _storage.read(key: 'userKitchenName');
+      final cachedPunchIn = await _storage.read(key: 'activePunchIn');
+      final cachedPastSecsStr = await _storage.read(key: 'pastWorkSeconds');
+
+      Duration initialWorkDuration = Duration.zero;
+      bool hasCachedActive = false;
+
+      if (cachedPunchIn != null && cachedPunchIn.isNotEmpty) {
+        final activeStart = DateTime.tryParse(cachedPunchIn);
+        final now = DateTime.now();
+        if (activeStart != null &&
+            activeStart.year == now.year &&
+            activeStart.month == now.month &&
+            activeStart.day == now.day) {
+          hasCachedActive = true;
+          final pastSecs = int.tryParse(cachedPastSecsStr ?? '0') ?? 0;
+          final pastWork = Duration(seconds: pastSecs);
+          initialWorkDuration = pastWork + now.difference(activeStart);
+
+          _timer?.cancel();
+          _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+            if (!mounted) return;
+            setState(() {
+              _workDuration =
+                  pastWork + DateTime.now().difference(activeStart);
+            });
+          });
+        }
+      }
 
       if (mounted) {
         setState(() {
@@ -107,6 +135,10 @@ class _ProfilePageState extends State<ProfilePage> {
           _employeeRole = cachedRole;
           if (cachedKitchenName != null && cachedKitchenName.isNotEmpty) {
             _kitchenName = cachedKitchenName;
+          }
+          if (hasCachedActive) {
+            _workDuration = initialWorkDuration;
+            _hasActiveSession = true;
           }
           // Render cached profile info immediately for zero-lag UI
           _profileLoading = false;
@@ -528,6 +560,9 @@ class _ProfilePageState extends State<ProfilePage> {
                       pastWork + DateTime.now().difference(activeStart);
                 });
               });
+              // Cache active session start & past work for instant initial render
+              _storage.write(key: 'activePunchIn', value: activeStart.toIso8601String());
+              _storage.write(key: 'pastWorkSeconds', value: pastWork.inSeconds.toString());
             }
           } else if (type == 'break') {
             final duration = punchOut != null
@@ -557,6 +592,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
       if (!activeSessionFound) {
         _timer?.cancel();
+        _storage.delete(key: 'activePunchIn');
+        _storage.delete(key: 'pastWorkSeconds');
       }
 
       if (!mounted) return;
