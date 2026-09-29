@@ -1378,7 +1378,7 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
-  Future<List<dynamic>> fetchRawMaterials({int depth = 2}) async {
+  Future<List<dynamic>> fetchRawMaterials({int depth = 1}) async {
     try {
       final token = await _getToken();
       final res = await http.get(
@@ -1555,7 +1555,7 @@ Future<List<dynamic>> fetchEmployees() async {
     try {
       final token = await _getToken();
       final res = await http.get(
-        Uri.parse('$_baseUrl/raw-material-billings?limit=1000&depth=2&sort=-date'),
+        Uri.parse('$_baseUrl/raw-material-billings?limit=1000&depth=1&sort=-date'),
         headers: token != null ? {'Authorization': 'Bearer $token'} : {},
       );
       if (res.statusCode == 200) {
@@ -1632,7 +1632,7 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
-  Future<List<dynamic>> fetchRawMaterialInstockEntries({int limit = 100, int depth = 2}) async {
+  Future<List<dynamic>> fetchRawMaterialInstockEntries({int limit = 100, int depth = 1}) async {
     try {
       final token = await _getToken();
       final res = await http.get(

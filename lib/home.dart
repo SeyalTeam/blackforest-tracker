@@ -339,8 +339,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _syncTimer?.cancel();
+      _kitchenClockTimer?.cancel();
+      debugPrint('DEBUG: App paused/inactive -> Timers paused');
+    } else if (state == AppLifecycleState.resumed) {
+      debugPrint('DEBUG: App resumed -> Timers restarted');
       AttendanceManager.instance.checkNow();
+      _startSyncTimer();
+      _startKitchenClockTimer();
       if (_isKitchenEnabled) {
         _fetchKitchenOrders(showLoader: false);
         _syncLiveNotifications();
