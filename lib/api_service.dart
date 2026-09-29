@@ -2152,7 +2152,7 @@ Future<List<dynamic>> fetchEmployees() async {
           final matchesInd = (empId != null && tEmpId == empId) ||
               (userId != null && (tUserId == userId || tEmpId == userId));
 
-          // Role match (supports ALL roles: kitchen, chef, waiter, cashier, manager, supervisor, delivery, driver, etc.)
+          // Role match (supports operational roles: kitchen, chef, waiter, cashier, manager, supervisor, driver, etc.)
           final matchesRole = taskRole == 'all' ||
               (userRole.isNotEmpty && taskRole == userRole) ||
               (empTeam.isNotEmpty && taskRole == empTeam);

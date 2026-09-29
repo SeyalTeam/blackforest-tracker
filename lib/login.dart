@@ -212,8 +212,18 @@ class _LoginPageState extends State<LoginPage> {
           final userId = (fullUser['id'] ?? fullUser['_id'])?.toString() ?? '';
 
           debugPrint(
-            'DEBUG: Login success. Role: $userRole, Name: $userName, ID: $userId',
+            'DEBUG: Login attempt. Role: $userRole, Name: $userName, ID: $userId',
           );
+
+          // Block factory, admin, and superadmin roles from logging into Tracker App
+          if (userRole == 'factory' || userRole == 'admin' || userRole == 'superadmin') {
+            if (!mounted) return;
+            setState(() {
+              _isLoading = false;
+              _errorMessage = 'Access Denied: $userRole role is not permitted to access Tracker App.';
+            });
+            return;
+          }
 
           // Watcher does not require branch geofence circle to login
           final isExemptFromGeofence = userRole == 'watcher';

@@ -445,7 +445,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 profileRole == 'chef' ||
                 profileRole == 'supervisor' ||
                 profileRole == 'manager' ||
-                profileRole == 'driver');
+                profileRole == 'driver' ||
+                profileRole == 'factory');
 
         syncedRole = profileRole;
         syncedIsKit = profileIsKitchen.toString();
@@ -9739,6 +9740,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             'chef',
             'supervisor',
             'driver',
+            'factory',
             'kitchen',
           ].contains(_userRole)) {
             final branchId =

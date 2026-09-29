@@ -711,6 +711,7 @@ class _BranchListPageState extends State<BranchListPage> {
             'supervisor',
             'manager',
             'driver',
+            'factory',
             'kitchen',
           ].contains(_userRole)) {
             final branchId =

@@ -853,6 +853,7 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
             'supervisor',
             'manager',
             'driver',
+            'factory',
             'kitchen',
           ].contains(_userRole)) {
             final branchId =
