@@ -220,8 +220,15 @@ class _LoginPageState extends State<LoginPage> {
             if (!mounted) return;
             setState(() {
               _isLoading = false;
-              _errorMessage = 'Access Denied: $userRole role is not permitted to access Tracker App.';
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Access Denied: $userRole role is not permitted to access Tracker App.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
             return;
           }
 

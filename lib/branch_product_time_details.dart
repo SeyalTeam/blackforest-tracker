@@ -51,7 +51,7 @@ class _BranchProductTimeDetailsScreenState extends State<BranchProductTimeDetail
             }
             if (imageUrl.isNotEmpty) {
               if (imageUrl.startsWith('/')) {
-                imageUrl = 'https://dev1-blacforest.vseyal.com$imageUrl';
+                imageUrl = 'https://blackforest.vseyal.com$imageUrl';
               }
               _productImageUrls[id] = imageUrl;
             }
