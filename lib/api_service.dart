@@ -826,6 +826,58 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
+  Future<List<dynamic>> fetchChefs() async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/users?where[role][equals]=chef&limit=1000&depth=1';
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['docs'] as List?) ?? [];
+      } else {
+        return [];
+      }
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<bool> updateUserCategories({
+    required String userId,
+    required String kitchenId,
+    required List<String> categoryIds,
+  }) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/users/$userId';
+
+      final body = {
+        'kitchen': [kitchenId],
+        'categories': categoryIds,
+      };
+
+      final res = await http.patch(
+        Uri.parse(url),
+        headers: token != null
+            ? {
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json',
+              }
+            : {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      return res.statusCode == 200;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> fetchProducts({List<String>? categoryIds}) async {
     try {
       final token = await _getToken();
@@ -1046,7 +1098,7 @@ Future<List<dynamic>> fetchEmployees() async {
       final token = await _getToken();
 
       String url =
-          '$_baseUrl/billings?limit=100&depth=3'
+          '$_baseUrl/billings?limit=100&depth=1'
           '&where[branch][equals]=$branchId'
           '&where[status][in][0]=ordered'
           '&where[status][in][1]=confirmed'

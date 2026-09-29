@@ -266,18 +266,33 @@ class _LoginPageState extends State<LoginPage> {
             debugPrint('DEBUG: Manager company IDs stored: $companyIds');
           }
 
-          if (isKitchen) {
+          if (isKitchen || userRole == 'chef') {
             final branchObj = fullUser['branch'];
             final kitchenObj = fullUser['kitchen'];
             final kitchenBranches = fullUser['kitchenBranches'] as List?;
 
             // Extract Kitchen ID and Categories
             String kitchenId = '';
+            String kitchenName = '';
             List<String> categories = [];
 
-             if (kitchenObj is Map) {
+            if (kitchenObj is List && kitchenObj.isNotEmpty) {
+              final firstK = kitchenObj.first;
+              if (firstK is Map) {
+                kitchenId =
+                    (firstK['id'] ?? firstK['_id'])?.toString() ?? '';
+                if (firstK['name'] != null) {
+                  kitchenName = firstK['name'].toString();
+                }
+              } else if (firstK is String) {
+                kitchenId = firstK;
+              }
+            } else if (kitchenObj is Map) {
               kitchenId =
                   (kitchenObj['id'] ?? kitchenObj['_id'])?.toString() ?? '';
+              if (kitchenObj['name'] != null) {
+                kitchenName = kitchenObj['name'].toString();
+              }
             } else if (kitchenObj is String) {
               kitchenId = kitchenObj;
             }
@@ -288,14 +303,30 @@ class _LoginPageState extends State<LoginPage> {
               final empK = emp['kitchen'];
               if (empK is Map) {
                 kitchenId = (empK['id'] ?? empK['_id'])?.toString() ?? '';
+                if (kitchenName.isEmpty && empK['name'] != null) {
+                  kitchenName = empK['name'].toString();
+                }
               } else if (empK is String) {
                 kitchenId = empK;
               }
             }
 
-            if (kitchenId.isNotEmpty) {
+            final userCats = fullUser['categories'] as List?;
+            if (userCats != null && userCats.isNotEmpty) {
+              for (var c in userCats) {
+                final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                if (cId.isNotEmpty && !categories.contains(cId)) {
+                  categories.add(cId);
+                }
+              }
+            }
+
+            if (categories.isEmpty && kitchenId.isNotEmpty) {
               try {
                 final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
+                if (kitchenDetails['name'] != null) {
+                  kitchenName = kitchenDetails['name'].toString();
+                }
                 final cats = (kitchenDetails['categories'] as List?) ?? [];
                 for (var c in cats) {
                   final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
@@ -310,6 +341,13 @@ class _LoginPageState extends State<LoginPage> {
                   }
                 }
               }
+            } else if (kitchenName.isEmpty && kitchenId.isNotEmpty) {
+              try {
+                final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
+                if (kitchenDetails['name'] != null) {
+                  kitchenName = kitchenDetails['name'].toString();
+                }
+              } catch (_) {}
             }
 
             // Branch ID extraction
@@ -338,10 +376,13 @@ class _LoginPageState extends State<LoginPage> {
             }
 
             debugPrint(
-              'DEBUG: Extracted kitchenId: "$kitchenId", BranchId: "$bId", Categories: ${categories.length}',
+              'DEBUG: Extracted kitchenId: "$kitchenId", KitchenName: "$kitchenName", BranchId: "$bId", Categories: ${categories.length}',
             );
 
             await storage.write(key: 'userKitchenId', value: kitchenId);
+            if (kitchenName.isNotEmpty) {
+              await storage.write(key: 'userKitchenName', value: kitchenName);
+            }
             await storage.write(key: 'userBranchId', value: bId);
             await storage.write(
               key: 'userKitchenCategoryIds',

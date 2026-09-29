@@ -503,13 +503,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           final kitchenObj = profile['kitchen'];
           String kitchenId = '';
           List<String> categories = [];
-          if (kitchenObj is Map) {
+          if (kitchenObj is List && kitchenObj.isNotEmpty) {
+            final firstK = kitchenObj.first;
+            if (firstK is Map) {
+              kitchenId = (firstK['id'] ?? firstK['_id'])?.toString() ?? '';
+            } else if (firstK is String) {
+              kitchenId = firstK;
+            }
+          } else if (kitchenObj is Map) {
             kitchenId = (kitchenObj['id'] ?? kitchenObj['_id'])?.toString() ?? '';
           } else if (kitchenObj is String) {
             kitchenId = kitchenObj;
           }
 
-          if (kitchenId.isNotEmpty) {
+          final userCats = profile['categories'] as List?;
+          if (userCats != null && userCats.isNotEmpty) {
+            for (var c in userCats) {
+              final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+              if (cId.isNotEmpty && !categories.contains(cId)) {
+                categories.add(cId);
+              }
+            }
+          }
+
+          // Fallback to kitchen categories only if user has no explicit categories assigned
+          if (categories.isEmpty && kitchenId.isNotEmpty) {
             try {
               final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
               final cats = (kitchenDetails['categories'] as List?) ?? [];
@@ -2297,6 +2315,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 _buildChefGridItemWithBadge(
                   context,
+                  title: 'KOT Category',
+                  icon: Icons.category_rounded,
+                  color: Colors.indigo,
+                  onTap: () {
+                    _showKotCategoryDialog();
+                  },
+                  badgeCount: _userKitchenCategoryIds.length,
+                ),
+                _buildChefGridItemWithBadge(
+                  context,
                   title: 'Stock',
                   icon: Icons.inventory_2_rounded,
                   color: Colors.orange,
@@ -2673,7 +2701,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Expanded(child: SizedBox.shrink()),
+                          Expanded(
+                            child: AspectRatio(
+                              aspectRatio: 1.0,
+                              child: _buildChefGridItemWithBadge(
+                                context,
+                                title: 'KOT Category',
+                                icon: Icons.category_rounded,
+                                color: Colors.indigo,
+                                onTap: () {
+                                  _showKotCategoryDialog();
+                                },
+                                badgeCount: _userKitchenCategoryIds.length,
+                              ),
+                            ),
+                          ),
                           const SizedBox(width: 12),
                           const Expanded(child: SizedBox.shrink()),
                         ],
@@ -5754,6 +5796,313 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       _showKitchenStockProducts();
     });
+  }
+
+  Future<void> _showKotCategoryDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final branchId = _userBranchId;
+      final kitchens = await ApiService.instance.fetchKitchens();
+      List<dynamic> branchKitchens = [];
+      if (branchId.isNotEmpty) {
+        branchKitchens = kitchens.where((k) {
+          final bList = k['branches'] as List?;
+          if (bList == null) return false;
+          return bList.any((b) {
+            final id = (b is Map ? (b['id'] ?? b['_id']) : b)?.toString() ?? '';
+            return id == branchId;
+          });
+        }).toList();
+      }
+      if (branchKitchens.isEmpty) {
+        branchKitchens = kitchens;
+      }
+
+      final allChefs = await ApiService.instance.fetchChefs();
+
+      if (mounted) Navigator.pop(context); // Dismiss loading spinner
+
+      if (branchKitchens.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No kitchens found for this branch.')),
+          );
+        }
+        return;
+      }
+
+      // Map category ID to assigned chef's name
+      final Map<String, String> categoryToChefMap = {};
+      for (var cDoc in allChefs) {
+        final cName = (cDoc['name'] ?? cDoc['username'])?.toString() ?? 'Chef';
+        final cCats = (cDoc['categories'] as List?) ?? [];
+        for (var cat in cCats) {
+          final catId = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)?.toString() ?? '';
+          if (catId.isNotEmpty) {
+            categoryToChefMap[catId] = cName;
+          }
+        }
+      }
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (dialogContext) {
+          int selectedKitchenIndex = 0;
+          if (_userKitchenId.isNotEmpty) {
+            final idx = branchKitchens.indexWhere((k) {
+              final id = (k['id'] ?? k['_id'])?.toString() ?? '';
+              return id == _userKitchenId;
+            });
+            if (idx != -1) selectedKitchenIndex = idx;
+          }
+
+          final Set<String> selectedCatIds = Set<String>.from(_userKitchenCategoryIds);
+
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final activeKitchen = branchKitchens[selectedKitchenIndex];
+              final activeKitchenId = (activeKitchen['id'] ?? activeKitchen['_id'])?.toString() ?? '';
+              final activeKitchenName = activeKitchen['name']?.toString() ?? 'Kitchen';
+              final rawCategories = (activeKitchen['categories'] as List?) ?? [];
+
+              return AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Select KOT Categories',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Choose categories to receive KOT orders',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (branchKitchens.length > 1) ...[
+                        const Text(
+                          'Select Kitchen:',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: List.generate(branchKitchens.length, (i) {
+                              final k = branchKitchens[i];
+                              final kName = k['name']?.toString() ?? 'Kitchen ${i + 1}';
+                              final isSelected = i == selectedKitchenIndex;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: ChoiceChip(
+                                  label: Text(kName),
+                                  selected: isSelected,
+                                  selectedColor: Colors.teal.shade100,
+                                  labelStyle: TextStyle(
+                                    color: isSelected ? Colors.teal.shade900 : Colors.black87,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                  onSelected: (selected) {
+                                    if (selected) {
+                                      setDialogState(() {
+                                        selectedKitchenIndex = i;
+                                      });
+                                    }
+                                  },
+                                ),
+                              );
+                            }),
+                          ),
+                        ),
+                        const Divider(height: 20),
+                      ],
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '$activeKitchenName Categories',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal),
+                          ),
+                          Text(
+                            '${rawCategories.length} Total',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (rawCategories.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24.0),
+                          child: Center(child: Text('No categories assigned to this kitchen.')),
+                        )
+                      else
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 280),
+                          child: Scrollbar(
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: rawCategories.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final cat = rawCategories[index];
+                                final catId = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)?.toString() ?? '';
+                                final catName = cat is Map ? (cat['name']?.toString() ?? 'Category') : 'Category';
+                                final isChecked = selectedCatIds.contains(catId);
+
+                                final assignedChef = categoryToChefMap[catId];
+
+                                String chefLabel = 'Unassigned';
+                                Color chefLabelColor = Colors.grey;
+                                if (assignedChef != null && assignedChef.isNotEmpty) {
+                                  chefLabel = 'Assigned: $assignedChef';
+                                  chefLabelColor = Colors.orange.shade800;
+                                }
+                                if (isChecked) {
+                                  chefLabel = 'Assigned to You';
+                                  chefLabelColor = Colors.green.shade700;
+                                }
+
+                                return CheckboxListTile(
+                                  value: isChecked,
+                                  activeColor: Colors.teal,
+                                  dense: true,
+                                  title: Text(
+                                    catName,
+                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                  ),
+                                  subtitle: Row(
+                                    children: [
+                                      Icon(
+                                        isChecked ? Icons.check_circle_rounded : Icons.person_outline_rounded,
+                                        size: 14,
+                                        color: chefLabelColor,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        chefLabel,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: chefLabelColor,
+                                          fontWeight: isChecked ? FontWeight.bold : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  onChanged: (bool? val) {
+                                    setDialogState(() {
+                                      if (val == true) {
+                                        selectedCatIds.add(catId);
+                                      } else {
+                                        selectedCatIds.remove(catId);
+                                      }
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(dialogContext);
+                      await _saveUserKotCategoryAssignments(
+                        activeKitchenId,
+                        selectedCatIds.toList(),
+                      );
+                    },
+                    child: const Text('Save Assignments'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      debugPrint('DEBUG: Error in _showKotCategoryDialog: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading categories: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveUserKotCategoryAssignments(String kitchenId, List<String> categoryIds) async {
+    if (_userId.isEmpty) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      await ApiService.instance.updateUserCategories(
+        userId: _userId,
+        kitchenId: kitchenId,
+        categoryIds: categoryIds,
+      );
+
+      await _storage.write(key: 'userKitchenId', value: kitchenId);
+      await _storage.write(key: 'userKitchenCategoryIds', value: categoryIds.join(','));
+
+      if (mounted) {
+        setState(() {
+          _userKitchenId = kitchenId;
+          _userKitchenCategoryIds = categoryIds;
+        });
+      }
+
+      if (mounted) Navigator.pop(context);
+
+      await _fetchKitchenOrders();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('KOT categories updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      debugPrint('DEBUG: Failed to save category assignments: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update categories: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _showKitchenStockProducts() async {
