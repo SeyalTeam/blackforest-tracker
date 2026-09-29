@@ -215,10 +215,8 @@ class _LoginPageState extends State<LoginPage> {
             'DEBUG: Login success. Role: $userRole, Name: $userName, ID: $userId',
           );
 
-          // Watcher, admin, and superadmin do not require branch geofence circle to login
-          final isExemptFromGeofence = userRole == 'watcher' ||
-              userRole == 'admin' ||
-              userRole == 'superadmin';
+          // Watcher does not require branch geofence circle to login
+          final isExemptFromGeofence = userRole == 'watcher';
 
           if (!isExemptFromGeofence) {
             if (!mounted) return;
@@ -240,8 +238,7 @@ class _LoginPageState extends State<LoginPage> {
                   userRole == 'chef' ||
                   userRole == 'supervisor' ||
                   userRole == 'manager' ||
-                  userRole == 'driver' ||
-                  userRole == 'factory');
+                  userRole == 'driver');
 
           const storage = FlutterSecureStorage();
           await storage.write(key: 'isLoggedIn', value: 'true');

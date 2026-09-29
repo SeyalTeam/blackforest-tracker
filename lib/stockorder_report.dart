@@ -60,7 +60,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   bool get isChef => _userRole == 'chef';
   bool get isSupervisor => _userRole == 'supervisor';
   bool get isDriver => _userRole == 'driver';
-  bool get isFactory => _userRole == 'factory';
+  bool get isFactory => false;
   bool get isManager => _userRole == 'manager';
   // Consolidated View Cache
   List<Map<String, dynamic>> _consolidatedItems =
@@ -2266,8 +2266,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         : '';
 
     final isFactory =
-        _userRole == 'factory' || _userRole == 'chef' || _userRole == 'kitchen';
-    final isStrictFactory = _userRole == 'factory';
+        _userRole == 'chef' || _userRole == 'kitchen';
+    final isStrictFactory = false;
     final isSupervisor = _userRole == 'supervisor' || isManager;
 
     if (isStrictFactory) {
@@ -4177,7 +4177,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     // Check if user is factory for consolidated view
     // Check if user is factory or supervisor for consolidated view
-    final isStrictFactory = _userRole == 'factory';
+    final isStrictFactory = false;
     final isSupervisor = _userRole == 'supervisor' || isManager;
     // Chef View
     final isChef = _userRole == 'chef' || _userRole == 'kitchen';
