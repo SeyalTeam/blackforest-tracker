@@ -39,7 +39,7 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
 
       final results = await Future.wait([
         ApiService.instance.fetchBranchBillingReport(startDate: dateStr, endDate: dateStr),
-        ApiService.instance.fetchBranches(forceRefresh: true),
+        ApiService.instance.fetchBranches(forceRefresh: false),
         ApiService.instance.fetchCompanies(),
       ]);
 

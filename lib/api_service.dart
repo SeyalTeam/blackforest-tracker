@@ -1866,7 +1866,7 @@ Future<List<dynamic>> fetchEmployees() async {
   Future<Map<String, dynamic>?> fetchCctvReportById(String id) async {
     try {
       final token = await _getToken();
-      final uri = Uri.parse('$_baseUrl/cctv-reports/$id?depth=2');
+      final uri = Uri.parse('$_baseUrl/cctv-reports/$id?depth=1');
       final res = await http.get(
         uri,
         headers: token != null ? {'Authorization': 'Bearer $token'} : {},
@@ -1925,7 +1925,7 @@ Future<List<dynamic>> fetchEmployees() async {
     }
 
     final res = await http.patch(
-      Uri.parse('$_baseUrl/cctv-reports/$id?depth=2'),
+      Uri.parse('$_baseUrl/cctv-reports/$id?depth=1'),
       headers: {
         if (token != null) 'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
@@ -1993,7 +1993,7 @@ Future<List<dynamic>> fetchEmployees() async {
       }
 
       final res = await http.patch(
-        Uri.parse('$_baseUrl/cctv-reports/$id?depth=2'),
+        Uri.parse('$_baseUrl/cctv-reports/$id?depth=1'),
         headers: {
           if (token != null) 'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
