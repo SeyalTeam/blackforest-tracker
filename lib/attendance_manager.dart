@@ -346,6 +346,7 @@ class AttendanceManager {
                 'date': localMidnight.toUtc().toIso8601String(),
                 'dateString': queryDateStr,
                 'activities': [newActivity],
+                if (geo.branchId != null) 'loginBranch': geo.branchId,
               }),
             );
 
