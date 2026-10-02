@@ -59,6 +59,7 @@ class _ProfilePageState extends State<ProfilePage> {
   List<Map<String, dynamic>> _activities = [];
   String? _dayType; // 'full_day' | 'half_day' | null
   String? _loginBranchName;
+  bool _isFetchingInitialAttendance = true;
   bool _loadingTasks = false;
   List<Map<String, dynamic>> _dailyTasks = [];
   final Set<String> _togglingTaskIds = {};
@@ -701,8 +702,19 @@ class _ProfilePageState extends State<ProfilePage> {
         _autoPunchOutFired = false;
       }
       _startGeofenceWatcher();
+      
+      if (mounted) {
+        setState(() {
+          _isFetchingInitialAttendance = false;
+        });
+      }
     } catch (e) {
       debugPrint('Error fetching attendance: $e');
+      if (mounted) {
+        setState(() {
+          _isFetchingInitialAttendance = false;
+        });
+      }
     }
   }
 
@@ -1828,7 +1840,16 @@ class _ProfilePageState extends State<ProfilePage> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      if (_employeeRole == 'manager' &&
+                      if (_isFetchingInitialAttendance)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8.0),
+                          child: SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else if (_employeeRole == 'manager' &&
                           _managerCompanyNames.isNotEmpty) ...[
                         Text(
                           _managerCompanyNames.join(' • '),
