@@ -414,8 +414,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     // PHASE 2: Apply Live/Stock Filters & Order Selection
     final filteredOrders = allBranchOrders
         .where((o) {
-          // Live vs Stock Filter
           final id = (o['id'] ?? o['_id']).toString();
+          
+          // Filter out completed bills (nothing pending)
+          int pending = _billPendingItemCounts[id] ?? 0;
+          if (pending == 0) return false;
+
+          // Live vs Stock Filter
           bool isSameDayOrder = _orderIsLive[id] ?? false;
 
           if (widget.onlyTodayOrdered) {
@@ -1685,7 +1690,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     List<Widget> children = [];
 
     // Determine relevant IDs based on mode
-    final relevantIds = widget.onlyTodayOrdered ? liveIds : stockIds;
+    List<String> relevantIds = widget.onlyTodayOrdered ? liveIds : stockIds;
+    
+    // Filter out completed bills (nothing pending)
+    relevantIds = relevantIds.where((id) {
+      int pending = _billPendingItemCounts[id] ?? 0;
+      return pending > 0;
+    }).toList();
 
     // Helper to build chip
     Widget buildChip(String id) {

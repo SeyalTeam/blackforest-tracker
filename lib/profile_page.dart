@@ -11,6 +11,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:image/image.dart' as img_lib;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
 import 'camera_page.dart';
@@ -211,7 +212,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ? normalizedInput
         : '/$normalizedInput';
 
-    return 'https://dev1-blacforest.vseyal.com$relative';
+    return 'https://blackforest.vseyal.com$relative';
   }
 
   Future<void> _fetchEmployeeProfile() async {

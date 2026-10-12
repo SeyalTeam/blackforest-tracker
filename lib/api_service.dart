@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'app_http.dart' as http;
 import 'package:http_parser/http_parser.dart' as http_parser;
 import 'package:intl/intl.dart';
 import 'package:flutter/foundation.dart';
@@ -1103,8 +1103,6 @@ Future<List<dynamic>> fetchEmployees() async {
           '&where[status][in][0]=ordered'
           '&where[status][in][1]=confirmed'
           '&where[status][in][2]=prepared'
-          '&where[status][in][3]=served'
-          '&where[status][in][4]=delivered'
           '&sort=-createdAt';
 
       if (fromDate != null) {

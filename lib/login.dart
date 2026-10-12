@@ -160,6 +160,8 @@ class _LoginPageState extends State<LoginPage> {
           headers: {
             'Content-Type': 'application/json',
             'x-private-ip': _privateIp ?? '',
+            'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
+            'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
           },
           body: jsonEncode({
             'email': emailToUse,
@@ -176,6 +178,8 @@ class _LoginPageState extends State<LoginPage> {
             headers: {
               'Content-Type': 'application/json',
               'x-private-ip': _privateIp ?? '',
+              'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
+              'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
             },
             body: jsonEncode({
               'email': rawInput,
@@ -280,10 +284,24 @@ class _LoginPageState extends State<LoginPage> {
             debugPrint('DEBUG: Manager company IDs stored: $companyIds');
           }
 
+          // Extract Branch ID and Name for ALL roles (crucial for notifications filtering)
+          final branchObj = fullUser['branch'];
+          final kitchenBranches = fullUser['kitchenBranches'] as List?;
+          var bId = (branchObj is Map ? branchObj['id'] : branchObj)?.toString() ?? '';
+          
+          if (bId.isEmpty && kitchenBranches != null && kitchenBranches.isNotEmpty) {
+            final firstBranch = kitchenBranches.first;
+            bId = (firstBranch is Map ? firstBranch['id'] : firstBranch)?.toString() ?? '';
+          }
+          if (bId.isEmpty && fullUser['employee'] is Map) {
+            final emp = fullUser['employee'];
+            bId = (emp['branch'] is Map ? emp['branch']['id'] : emp['branch'])?.toString() ?? '';
+          }
+          await storage.write(key: 'userBranchId', value: bId);
+          
+
           if (isKitchen || userRole == 'chef') {
-            final branchObj = fullUser['branch'];
             final kitchenObj = fullUser['kitchen'];
-            final kitchenBranches = fullUser['kitchenBranches'] as List?;
 
             // Extract Kitchen ID and Categories
             String kitchenId = '';
@@ -364,30 +382,7 @@ class _LoginPageState extends State<LoginPage> {
               } catch (_) {}
             }
 
-            // Branch ID extraction
-            var bId =
-                (branchObj is Map ? branchObj['id'] : branchObj)?.toString() ??
-                '';
 
-            // Check kitchenBranches if primary branch is missing
-            if (bId.isEmpty &&
-                kitchenBranches != null &&
-                kitchenBranches.isNotEmpty) {
-              final firstBranch = kitchenBranches.first;
-              bId =
-                  (firstBranch is Map ? firstBranch['id'] : firstBranch)
-                      ?.toString() ??
-                  '';
-            }
-
-            // Fallback for branch in employee
-            if (bId.isEmpty && fullUser['employee'] is Map) {
-              final emp = fullUser['employee'];
-              bId =
-                  (emp['branch'] is Map ? emp['branch']['id'] : emp['branch'])
-                      ?.toString() ??
-                  '';
-            }
 
             debugPrint(
               'DEBUG: Extracted kitchenId: "$kitchenId", KitchenName: "$kitchenName", BranchId: "$bId", Categories: ${categories.length}',
@@ -397,7 +392,6 @@ class _LoginPageState extends State<LoginPage> {
             if (kitchenName.isNotEmpty) {
               await storage.write(key: 'userKitchenName', value: kitchenName);
             }
-            await storage.write(key: 'userBranchId', value: bId);
             await storage.write(
               key: 'userKitchenCategoryIds',
               value: categories.join(','),
