@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
+import 'app_http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -234,6 +234,7 @@ class _TrackerContactBookPageState extends State<TrackerContactBookPage> {
       // 1. Fetch today's attendances to identify live punched-in staff
       final activePunchedInUserIds = <String>{};
       final attendedBranchUserIds = <String>{};
+      final userPunchedInBranchMap = <String, String>{};
 
       try {
         final attUrl = Uri.parse(
@@ -251,26 +252,41 @@ class _TrackerContactBookPageState extends State<TrackerContactBookPage> {
           for (final doc in attDocs) {
             if (doc is! Map) continue;
             final uId = TrackerContactItem._relId(doc['user']);
+            final empId = TrackerContactItem._relId(doc['employee']);
             final logBranchId = TrackerContactItem._relId(doc['loginBranch']);
+
+            final activities = (doc['activities'] as List?) ?? [];
+            final sessions = activities.where((a) {
+              if (a is! Map) return false;
+              final type = a['type']?.toString();
+              return type == null || type == 'session';
+            }).toList();
+
+            bool isCurrentlyPunchedIn = false;
+            if (sessions.isNotEmpty) {
+              final lastSession = sessions.last as Map;
+              final status = lastSession['status']?.toString().toLowerCase();
+              final punchOut = lastSession['punchOut'];
+              final hasNoPunchOut = punchOut == null || punchOut.toString().trim().isEmpty;
+              isCurrentlyPunchedIn = (status != 'closed') && hasNoPunchOut;
+            }
+
+            if (isCurrentlyPunchedIn) {
+              if (uId != null && uId.isNotEmpty) {
+                activePunchedInUserIds.add(uId);
+                if (logBranchId != null) userPunchedInBranchMap[uId] = logBranchId;
+              }
+              if (empId != null && empId.isNotEmpty) {
+                activePunchedInUserIds.add(empId);
+                if (logBranchId != null) userPunchedInBranchMap[empId] = logBranchId;
+              }
+            }
 
             if (branchId.isNotEmpty &&
                 logBranchId != null &&
-                logBranchId == branchId &&
-                uId != null) {
-              attendedBranchUserIds.add(uId);
-            }
-
-            final activities = doc['activities'] as List? ?? [];
-            final isCurrentlyPunchedIn = activities.any((a) {
-              if (a is! Map) return false;
-              final type = a['type']?.toString();
-              if (type != null && type != 'session') return false;
-              final punchOut = a['punchOut'];
-              return punchOut == null || punchOut.toString().trim().isEmpty;
-            });
-
-            if (isCurrentlyPunchedIn && uId != null) {
-              activePunchedInUserIds.add(uId);
+                logBranchId == branchId) {
+              if (uId != null) attendedBranchUserIds.add(uId);
+              if (empId != null) attendedBranchUserIds.add(empId);
             }
           }
         }
@@ -296,15 +312,26 @@ class _TrackerContactBookPageState extends State<TrackerContactBookPage> {
       for (final doc in docs) {
         if (doc is! Map) continue;
         final uId = TrackerContactItem._relId(doc['id'] ?? doc['_id']);
+        final empId = TrackerContactItem._relId(
+          doc['employee'] is Map ? doc['employee']['id'] ?? doc['employee']['_id'] : doc['employee'],
+        );
 
         // Exclude currently logged in user from self-calling
         if (uId == null || (myUserId.isNotEmpty && uId == myUserId)) continue;
+
+        // REQUIREMENT: ONLY SHOW STAFF WHO ARE CURRENTLY PUNCHED IN!
+        // If they did not punch in or if they have punched out, DO NOT SHOW THEM (they left the branch)
+        final isPunchedIn = activePunchedInUserIds.contains(uId) ||
+            (empId != null && activePunchedInUserIds.contains(empId));
+        if (!isPunchedIn) continue;
 
         // Check branch membership
         bool belongsToBranch = false;
         if (branchId.isEmpty) {
           belongsToBranch = true;
         } else {
+          final punchedInBranch = userPunchedInBranchMap[uId] ??
+              (empId != null ? userPunchedInBranchMap[empId] : null);
           final userBranch = TrackerContactItem._relId(doc['branch']);
           final lastBranch = TrackerContactItem._relId(doc['lastLoginBranch']);
           final empBranch = TrackerContactItem._relId(doc['employee'] is Map ? doc['employee']['branch'] : null);
@@ -312,11 +339,13 @@ class _TrackerContactBookPageState extends State<TrackerContactBookPage> {
           final isKitchenBranchMatch = kitchenBranches is List &&
               kitchenBranches.any((kb) => TrackerContactItem._relId(kb) == branchId);
 
-          if (userBranch == branchId ||
+          if (punchedInBranch == branchId ||
+              userBranch == branchId ||
               lastBranch == branchId ||
               empBranch == branchId ||
               isKitchenBranchMatch ||
-              attendedBranchUserIds.contains(uId)) {
+              attendedBranchUserIds.contains(uId) ||
+              (empId != null && attendedBranchUserIds.contains(empId))) {
             belongsToBranch = true;
           }
         }
@@ -561,7 +590,6 @@ class _TrackerContactBookPageState extends State<TrackerContactBookPage> {
 
   @override
   Widget build(BuildContext context) {
-    final onDutyCount = _contacts.where((c) => c.isPunchedIn).length;
     final dialedCount = _allEntries.where((e) => e.isDialed).length;
     final receivedCount = _allEntries.where((e) => e.isReceived).length;
     final missedCount = _allEntries.where((e) => e.isIncomingMissed).length;
@@ -762,7 +790,6 @@ class _TrackerContactBookPageState extends State<TrackerContactBookPage> {
                     child: Row(
                       children: [
                         _buildRoleChip('ALL', 'All'),
-                        _buildRoleChip('ON_DUTY', 'Punched In ($onDutyCount)'),
                         _buildRoleChip('WAITER', 'Waiters'),
                         _buildRoleChip('CASHIER', 'Cashiers'),
                         _buildRoleChip('SUPERVISOR', 'Supervisors'),
@@ -1022,9 +1049,7 @@ class _TrackerContactBookPageState extends State<TrackerContactBookPage> {
             const SizedBox(height: 12),
             Text(
               _searchController.text.isEmpty
-                  ? (_selectedRoleFilter == 'ON_DUTY'
-                      ? 'No employees are currently punched in'
-                      : 'No branch contacts found')
+                  ? 'No employees are currently punched in'
                   : 'No contacts match "${_searchController.text}"',
               style: const TextStyle(
                 fontSize: 15,
