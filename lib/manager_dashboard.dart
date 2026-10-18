@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
 import 'branch_bills.dart';
+import 'tracker_contact_book_page.dart';
 
 class ManagerBillingReportScreen extends StatefulWidget {
   final List<String> managerCompanyIds;
@@ -304,6 +305,18 @@ class _ManagerBillingReportScreenState extends State<ManagerBillingReportScreen>
         foregroundColor: Colors.black,
         elevation: 0.5,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.call_rounded, color: Colors.green),
+            tooltip: 'Live Contacts & Call History',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TrackerContactBookPage(),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.calendar_month, color: Colors.blue),
             onPressed: _pickDate,

@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'api_service.dart';
+import 'tracker_contact_book_page.dart';
 
 class StockOrderReportPage extends StatefulWidget {
   final String? initialBranchId;
@@ -4246,6 +4247,18 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.call_rounded, color: Colors.greenAccent),
+            tooltip: 'Live Contacts & Call History',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TrackerContactBookPage(),
+                ),
+              );
+            },
+          ),
           Center(
             child: Text(
               _userRole.toUpperCase(),

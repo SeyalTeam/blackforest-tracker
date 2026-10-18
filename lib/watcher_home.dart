@@ -9,6 +9,7 @@ import 'profile_page.dart';
 import 'smooth_navigation.dart';
 import 'watcher_report_detail.dart';
 import 'watcher_upload_page.dart';
+import 'tracker_contact_book_page.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Watcher Footer
@@ -357,6 +358,18 @@ class _WatcherHomeState extends State<WatcherHome> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.call_rounded, color: Colors.greenAccent),
+            tooltip: 'Live Contacts & Call History',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TrackerContactBookPage(),
+                ),
+              );
+            },
+          ),
           GestureDetector(
             onTap: _openProfile,
             child: Padding(

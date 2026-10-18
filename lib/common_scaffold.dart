@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'login.dart';
 import 'attendance_manager.dart';
+import 'tracker_contact_book_page.dart';
 
 class CommonScaffold extends StatelessWidget {
   final Widget body;
@@ -27,7 +28,21 @@ class CommonScaffold extends StatelessWidget {
         title: Text(title),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        actions: actions,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call_rounded, color: Colors.greenAccent),
+            tooltip: 'Live Contacts & Call History',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TrackerContactBookPage(),
+                ),
+              );
+            },
+          ),
+          ...?actions,
+        ],
       ),
       drawer: Drawer(
         child: ListView(
@@ -62,6 +77,19 @@ class CommonScaffold extends StatelessWidget {
               onTap: () {
                 Navigator.pop(context); // Close drawer
                 // Already on home, maybe simple pop or do nothing
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.call_rounded, color: Colors.green),
+              title: const Text('Contacts & Calls'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const TrackerContactBookPage(),
+                  ),
+                );
               },
             ),
             ListTile(

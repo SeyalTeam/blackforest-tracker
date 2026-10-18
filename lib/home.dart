@@ -34,6 +34,7 @@ import 'manager_dashboard.dart';
 import 'manager_home.dart';
 import 'watcher_home.dart';
 import 'attendance_manager.dart';
+import 'tracker_contact_book_page.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -2381,6 +2382,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           actions: [
+            IconButton(
+              icon: const Icon(Icons.call_rounded, color: Colors.greenAccent),
+              tooltip: 'Live Contacts & Call History',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const TrackerContactBookPage(),
+                  ),
+                );
+              },
+            ),
             GestureDetector(
               onTap: () {
                 Navigator.push(

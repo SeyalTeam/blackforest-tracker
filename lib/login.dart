@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_service.dart';
 import 'home.dart';
 import 'geofence_util.dart';
+import 'tracker_realtime_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -399,6 +400,7 @@ class _LoginPageState extends State<LoginPage> {
           }
 
           if (!mounted) return;
+          TrackerRealtimeService.instance.connect();
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const HomeScreen()),
           );
