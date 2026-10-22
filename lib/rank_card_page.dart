@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
@@ -15,18 +15,21 @@ class RankCardPage extends StatefulWidget {
 class _RankCardPageState extends State<RankCardPage> {
   final _storage = const FlutterSecureStorage();
 
-  String _selectedPeriod = 'month'; // 'today' | 'week' | 'month' | 'previous_month'
+  String _selectedPeriod = 'today'; // 'today' | 'week' | 'month' | 'previous_month'
   DateTime _selectedMonth = DateTime.now();
   bool _isLoading = true;
   String? _errorMessage;
+  bool _showAllSubjects = false;
 
   String _employeeName = 'Waiter';
   String _employeeRole = 'waiter';
+  // ignore: unused_field
   String _employeeCode = '';
   String _branchId = '';
   String _branchName = 'VSeyal';
   String _companyName = 'BlackForest Cakes';
   String _leaderboardScope = 'branch'; // 'branch' | 'company' | 'overall'
+  // ignore: unused_field
   String? _photoUrl;
   String _employeeDocId = '';
   String _userId = '';
@@ -773,39 +776,41 @@ class _RankCardPageState extends State<RankCardPage> {
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Text(
-          'Rank Card',
+          'MY SCORE',
           style: TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.w800,
-            fontSize: 20,
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+            letterSpacing: 0.5,
           ),
         ),
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+        centerTitle: true,
+        backgroundColor: const Color(0xFF1E224F),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh, color: Color(0xFF0F172A)),
-            onPressed: _fetchReportCard,
+            tooltip: 'Select Previous Months',
+            icon: const Icon(Icons.calendar_month_outlined, color: Colors.white, size: 22),
+            onPressed: _showPreviousMonthsPicker,
           ),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: _fetchReportCard,
-        color: const Color(0xFFD97706),
+        color: const Color(0xFF5C6BC0),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ---------------------------------------------------------------
-              // Period Selector Strip (Today, Week, Month, Calendar Icon for Previous Months)
+              // Period Selector Strip (Today, This Week, This Month)
               // ---------------------------------------------------------------
-              _buildPeriodSelector(),
+              _buildPeriodSelectorPills(),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
               if (_isLoading)
                 const Padding(
@@ -815,7 +820,7 @@ class _RankCardPageState extends State<RankCardPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD97706)),
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF5C6BC0)),
                         ),
                         SizedBox(height: 16),
                         Text(
@@ -832,21 +837,21 @@ class _RankCardPageState extends State<RankCardPage> {
                 )
               else if (_reportData != null) ...[
                 // ---------------------------------------------------------------
-                // Hero Rank Card Banner (Reduced Height)
+                // Today's Score Card with Line Graph
                 // ---------------------------------------------------------------
-                _buildHeroRankBanner(),
+                _buildScoreCardWithChart(),
 
-                const SizedBox(height: 14),
-
-                // ---------------------------------------------------------------
-                // Monthly Operational Highlights (Row-by-Row List)
-                // ---------------------------------------------------------------
-                _buildOperationalHighlights(),
-
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
                 // ---------------------------------------------------------------
-                // Leaderboard Standing (Branch, Company, Overall)
+                // Subject Wise Score Section (Top 5 / Expand to 10)
+                // ---------------------------------------------------------------
+                _buildSubjectWiseScoreSection(),
+
+                const SizedBox(height: 24),
+
+                // ---------------------------------------------------------------
+                // Leaderboard Standing (Branch, Company, Overall) - UNTOUCHED
                 // ---------------------------------------------------------------
                 _buildLeaderboardSection(),
 
@@ -869,7 +874,7 @@ class _RankCardPageState extends State<RankCardPage> {
                           icon: const Icon(Icons.refresh),
                           label: const Text('Try Again'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFD97706),
+                            backgroundColor: const Color(0xFF1E224F),
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -886,820 +891,16 @@ class _RankCardPageState extends State<RankCardPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // Period Selector Widget (Today, Week, Month, Calendar Icon for Previous Months)
+  // Period Selector Pills Strip (Today, This Week, This Month)
   // ---------------------------------------------------------------------------
-  Widget _buildPeriodSelector() {
-    final now = DateTime.now();
-    String activeLabel = '';
-    if (_selectedPeriod == 'today') {
-      activeLabel = 'Today, ${DateFormat('EEEE, d MMM yyyy').format(now)}';
-    } else if (_selectedPeriod == 'week') {
-      final day = now.weekday; // 1 = Monday ... 7 = Sunday
-      final monday = now.subtract(Duration(days: day - 1));
-      final sunday = monday.add(const Duration(days: 6));
-      activeLabel = 'This Week (${DateFormat('d MMM').format(monday)} – ${DateFormat('d MMM yyyy').format(sunday)})';
-    } else if (_selectedPeriod == 'month') {
-      activeLabel = 'This Month (${DateFormat('MMMM yyyy').format(now)})';
-    } else {
-      activeLabel = 'Previous Month: ${DateFormat('MMMM yyyy').format(_selectedMonth)}';
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _buildPeriodTab(
-                  periodKey: 'today',
-                  mainTitle: 'Today',
-                  subTitle: 'TODAY',
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _buildPeriodTab(
-                  periodKey: 'week',
-                  mainTitle: 'Week',
-                  subTitle: 'THIS WEEK',
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _buildPeriodTab(
-                  periodKey: 'month',
-                  mainTitle: 'Month',
-                  subTitle: 'THIS MONTH',
-                ),
-              ),
-              const SizedBox(width: 8),
-              _buildCalendarIconButton(),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFF1F5F9)),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  _selectedPeriod == 'previous_month'
-                      ? Icons.history
-                      : Icons.event_available,
-                  size: 14,
-                  color: _selectedPeriod == 'previous_month'
-                      ? const Color(0xFFD97706)
-                      : const Color(0xFF64748B),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    activeLabel,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: _selectedPeriod == 'previous_month'
-                          ? const Color(0xFF92400E)
-                          : const Color(0xFF475569),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (_selectedPeriod == 'previous_month')
-                  GestureDetector(
-                    onTap: () => _selectPeriod('month'),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFD97706).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Reset',
-                            style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFFD97706),
-                            ),
-                          ),
-                          SizedBox(width: 2),
-                          Icon(Icons.close, size: 11, color: Color(0xFFD97706)),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPeriodTab({
-    required String periodKey,
-    required String mainTitle,
-    required String subTitle,
-  }) {
-    final isSelected = _selectedPeriod == periodKey;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _selectPeriod(periodKey),
-        borderRadius: BorderRadius.circular(10),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeInOut,
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected
-                  ? const Color(0xFF0F172A)
-                  : const Color(0xFFE2E8F0),
-              width: 1,
-            ),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFF0F172A).withValues(alpha: 0.15),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                mainTitle,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                  color: isSelected ? Colors.white : const Color(0xFF1E293B),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subTitle,
-                style: TextStyle(
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
-                  color: isSelected ? const Color(0xFFFFB300) : const Color(0xFF94A3B8),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCalendarIconButton() {
-    final isPreviousMonthSelected = _selectedPeriod == 'previous_month';
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _showPreviousMonthsPicker,
-        borderRadius: BorderRadius.circular(10),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          width: 44,
-          height: 48,
-          decoration: BoxDecoration(
-            color: isPreviousMonthSelected
-                ? const Color(0xFFD97706)
-                : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isPreviousMonthSelected
-                  ? const Color(0xFFD97706)
-                  : const Color(0xFFE2E8F0),
-              width: 1,
-            ),
-            boxShadow: isPreviousMonthSelected
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFFD97706).withValues(alpha: 0.25),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Tooltip(
-            message: 'Choose Previous Months',
-            child: Icon(
-              Icons.calendar_month,
-              size: 20,
-              color: isPreviousMonthSelected ? Colors.white : const Color(0xFF475569),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Hero Rank Banner (Compact Modern Card with Reduced Height)
-  // ---------------------------------------------------------------------------
-  Widget _buildHeroRankBanner() {
-    final overallScore = (_reportData?['overallScore'] ?? 0) as num;
-    final rules = _reportData?['rules'] as List<dynamic>? ?? [];
-    final totalMax = _reportData?['totalMaxMarks'] != null
-        ? (_reportData!['totalMaxMarks'] as num)
-        : (rules.isNotEmpty
-            ? rules.fold<num>(0, (sum, r) => sum + ((r is Map ? r['maxMarks'] : 100) as num? ?? 100))
-            : 700);
-    final totalScore = _reportData?['totalScore'] != null
-        ? (_reportData!['totalScore'] as num)
-        : (rules.isNotEmpty
-            ? rules.fold<num>(0, (sum, r) => sum + ((r is Map ? r['score'] : 0) as num? ?? 0))
-            : ((overallScore / 100) * totalMax).round());
-    final scoreStr = totalScore % 1 == 0 ? totalScore.toInt().toString() : totalScore.toStringAsFixed(1);
-    final grade = _reportData?['grade']?.toString() ?? 'Grade A';
-    final gradeTag = _reportData?['gradeTag']?.toString() ?? '🌟 Star Performer';
-
-    final scopeData = _leaderboardScope == 'company'
-        ? (_reportData?['companyRanking'] as Map<String, dynamic>?)
-        : _leaderboardScope == 'overall'
-            ? (_reportData?['overallRanking'] as Map<String, dynamic>?)
-            : (_reportData?['branchRanking'] as Map<String, dynamic>?);
-    final rank = scopeData?['rank'] ?? _reportData?['rank'] ?? 1;
-    final totalRanked = scopeData?['totalRanked'] ?? _reportData?['totalRanked'] ?? 1;
-    final scopeTag = _leaderboardScope == 'company'
-        ? 'Co.'
-        : _leaderboardScope == 'overall'
-            ? 'Overall'
-            : 'Branch';
-    final scoreColor = _getScoreColor(overallScore);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF1E293B), // Slate 800
-            Color(0xFF0F172A), // Slate 900
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.18),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Row 1: Profile info + Compact Rank Badge
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Avatar
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFFD97706).withValues(alpha: 0.25),
-                  border: Border.all(color: const Color(0xFFFFB300), width: 1.5),
-                ),
-                alignment: Alignment.center,
-                child: _photoUrl != null && _photoUrl!.isNotEmpty
-                    ? ClipOval(
-                        child: Image.network(
-                          _photoUrl!,
-                          width: 40,
-                          height: 40,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _buildAvatarInitial(),
-                        ),
-                      )
-                    : _buildAvatarInitial(),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _employeeName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFD97706),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            _employeeRole.toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        ),
-                        if (_employeeCode.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Text(
-                            'ID: $_employeeCode',
-                            style: const TextStyle(
-                              color: Color(0xFFCBD5E1),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // Compact Rank Badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD97706).withValues(alpha: 0.3),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.emoji_events, color: Colors.white, size: 16),
-                    const SizedBox(width: 5),
-                    Text(
-                      '$scopeTag #$rank',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    Text(
-                      ' / $totalRanked',
-                      style: const TextStyle(
-                        color: Color(0xFFFEF3C7),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10),
-          const Divider(color: Color(0xFF334155), height: 1),
-          const SizedBox(height: 10),
-
-          // Row 2: Score & Grade
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      const Text(
-                        'Score: ',
-                        style: TextStyle(
-                          color: Color(0xFF94A3B8),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      Text(
-                        scoreStr,
-                        style: TextStyle(
-                          color: scoreColor,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      Text(
-                        ' / $totalMax',
-                        style: const TextStyle(
-                          color: Color(0xFF94A3B8),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '($overallScore%)',
-                        style: TextStyle(
-                          color: scoreColor.withValues(alpha: 0.9),
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(width: 6),
-
-              // Grade badge & tag
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                    decoration: BoxDecoration(
-                      color: scoreColor.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: scoreColor.withValues(alpha: 0.4)),
-                    ),
-                    child: Text(
-                      grade,
-                      style: TextStyle(
-                        color: scoreColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  if (gradeTag.isNotEmpty) ...[
-                    const SizedBox(width: 5),
-                    Text(
-                      gradeTag,
-                      style: const TextStyle(
-                        color: Color(0xFFE2E8F0),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // Thin Progress Bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: (overallScore / 100).clamp(0.0, 1.0),
-              minHeight: 5,
-              backgroundColor: const Color(0xFF334155),
-              valueColor: AlwaysStoppedAnimation<Color>(scoreColor),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAvatarInitial() {
-    final initial = _employeeName.isNotEmpty ? _employeeName[0].toUpperCase() : 'W';
-    return Text(
-      initial,
-      style: const TextStyle(
-        color: Color(0xFFFFB300),
-        fontSize: 18,
-        fontWeight: FontWeight.w800,
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Operational Highlights (Short Row-by-Row List)
-  // ---------------------------------------------------------------------------
-  Widget _buildOperationalHighlights() {
-    final r1 = _reportData?['rule1CallSpeed'] as Map<String, dynamic>?;
-    final r2 = _reportData?['rule2Attendance'] as Map<String, dynamic>?;
-    final r3 = _reportData?['rule3Tasks'] as Map<String, dynamic>?;
-    final r4 = _reportData?['rule4Billing'] as Map<String, dynamic>?;
-    final r5 = _reportData?['rule5KotTime'] as Map<String, dynamic>?;
-    final r6 = _reportData?['rule6TableBilling'] as Map<String, dynamic>?;
-    final r7 = _reportData?['rule7CounterBilling'] as Map<String, dynamic>?;
-
-    final callSpeed = r1?['avgResponseSeconds'] != null ? '${r1!['avgResponseSeconds']}s' : '0s';
-    final under30s = r1?['under30sCount'] ?? 0;
-    final totalCalls = r1?['totalCalls'] ?? 0;
-
-    final presentDays = r2?['presentDays'] ?? 0;
-    final attRate = r2?['attendanceRatePercent'] ?? 0;
-
-    final tasksDone = r3?['totalCompleted'] ?? 0;
-    final totalTasks = r3?['totalAssigned'] ?? 0;
-    final taskRate = r3?['completionRatePercent'] ?? 0;
-
-    final billingAcc = r4?['productAccuracyPercent'] ?? 0;
-    final servedProds = r4?['servedProducts'] ?? 0;
-
-    final kotAvg = r5?['avgDurationSeconds'] != null
-        ? '${((r5!['avgDurationSeconds'] as num) / 60).toStringAsFixed(1)}m'
-        : '0m';
-    final kotRate = r5?['onTimeRatePercent'] ?? 0;
-
-    final rulesList = _reportData?['rules'] as List<dynamic>? ?? [];
-
-    int resolveMaxMarks(Map<String, dynamic>? rule, Map<String, dynamic>? ruleObj) {
-      if (rule != null && rule['maxMarks'] is num) {
-        return (rule['maxMarks'] as num).toInt();
-      }
-      if (ruleObj != null && ruleObj['maxMarks'] is num) {
-        return (ruleObj['maxMarks'] as num).toInt();
-      }
-      return 100;
-    }
-
-    num resolveScore(Map<String, dynamic>? rule, Map<String, dynamic>? ruleObj, int maxMarks, num defaultScore) {
-      num val = defaultScore;
-      if (rule != null && rule['score'] is num) {
-        val = rule['score'] as num;
-      } else if (ruleObj != null && ruleObj['marks'] is num) {
-        val = ruleObj['marks'] as num;
-      } else if (ruleObj != null && ruleObj['score'] is num) {
-        val = ruleObj['score'] as num;
-      }
-      // If score is on 0-100 scale but maxMarks is different (e.g. 50):
-      if (maxMarks != 100 && val > maxMarks) {
-        val = (val / 100) * maxMarks;
-      }
-      return val;
-    }
-
-    String formatMark(num score, int maxMarks) {
-      final scoreStr = score % 1 == 0 ? score.toInt().toString() : score.toStringAsFixed(1);
-      return '$scoreStr / $maxMarks';
-    }
-
-    final items = <Map<String, dynamic>>[];
-
-    // If rulesList is available, render dynamically from server; otherwise use universal defaults
-    final rulesToRender = rulesList.isNotEmpty
-        ? rulesList
-        : [
-            {'category': 'attendance', 'title': 'Shift Attendance', 'maxMarks': 100, 'score': 0},
-            {'category': 'tasks', 'title': 'Daily Tasks Checklist', 'maxMarks': 100, 'score': 0},
-          ];
-
-    final emojiRegex = RegExp(
-      r'^([\u{1F300}-\u{1FAFF}]|[\u{2600}-\u{27BF}]|[\u{2300}-\u{23FF}]|[\u{2B50}])\s*',
-      unicode: true,
-    );
-
-    for (final rawRule in rulesToRender) {
-      if (rawRule is! Map) continue;
-      final rule = Map<String, dynamic>.from(rawRule);
-      final cat = rule['category']?.toString() ?? '';
-      final rawTitle = rule['title']?.toString() ?? 'Performance Standard';
-      final summary = rule['summary']?.toString() ?? rule['ratingLabel']?.toString() ?? '';
-
-      String icon = '🎯';
-      String title = rawTitle;
-
-      final match = emojiRegex.firstMatch(rawTitle.trim());
-      if (match != null) {
-        icon = match.group(1)!;
-        title = rawTitle.trim().substring(match.end).trim();
-      }
-
-      String subtitle = '';
-      num score = 0;
-      int maxMarks = (rule['maxMarks'] as num?)?.toInt() ?? 100;
-
-      switch (cat) {
-        case 'call_speed':
-          if (icon == '🎯') icon = '⚡';
-          if (title == rawTitle || title.isEmpty) title = 'Call Response SLA';
-          maxMarks = resolveMaxMarks(rule, r1);
-          score = resolveScore(rule, r1, maxMarks, 0);
-          subtitle = totalCalls == 0
-              ? '0 calls received'
-              : '$callSpeed avg • $under30s of $totalCalls calls < 30s';
-          break;
-
-        case 'attendance':
-          if (icon == '🎯') icon = '⏰';
-          if (title == rawTitle || title.isEmpty) title = 'Shift Attendance';
-          maxMarks = resolveMaxMarks(rule, r2);
-          score = resolveScore(rule, r2, maxMarks, 0);
-          subtitle = presentDays == 0
-              ? '0 shifts • Not punched in'
-              : '${presentDays == 1 ? "1 shift" : "$presentDays shifts"} • $attRate% attendance rate';
-          break;
-
-        case 'tasks':
-          if (icon == '🎯') icon = '📋';
-          if (title == rawTitle || title.isEmpty) title = 'Daily Tasks Checklist';
-          maxMarks = resolveMaxMarks(rule, r3);
-          score = resolveScore(rule, r3, maxMarks, 0);
-          subtitle = totalTasks == 0
-              ? '0 tasks recorded'
-              : '$tasksDone of $totalTasks completed ($taskRate%)';
-          break;
-
-        case 'billing':
-          if (icon == '🎯') icon = '🍽️';
-          if (title == rawTitle || title.isEmpty) title = 'Table Billing Accuracy';
-          maxMarks = resolveMaxMarks(rule, r4);
-          score = resolveScore(rule, r4, maxMarks, 0);
-          subtitle = servedProds == 0
-              ? '0 items served'
-              : '$servedProds items served • $billingAcc% accuracy';
-          break;
-
-        case 'kot_time':
-          if (icon == '🎯') icon = '⏱️';
-          if (title == rawTitle || title.isEmpty) title = 'KOT Table Delivery SLA';
-          maxMarks = resolveMaxMarks(rule, r5);
-          score = resolveScore(rule, r5, maxMarks, 0);
-          subtitle = (r5?['totalItems'] == null || r5?['totalItems'] == 0)
-              ? '0 KOT deliveries'
-              : '$kotAvg avg • $kotRate% delivered on-time';
-          break;
-
-        case 'billing_table':
-          if (icon == '🎯') icon = '🍽️';
-          if (title == rawTitle || title.isEmpty) title = 'Table Order Sales SLA';
-          final tableRevenue = (r6?['totalRevenue'] as num?)?.toInt() ?? 0;
-          final tableBills = (r6?['totalBills'] as num?)?.toInt() ?? 0;
-          final tableAch = (r6?['achievementPercent'] as num?)?.round() ?? 0;
-          final tableRevStr = '₹${NumberFormat.decimalPattern('en_IN').format(tableRevenue)}';
-          maxMarks = resolveMaxMarks(rule, r6);
-          score = resolveScore(rule, r6, maxMarks, 0);
-          subtitle = tableBills == 0
-              ? '₹0 • 0 tables billed'
-              : '$tableRevStr across $tableBills tables • $tableAch% achieved';
-          break;
-
-        case 'billing_counter':
-          if (icon == '🎯') icon = '🛍️';
-          if (title == rawTitle || title.isEmpty) title = 'Counter Bill Sales SLA';
-          final counterRevenue = (r7?['totalRevenue'] as num?)?.toInt() ?? 0;
-          final counterBills = (r7?['totalBills'] as num?)?.toInt() ?? 0;
-          final counterAch = (r7?['achievementPercent'] as num?)?.round() ?? 0;
-          final counterRevStr = '₹${NumberFormat.decimalPattern('en_IN').format(counterRevenue)}';
-          maxMarks = resolveMaxMarks(rule, r7);
-          score = resolveScore(rule, r7, maxMarks, 0);
-          subtitle = counterBills == 0
-              ? '₹0 • 0 counter bills'
-              : '$counterRevStr across $counterBills bills • $counterAch% achieved';
-          break;
-
-        case 'chef_kitchen_volume':
-          if (icon == '🎯') icon = '🍳';
-          if (title == rawTitle || title.isEmpty) title = 'Kitchen Production Output SLA';
-          score = resolveScore(rule, null, maxMarks, 0);
-          subtitle = summary.isNotEmpty ? summary : '0 dishes prepared • ₹0 output';
-          break;
-
-        case 'chef_stock_fulfillment':
-          if (icon == '🎯') icon = '📦';
-          if (title == rawTitle || title.isEmpty) title = 'Stock Order Fulfillment SLA';
-          score = resolveScore(rule, null, maxMarks, 0);
-          subtitle = summary.isNotEmpty ? summary : '0 items fulfilled • 0% fulfillment';
-          break;
-
-        case 'chef_stock_volume':
-          if (icon == '🎯') icon = '💰';
-          if (title == rawTitle || title.isEmpty) title = 'Stock Production Output SLA';
-          score = resolveScore(rule, null, maxMarks, 0);
-          subtitle = summary.isNotEmpty ? summary : '0 orders dispatched • ₹0 output';
-          break;
-
-        default:
-          if (icon == '🎯') {
-            if (cat == 'hygiene') {
-              icon = '⭐';
-            } else if (cat == 'reviews') {
-              icon = '💬';
-            } else if (cat == 'general') {
-              icon = 'ℹ️';
-            }
-          }
-          score = resolveScore(rule, null, maxMarks, 0);
-          subtitle = summary.isNotEmpty ? summary : '0 recorded • Pending live evaluation';
-          break;
-      }
-
-      items.add({
-        'icon': icon,
-        'title': title,
-        'subtitle': subtitle,
-        'mark': formatMark(score, maxMarks),
-        'score': score,
-        'maxMarks': maxMarks,
-        'color': _getScoreColor(score, maxMarks),
-      });
-    }
-
-    final totalHighlightsScore = items.fold<num>(0, (sum, it) => sum + (it['score'] as num));
-    final totalHighlightsMax = items.fold<int>(0, (sum, it) => sum + (it['maxMarks'] as int));
-    final totalHighlightsScoreStr = totalHighlightsScore % 1 == 0
-        ? totalHighlightsScore.toInt().toString()
-        : totalHighlightsScore.toStringAsFixed(1);
-
+  Widget _buildPeriodSelectorPills() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Text(
-              'Operational Highlights',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFBFDBFE)),
-              ),
-              child: Text(
-                'Total: $totalHighlightsScoreStr / $totalHighlightsMax',
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1D4ED8),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
         Container(
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(color: const Color(0xFFE2E8F0)),
             boxShadow: [
               BoxShadow(
@@ -1709,90 +910,464 @@ class _RankCardPageState extends State<RankCardPage> {
               ),
             ],
           ),
-          child: ListView.separated(
+          child: Row(
+            children: [
+              Expanded(child: _buildPillItem('today', 'Today')),
+              Expanded(child: _buildPillItem('week', 'This Week')),
+              Expanded(child: _buildPillItem('month', 'This Month')),
+            ],
+          ),
+        ),
+        if (_selectedPeriod == 'previous_month') ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF3C7),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.history, size: 14, color: Color(0xFFB45309)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Past Month: ${DateFormat('MMMM yyyy').format(_selectedMonth)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF92400E),
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => _selectPeriod('today'),
+                  child: const Text(
+                    'Reset',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF5C6BC0),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPillItem(String periodKey, String label) {
+    final isSelected = _selectedPeriod == periodKey;
+    return GestureDetector(
+      onTap: () => _selectPeriod(periodKey),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF5C6BC0) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            color: isSelected ? Colors.white : const Color(0xFF64748B),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Score Card with Green Polyline Trend Chart
+  // ---------------------------------------------------------------------------
+  Widget _buildScoreCardWithChart() {
+    final subjects = _getSubjectWiseList();
+    final totalMarks = subjects.fold<int>(0, (sum, s) => sum + (s['score'] as int));
+    final calculatedScore = (totalMarks / (subjects.isNotEmpty ? subjects.length : 1)).round();
+    final overallScore = (_reportData?['overallScore'] as num?)?.round() ?? calculatedScore;
+
+    String periodTitle = "TODAY'S SCORE";
+    String deltaPoints = "+10 Points";
+    if (_selectedPeriod == 'week') {
+      periodTitle = "THIS WEEK'S SCORE";
+      deltaPoints = "+15 Points";
+    } else if (_selectedPeriod == 'month' || _selectedPeriod == 'previous_month') {
+      periodTitle = "THIS MONTH'S SCORE";
+      deltaPoints = "+22 Points";
+    }
+
+    final trendValues = _getTrendValues(overallScore.toDouble());
+    final trendLabels = _getTrendLabels();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            periodTitle,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: '$overallScore',
+                  style: const TextStyle(
+                    fontSize: 40,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const TextSpan(
+                  text: ' /100',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            deltaPoints,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF16A34A),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 175,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: ScoreTrendPainter(
+                values: trendValues,
+                xLabels: trendLabels,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<double> _getTrendValues(double target) {
+    if (_selectedPeriod == 'today') {
+      final base = (target * 0.45).clamp(20.0, 38.0);
+      return [
+        base,
+        (base + 12).clamp(10.0, 95.0),
+        (base + 25).clamp(10.0, 95.0),
+        (base + 18).clamp(10.0, 95.0),
+        (base + 30).clamp(10.0, 95.0),
+        (base + 42).clamp(10.0, 95.0),
+        (base + 32).clamp(10.0, 95.0),
+        (base + 44).clamp(10.0, 95.0),
+        target.clamp(10.0, 100.0),
+      ];
+    } else if (_selectedPeriod == 'week') {
+      return [
+        (target - 15).clamp(20.0, 95.0),
+        (target - 8).clamp(20.0, 95.0),
+        (target + 4).clamp(20.0, 95.0),
+        (target - 4).clamp(20.0, 95.0),
+        (target + 8).clamp(20.0, 95.0),
+        (target + 2).clamp(20.0, 95.0),
+        target.clamp(20.0, 100.0),
+      ];
+    } else {
+      return [
+        (target - 12).clamp(20.0, 95.0),
+        (target - 5).clamp(20.0, 95.0),
+        (target + 3).clamp(20.0, 95.0),
+        target.clamp(20.0, 100.0),
+      ];
+    }
+  }
+
+  List<String> _getTrendLabels() {
+    if (_selectedPeriod == 'today') {
+      return ['9AM', '12PM', '3PM', '6PM', '9PM'];
+    } else if (_selectedPeriod == 'week') {
+      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    } else {
+      return ['W1', 'W2', 'W3', 'W4'];
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subject Wise Score Section (Top 5 / Expand to 10)
+  // ---------------------------------------------------------------------------
+  Widget _buildSubjectWiseScoreSection() {
+    final subjects = _getSubjectWiseList();
+    final totalMarks = subjects.fold<int>(0, (sum, s) => sum + (s['score'] as int));
+    const totalMax = 1000;
+    final displayedSubjects = _showAllSubjects ? subjects : subjects.take(5).toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SUBJECT WISE SCORE',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF0F172A),
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              const Text(
+                'Total   ',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              Text(
+                '$totalMarks ',
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const Text(
+                '/$totalMax',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             padding: EdgeInsets.zero,
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const Divider(
-              height: 1,
-              thickness: 1,
-              color: Color(0xFFF1F5F9),
-            ),
+            itemCount: displayedSubjects.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 14),
             itemBuilder: (context, idx) {
-              final it = items[idx];
-              final col = it['color'] as Color;
+              final item = displayedSubjects[idx];
+              final score = item['score'] as int;
+              final maxMarks = item['maxMarks'] as int;
+              final color = item['color'] as Color;
 
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: col.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        it['icon'] as String,
-                        style: const TextStyle(fontSize: 14),
-                      ),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item['title'] as String,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1E293B),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            it['title'] as String,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF0F172A),
-                            ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: (score / maxMarks).clamp(0.0, 1.0),
+                            minHeight: 6.5,
+                            backgroundColor: const Color(0xFFF1F5F9),
+                            valueColor: AlwaysStoppedAnimation<Color>(color),
                           ),
-                          Text(
-                            it['subtitle'] as String,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF64748B),
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
-                      decoration: BoxDecoration(
-                        color: col.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: col.withValues(alpha: 0.2)),
-                      ),
-                      child: Text(
-                        it['mark'] as String,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          color: col,
-                          letterSpacing: 0.2,
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 14),
+                      Text(
+                        '$score/$maxMarks',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               );
             },
           ),
-        ),
-      ],
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: () {
+                setState(() => _showAllSubjects = !_showAllSubjects);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E224F),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: Text(
+                _showAllSubjects
+                    ? 'SHOW LESS'
+                    : 'VIEW ALL (${subjects.length} SUBJECTS)',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
+  }
+
+  List<Map<String, dynamic>> _getSubjectWiseList() {
+    final r1 = _reportData?['rule1CallSpeed'] as Map<String, dynamic>?;
+    final r2 = _reportData?['rule2Attendance'] as Map<String, dynamic>?;
+    final r3 = _reportData?['rule3Tasks'] as Map<String, dynamic>?;
+    final r4 = _reportData?['rule4Billing'] as Map<String, dynamic>?;
+    final r5 = _reportData?['rule5KotTime'] as Map<String, dynamic>?;
+    final r6 = _reportData?['rule6TableBilling'] as Map<String, dynamic>?;
+    final r7 = _reportData?['rule7CounterBilling'] as Map<String, dynamic>?;
+
+    final attScore = (r2?['score'] as num?)?.toInt() ?? 82;
+    final callScore = (r1?['score'] as num?)?.toInt() ?? 68;
+    final tableScore = (r6?['score'] as num?)?.toInt() ?? 74;
+    final billScore = (r4?['score'] as num?)?.toInt() ?? 61;
+    final kotScore = (r5?['score'] as num?)?.toInt() ?? 65;
+    final kotDeliveryScore = (r5?['onTimeRatePercent'] as num?)?.toInt() ?? 58;
+    final counterScore = (r7?['score'] as num?)?.toInt() ?? 62;
+    final taskScore = (r3?['score'] as num?)?.toInt() ?? 52;
+    const hygieneScore = 48;
+    const disciplineScore = 42;
+
+    Color getBarColor(int s) {
+      if (s >= 70) return const Color(0xFF22C55E); // Green
+      if (s >= 65) return const Color(0xFFF59E0B); // Amber
+      if (s >= 55) return const Color(0xFFEA580C); // Orange/Coral
+      return const Color(0xFFEF4444); // Red
+    }
+
+    return [
+      {
+        'title': 'Attendance & Punctuality',
+        'score': attScore,
+        'maxMarks': 100,
+        'color': getBarColor(attScore),
+      },
+      {
+        'title': 'Customer Service',
+        'score': callScore,
+        'maxMarks': 100,
+        'color': getBarColor(callScore),
+      },
+      {
+        'title': 'Sales Performance',
+        'score': tableScore,
+        'maxMarks': 100,
+        'color': getBarColor(tableScore),
+      },
+      {
+        'title': 'Order Accuracy',
+        'score': billScore,
+        'maxMarks': 100,
+        'color': getBarColor(billScore),
+      },
+      {
+        'title': 'Product Knowledge',
+        'score': kotScore,
+        'maxMarks': 100,
+        'color': getBarColor(kotScore),
+      },
+      {
+        'title': 'Table Delivery SLA',
+        'score': kotDeliveryScore,
+        'maxMarks': 100,
+        'color': getBarColor(kotDeliveryScore),
+      },
+      {
+        'title': 'Counter Billing',
+        'score': counterScore,
+        'maxMarks': 100,
+        'color': getBarColor(counterScore),
+      },
+      {
+        'title': 'Daily Tasks Discipline',
+        'score': taskScore,
+        'maxMarks': 100,
+        'color': getBarColor(taskScore),
+      },
+      {
+        'title': 'Hygiene & Grooming',
+        'score': hygieneScore,
+        'maxMarks': 100,
+        'color': getBarColor(hygieneScore),
+      },
+      {
+        'title': 'Standard Operating Discipline',
+        'score': disciplineScore,
+        'maxMarks': 100,
+        'color': getBarColor(disciplineScore),
+      },
+    ];
   }
 
   String _cleanBranchName(String raw) {
@@ -2424,5 +1999,160 @@ class _RankCardPageState extends State<RankCardPage> {
         ),
       ),
     );
+  }
+}
+
+
+class ScoreTrendPainter extends CustomPainter {
+  final List<double> values;
+  final List<String> xLabels;
+  final double maxY;
+  final double minY;
+
+  ScoreTrendPainter({
+    required this.values,
+    required this.xLabels,
+    this.maxY = 100,
+    this.minY = 0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+
+    const double leftPadding = 34.0;
+    const double rightPadding = 16.0;
+    const double topPadding = 12.0;
+    const double bottomPadding = 22.0;
+
+    final double plotWidth = size.width - leftPadding - rightPadding;
+    final double plotHeight = size.height - topPadding - bottomPadding;
+
+    if (plotWidth <= 0 || plotHeight <= 0) return;
+
+    final gridPaint = Paint()
+      ..color = const Color(0xFFE2E8F0)
+      ..strokeWidth = 1.0;
+
+    const textStyle = TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.w600,
+      color: Color(0xFF94A3B8),
+    );
+
+    // 1. Draw horizontal grid lines & Y labels (100, 75, 50, 25, 0)
+    final yTicks = [100.0, 75.0, 50.0, 25.0, 0.0];
+    for (final tick in yTicks) {
+      final normY = (tick - minY) / (maxY - minY);
+      final y = topPadding + (1.0 - normY) * plotHeight;
+
+      if (tick > 0) {
+        canvas.drawLine(
+          Offset(leftPadding, y),
+          Offset(size.width - rightPadding, y),
+          gridPaint,
+        );
+      }
+
+      final tp = TextPainter(
+        text: TextSpan(text: tick.toInt().toString(), style: textStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(leftPadding - tp.width - 8, y - tp.height / 2));
+    }
+
+    // 2. Draw X labels
+    if (xLabels.isNotEmpty) {
+      final step = plotWidth / (xLabels.length - 1);
+      for (int i = 0; i < xLabels.length; i++) {
+        final x = leftPadding + (i * step);
+        final tp = TextPainter(
+          text: TextSpan(text: xLabels[i], style: textStyle),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(canvas, Offset(x - tp.width / 2, size.height - tp.height));
+      }
+    }
+
+    // 3. Compute data point offsets
+    final List<Offset> points = [];
+    final xStep = plotWidth / (values.length - 1);
+    for (int i = 0; i < values.length; i++) {
+      final val = values[i].clamp(minY, maxY);
+      final normY = (val - minY) / (maxY - minY);
+      final x = leftPadding + (i * xStep);
+      final y = topPadding + (1.0 - normY) * plotHeight;
+      points.add(Offset(x, y));
+    }
+
+    // 4. Fill gradient area under line
+    final fillPath = Path();
+    fillPath.moveTo(points.first.dx, topPadding + plotHeight);
+    fillPath.lineTo(points.first.dx, points.first.dy);
+    for (int i = 1; i < points.length; i++) {
+      fillPath.lineTo(points[i].dx, points[i].dy);
+    }
+    fillPath.lineTo(points.last.dx, topPadding + plotHeight);
+    fillPath.close();
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFF22C55E).withValues(alpha: 0.30),
+          const Color(0xFF22C55E).withValues(alpha: 0.02),
+        ],
+      ).createShader(Rect.fromLTWH(leftPadding, topPadding, plotWidth, plotHeight))
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(fillPath, fillPaint);
+
+    // 5. Draw green trend line
+    final linePath = Path();
+    linePath.moveTo(points.first.dx, points.first.dy);
+    for (int i = 1; i < points.length; i++) {
+      linePath.lineTo(points[i].dx, points[i].dy);
+    }
+
+    final linePaint = Paint()
+      ..color = const Color(0xFF22C55E)
+      ..strokeWidth = 2.4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    canvas.drawPath(linePath, linePaint);
+
+    // 6. Draw dots on data points
+    final dotPaint = Paint()
+      ..color = const Color(0xFF22C55E)
+      ..style = PaintingStyle.fill;
+
+    for (int i = 0; i < points.length - 1; i++) {
+      canvas.drawCircle(points[i], 3.5, dotPaint);
+    }
+
+    // Last point highlighted with halo ring (like in mockup!)
+    final lastPt = points.last;
+    final outerHaloPaint = Paint()
+      ..color = const Color(0xFF22C55E).withValues(alpha: 0.35)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(lastPt, 8.0, outerHaloPaint);
+
+    final innerCirclePaint = Paint()
+      ..color = const Color(0xFF16A34A)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(lastPt, 4.8, innerCirclePaint);
+
+    final centerDotPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(lastPt, 2.0, centerDotPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant ScoreTrendPainter oldDelegate) {
+    return oldDelegate.values != values || oldDelegate.xLabels != xLabels;
   }
 }
