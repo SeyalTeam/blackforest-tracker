@@ -15,7 +15,6 @@ class DailyTasksPage extends StatefulWidget {
 class _DailyTasksPageState extends State<DailyTasksPage> {
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = true;
-  bool _isCompletingWork = false;
   String? _attendanceId;
   List<Map<String, dynamic>> _tasks = [];
   final Set<String> _togglingTaskIds = {};
@@ -804,7 +803,6 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
           ),
         ],
       ),
-      bottomNavigationBar: _buildCompleteWorkBottomBar(totalCount, answeredCount),
       body: RefreshIndicator(
         onRefresh: _fetchTasks,
         child: SingleChildScrollView(
@@ -1232,141 +1230,6 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                   },
                 ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCompleteWorkBottomBar(int totalCount, int answeredCount) {
-    if (totalCount == 0) return const SizedBox.shrink();
-
-    final allAnswered = answeredCount == totalCount;
-    final remainingCount = totalCount - answeredCount;
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12, top: 4),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _isCompletingWork
-                ? null
-                : () async {
-                    if (!allAnswered) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Please answer all questions ($remainingCount remaining).'),
-                          backgroundColor: Colors.orange[800],
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                      return;
-                    }
-
-                    setState(() => _isCompletingWork = true);
-                    try {
-                      final res = await ApiService.instance.completeWork(attendanceId: widget.attendanceId ?? _attendanceId);
-                      final nowTime = DateTime.now();
-                      final timeStr = DateFormat('hh:mm a').format(nowTime);
-
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Row(
-                              children: [
-                                const Icon(Icons.check_circle, color: Colors.white),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Work officially completed and recorded in Attendance at $timeStr! ✓',
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            backgroundColor: const Color(0xFF15803D),
-                            duration: const Duration(seconds: 3),
-                          ),
-                        );
-                        Future.delayed(const Duration(milliseconds: 700), () {
-                          if (mounted) Navigator.pop(context, true);
-                        });
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Failed to record work completion: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    } finally {
-                      if (mounted) setState(() => _isCompletingWork = false);
-                    }
-                  },
-            borderRadius: BorderRadius.circular(16),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
-              decoration: BoxDecoration(
-                color: allAnswered ? const Color(0xFF2E3192) : const Color(0xFF78909C),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _isCompletingWork
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Icon(
-                          Icons.check,
-                          color: Colors.white,
-                          size: 26,
-                        ),
-                  const SizedBox(width: 12),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _isCompletingWork ? 'RECORDING COMPLETION...' : 'COMPLETE MY WORK',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        allAnswered
-                            ? '(All $totalCount questions answered ✓)'
-                            : '(Please answer all questions)',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
