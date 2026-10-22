@@ -64,6 +64,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Duration _workDuration = Duration.zero;
   Duration _breakDuration = Duration.zero;
   List<Map<String, dynamic>> _activities = [];
+  // ignore: unused_field
   String? _dayType; // 'full_day' | 'half_day' | null
   String? _loginBranchName;
   bool _isFetchingInitialAttendance = true;
@@ -1915,80 +1916,45 @@ class _ProfilePageState extends State<ProfilePage> {
           const SizedBox(width: 8),
           // Live Working Hours Running Time Badge on the right side
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.28),
+              color: Colors.black.withValues(alpha: 0.32),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.2),
-                width: 1.0,
+                color: Colors.white.withValues(alpha: 0.22),
+                width: 1.2,
               ),
             ),
-            child: Column(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: _hasActiveSession
-                            ? const Color(0xFF4ADE80)
-                            : const Color(0xFF94A3B8),
-                        shape: BoxShape.circle,
-                        boxShadow: _hasActiveSession
-                            ? [
-                                BoxShadow(
-                                  color: const Color(0xFF4ADE80).withValues(alpha: 0.6),
-                                  blurRadius: 4,
-                                  spreadRadius: 1,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      '$hours:$minutes:$seconds',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  width: 7.5,
+                  height: 7.5,
                   decoration: BoxDecoration(
-                    color: _dayType == 'full_day'
-                        ? const Color(0xFF10B981).withValues(alpha: 0.3)
-                        : (_dayType == 'half_day'
-                            ? const Color(0xFFF59E0B).withValues(alpha: 0.3)
-                            : Colors.white.withValues(alpha: 0.12)),
-                    borderRadius: BorderRadius.circular(4),
+                    color: _hasActiveSession
+                        ? const Color(0xFF4ADE80)
+                        : const Color(0xFF94A3B8),
+                    shape: BoxShape.circle,
+                    boxShadow: _hasActiveSession
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF4ADE80).withValues(alpha: 0.65),
+                              blurRadius: 5,
+                              spreadRadius: 1.2,
+                            ),
+                          ]
+                        : null,
                   ),
-                  child: Text(
-                    _dayType == 'full_day'
-                        ? 'Full Day'
-                        : (_dayType == 'half_day'
-                            ? 'Half Day'
-                            : (_hasActiveSession ? 'Running' : 'Working Hrs')),
-                    style: TextStyle(
-                      color: _dayType == 'full_day'
-                          ? const Color(0xFF86EFAC)
-                          : (_dayType == 'half_day'
-                              ? const Color(0xFFFDBA74)
-                              : Colors.white.withValues(alpha: 0.75)),
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.2,
-                    ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$hours:$minutes:$seconds',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.8,
                   ),
                 ),
               ],
