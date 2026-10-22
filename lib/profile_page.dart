@@ -51,7 +51,9 @@ class _ProfilePageState extends State<ProfilePage> {
   File? _capturedPunchInPhoto;
   List<dynamic> _rawActivities = [];
   String _workStatus = 'not_started'; // 'not_started' | 'in_progress' | 'completed'
+  // ignore: unused_field
   DateTime? _workStartTime;
+  // ignore: unused_field
   DateTime? _workCompletedTime;
   bool _isStartingWork = false;
 
@@ -1761,12 +1763,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         _buildSquareGrid(),
                         const SizedBox(height: 14),
 
-                        if (_workStatus != 'not_started') ...[
-                          _buildWorkStatusSection(),
-                          const SizedBox(height: 16),
-                        ],
-
-                        // 5. Punch Out, Auto/Manual Status, Selfie Alert, Logout
+                        // 3. Punch Out, Auto/Manual Status, Selfie Alert, Logout
                         _buildPunchAndLogoutSection(),
 
                         // 6. Routine Tasks (if any)
@@ -3115,209 +3112,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Widget _buildWorkStatusSection() {
-    final hasPunchedIn = _hasActiveSession || _attendanceDocId != null;
-
-    if (!hasPunchedIn && _workStatus == 'not_started') {
-      return const SizedBox.shrink();
-    }
-
-    if (_workStatus == 'not_started') {
-      return Padding(
-        padding: const EdgeInsets.only(top: 14),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF1565C0),
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              elevation: 2,
-            ),
-            onPressed: _isStartingWork ? null : _handleStartWork,
-            icon: _isStartingWork
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : const Icon(Icons.rocket_launch_rounded, size: 20),
-            label: Text(
-              _isStartingWork ? 'Starting Work...' : 'Start My Work 🚀',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (_workStatus == 'in_progress') {
-      final startTimeStr = _workStartTime != null
-          ? DateFormat('hh:mm a').format(_workStartTime!)
-          : 'Just now';
-      return Padding(
-        padding: const EdgeInsets.only(top: 14),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE3F2FD),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: const Color(0xFF1E88E5).withValues(alpha: 0.35),
-              width: 1.5,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1E88E5),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Work In Progress ⏱️',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0D47A1),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Started at $startTimeStr',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => DailyTasksPage(attendanceId: _attendanceDocId),
-                    ),
-                  ).then((_) {
-                    _fetchAttendance();
-                    _fetchDailyTasks();
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E88E5),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  elevation: 0,
-                ),
-                icon: const Icon(Icons.assignment, size: 16),
-                label: const Text(
-                  'Tasks',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_workStatus == 'completed') {
-      final startStr = _workStartTime != null
-          ? DateFormat('hh:mm a').format(_workStartTime!)
-          : null;
-      final completedStr = _workCompletedTime != null
-          ? DateFormat('hh:mm a').format(_workCompletedTime!)
-          : null;
-      return Padding(
-        padding: const EdgeInsets.only(top: 14),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8F5E9),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.4),
-              width: 1.5,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2E7D32),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_circle_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Work Completed Today 🎉',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1B5E20),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      (startStr != null && completedStr != null)
-                          ? '$startStr - $completedStr'
-                          : 'All daily tasks completed!',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[800],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return const SizedBox.shrink();
-  }
 
   bool _isRoutineTask(Map<String, dynamic> task) {
     final labels = task['labels'];
