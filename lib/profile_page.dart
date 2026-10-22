@@ -1952,27 +1952,6 @@ class _ProfilePageState extends State<ProfilePage> {
       statusColor = const Color(0xFFEF4444);
     }
 
-    final currentScoreInt = totalScore.round();
-    int targetPoints;
-    String targetSalaryLabel;
-    if (currentScoreInt < 500) {
-      targetPoints = 500;
-      targetSalaryLabel = 'for ₹18,000 Base Target';
-    } else if (currentScoreInt < 700) {
-      targetPoints = 700;
-      targetSalaryLabel = 'for ₹21,000 Target';
-    } else if (currentScoreInt < 850) {
-      targetPoints = 850;
-      targetSalaryLabel = 'for ₹24,000 Salary';
-    } else if (currentScoreInt < 1000) {
-      targetPoints = 1000;
-      targetSalaryLabel = 'for ₹28,000 Star Target';
-    } else {
-      targetPoints = (((currentScoreInt / 200).floor() + 1) * 200).toInt();
-      targetSalaryLabel = 'for Top Performer Crown';
-    }
-    final toGo = math.max(0, targetPoints - currentScoreInt);
-
     final todayChange = _reportCardData?['todayChange']?.toString() ??
         '+${(totalScore * 0.05).round() > 0 ? (totalScore * 0.05).round() : 10}';
     final weekChange = _reportCardData?['weekChange']?.toString() ??
@@ -2101,79 +2080,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
 
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(top: 14),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'NEXT LEVEL TARGET',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF64748B),
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '$targetPoints Points',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                          Text(
-                            targetSalaryLabel,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          const Text(
-                            'TO GO',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF64748B),
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '$toGo Points',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
                 Padding(
-                  padding: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.only(top: 16),
                   child: Row(
                     children: [
                       Expanded(
