@@ -1752,15 +1752,11 @@ class _ProfilePageState extends State<ProfilePage> {
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
                     child: Column(
                       children: [
-                        // 2. Live Performance Score Card with Gauge & Target
+                        // 1. Live Performance Score Card with Gauge & Mini Stats
                         _buildLivePerformanceCard(),
-                        const SizedBox(height: 12),
-
-                        // 3. Working Hours Black Box
-                        _buildWorkingHoursBlackBox(),
                         const SizedBox(height: 14),
 
-                        // 4. 3x2 Square Grid
+                        // 2. 3x2 Square Grid
                         _buildSquareGrid(),
                         const SizedBox(height: 14),
 
@@ -1787,6 +1783,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildPurpleTopHeader() {
+    final hours = _formatTwoDigits(_workDuration.inHours);
+    final minutes = _formatTwoDigits(_workDuration.inMinutes % 60);
+    final seconds = _formatTwoDigits(_workDuration.inSeconds % 60);
+
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -1795,6 +1795,7 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Profile photo with camera badge preserving exact camera / selfie punch-in logic
           GestureDetector(
@@ -1874,6 +1875,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   _getGreeting(),
@@ -1889,7 +1891,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   _employeeName ?? 'User',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 17,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.3,
                   ),
@@ -1901,11 +1903,93 @@ class _ProfilePageState extends State<ProfilePage> {
                   _getRoleAndBranchSubtitle(),
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: FontWeight.w500,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Live Working Hours Running Time Badge on the right side
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.28),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.2),
+                width: 1.0,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: _hasActiveSession
+                            ? const Color(0xFF4ADE80)
+                            : const Color(0xFF94A3B8),
+                        shape: BoxShape.circle,
+                        boxShadow: _hasActiveSession
+                            ? [
+                                BoxShadow(
+                                  color: const Color(0xFF4ADE80).withValues(alpha: 0.6),
+                                  blurRadius: 4,
+                                  spreadRadius: 1,
+                                ),
+                              ]
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '$hours:$minutes:$seconds',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: _dayType == 'full_day'
+                        ? const Color(0xFF10B981).withValues(alpha: 0.3)
+                        : (_dayType == 'half_day'
+                            ? const Color(0xFFF59E0B).withValues(alpha: 0.3)
+                            : Colors.white.withValues(alpha: 0.12)),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _dayType == 'full_day'
+                        ? 'Full Day'
+                        : (_dayType == 'half_day'
+                            ? 'Half Day'
+                            : (_hasActiveSession ? 'Running' : 'Working Hrs')),
+                    style: TextStyle(
+                      color: _dayType == 'full_day'
+                          ? const Color(0xFF86EFAC)
+                          : (_dayType == 'half_day'
+                              ? const Color(0xFFFDBA74)
+                              : Colors.white.withValues(alpha: 0.75)),
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -2158,125 +2242,6 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildWorkingHoursBlackBox() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        vertical: 14,
-        horizontal: 20,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          const Text(
-            'Working Hours',
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildTimeBox(
-                _formatTwoDigits(_workDuration.inHours),
-                'Hour',
-              ),
-              const Text(
-                ':',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w300,
-                ),
-              ),
-              _buildTimeBox(
-                _formatTwoDigits(
-                  _workDuration.inMinutes % 60,
-                ),
-                'Min',
-              ),
-              const Text(
-                ':',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w300,
-                ),
-              ),
-              _buildTimeBox(
-                _formatTwoDigits(
-                  _workDuration.inSeconds % 60,
-                ),
-                'Sec',
-              ),
-            ],
-          ),
-          if (_dayType != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: _dayType == 'full_day'
-                    ? Colors.green.withValues(alpha: 0.25)
-                    : Colors.orange.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(
-                  color: _dayType == 'full_day'
-                      ? Colors.greenAccent
-                      : Colors.orangeAccent,
-                  width: 1.5,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _dayType == 'full_day'
-                        ? Icons.check_circle_rounded
-                        : Icons.warning_amber_rounded,
-                    color: _dayType == 'full_day'
-                        ? Colors.greenAccent
-                        : Colors.orangeAccent,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _dayType == 'full_day'
-                        ? 'Full Day'
-                        : 'Half Day',
-                    style: TextStyle(
-                      color: _dayType == 'full_day'
-                          ? Colors.greenAccent
-                          : Colors.orangeAccent,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 
   Widget _buildSquareGrid() {
     return Column(
@@ -3099,24 +3064,6 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildTimeBox(String value, String label) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white38, fontSize: 10),
-        ),
-      ],
-    );
-  }
 
   Future<void> _fetchDailyTasks() async {
     try {
