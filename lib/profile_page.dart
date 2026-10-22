@@ -52,6 +52,7 @@ class _ProfilePageState extends State<ProfilePage> {
   File? _capturedPunchInPhoto;
   List<dynamic> _rawActivities = [];
   String _workStatus = 'not_started'; // 'not_started' | 'in_progress' | 'completed'
+  String? _dutyStartPhotoUrl;
   // ignore: unused_field
   DateTime? _workStartTime;
   // ignore: unused_field
@@ -507,6 +508,16 @@ class _ProfilePageState extends State<ProfilePage> {
           _workCompletedTime = firstDoc['workCompletedTime'] != null
               ? DateTime.tryParse(firstDoc['workCompletedTime'].toString())
               : null;
+
+          final dutyPhotoObj = firstDoc['dutyStartPhoto'];
+          if (dutyPhotoObj is Map<String, dynamic> && dutyPhotoObj['url'] != null) {
+            final raw = dutyPhotoObj['url'].toString();
+            _dutyStartPhotoUrl = raw.startsWith('http') ? raw : '${ApiService.baseUrl}$raw';
+          } else if (dutyPhotoObj is String && dutyPhotoObj.isNotEmpty) {
+            _dutyStartPhotoUrl = dutyPhotoObj.startsWith('http') ? dutyPhotoObj : '${ApiService.baseUrl}$dutyPhotoObj';
+          } else {
+            _dutyStartPhotoUrl = null;
+          }
           
           final loginBranchData = firstDoc['loginBranch'];
           if (loginBranchData is Map<String, dynamic>) {
@@ -2236,6 +2247,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           attendanceId: _attendanceDocId,
                           branchName: _loginBranchName ?? _branchName ?? 'Branch',
                           employeePhotoUrl: _employeePhotoUrl,
+                          dutyStartPhotoUrl: _dutyStartPhotoUrl,
                           initialSelfie: _capturedPunchInPhoto,
                           hasActiveSession: _hasActiveSession,
                           isAlreadyStarted: _workStatus == 'in_progress',

@@ -2457,7 +2457,7 @@ Future<List<dynamic>> fetchEmployees() async {
     return null;
   }
 
-  Future<Map<String, dynamic>> startWork({String? attendanceId, String? dateString}) async {
+  Future<Map<String, dynamic>> startWork({String? attendanceId, String? dateString, String? dutyStartPhoto}) async {
     final token = await _getToken();
     final today = dateString ?? DateFormat('yyyy-MM-dd').format(DateTime.now());
     final nowIso = DateTime.now().toUtc().toIso8601String();
@@ -2466,6 +2466,12 @@ Future<List<dynamic>> fetchEmployees() async {
     if (targetAttId == null || targetAttId.isEmpty) {
       targetAttId = await getTodayAttendanceId();
     }
+
+    final updatePayload = <String, dynamic>{
+      'workStatus': 'in_progress',
+      'workStartTime': nowIso,
+      if (dutyStartPhoto != null && dutyStartPhoto.isNotEmpty) 'dutyStartPhoto': dutyStartPhoto,
+    };
 
     // Direct collection patch strategy (100% reliable with standard Payload collection API)
     if (targetAttId != null && targetAttId.isNotEmpty) {
@@ -2479,10 +2485,7 @@ Future<List<dynamic>> fetchEmployees() async {
             'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
             if (token != null) 'Authorization': 'Bearer $token',
           },
-          body: jsonEncode({
-            'workStatus': 'in_progress',
-            'workStartTime': nowIso,
-          }),
+          body: jsonEncode(updatePayload),
         );
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
@@ -2490,6 +2493,7 @@ Future<List<dynamic>> fetchEmployees() async {
             'success': true,
             'workStatus': 'in_progress',
             'workStartTime': nowIso,
+            'dutyStartPhoto': dutyStartPhoto,
             'attendanceId': targetAttId,
             'doc': data,
           };
@@ -2521,6 +2525,7 @@ Future<List<dynamic>> fetchEmployees() async {
           },
           body: jsonEncode({
             'dateString': today,
+            if (dutyStartPhoto != null && dutyStartPhoto.isNotEmpty) 'dutyStartPhoto': dutyStartPhoto,
           }),
         );
         if (res.statusCode == 200) {

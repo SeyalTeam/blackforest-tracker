@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:intl/intl.dart';
 
 import 'api_service.dart';
@@ -12,6 +16,7 @@ class DutyStartPage extends StatefulWidget {
   final String? attendanceId;
   final String? branchName;
   final String? employeePhotoUrl;
+  final String? dutyStartPhotoUrl;
   final File? initialSelfie;
   final bool hasActiveSession;
   final bool isAlreadyStarted;
@@ -24,6 +29,7 @@ class DutyStartPage extends StatefulWidget {
     this.attendanceId,
     this.branchName,
     this.employeePhotoUrl,
+    this.dutyStartPhotoUrl,
     this.initialSelfie,
     this.hasActiveSession = false,
     this.isAlreadyStarted = false,
@@ -84,39 +90,98 @@ class _DutyStartPageState extends State<DutyStartPage> {
     }
   }
 
+  Future<String?> _uploadSelfie(File file) async {
+    try {
+      const storage = FlutterSecureStorage();
+      final token = await storage.read(key: 'token');
+      if (token == null) return null;
+
+      final filename = 'duty_selfie_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final urlStr = '${ApiService.baseUrl}/media?prefix=attendance';
+
+      final request = http.MultipartRequest('POST', Uri.parse(urlStr));
+      request.headers['Authorization'] = 'Bearer $token';
+      request.fields['alt'] = 'Duty Start Selfie';
+      request.fields['prefix'] = 'attendance';
+
+      final multipartFile = await http.MultipartFile.fromPath(
+        'file',
+        file.path,
+        filename: filename,
+        contentType: MediaType('image', 'jpeg'),
+      );
+      request.files.add(multipartFile);
+
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 25));
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final doc = data['doc'] ?? data;
+        return doc['id']?.toString();
+      }
+    } catch (e) {
+      debugPrint('Error uploading duty selfie: $e');
+    }
+    return null;
+  }
+
   Future<void> _handleStartDuty() async {
     if (_isStarting) return;
     setState(() => _isStarting = true);
 
     try {
-      // 1. If punch-in is required and selfie taken
+      String? dutyPhotoId;
+
+      // 1. Upload selfie captured on this screen to create a dedicated media record
+      if (_selfieFile != null) {
+        dutyPhotoId = await _uploadSelfie(_selfieFile!);
+      }
+
+      // 2. If punch-in is required and selfie taken
       if (widget.onPunchInRequired != null && !widget.hasActiveSession && _selfieFile != null) {
         await widget.onPunchInRequired!(_selfieFile!);
       }
 
-      // 2. Call onStartDuty if provided, otherwise direct ApiService call
-      if (widget.onStartDuty != null) {
-        await widget.onStartDuty!();
+      // 3. Call startWork with the dedicated dutyStartPhoto mediaId
+      final res = await ApiService.instance.startWork(
+        attendanceId: widget.attendanceId,
+        dutyStartPhoto: dutyPhotoId,
+      );
+
+      if (res['success'] == true) {
+        if (widget.onStartDuty != null) {
+          await widget.onStartDuty!();
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Duty started successfully! 🚀'),
+                ],
+              ),
+              backgroundColor: Color(0xFF388E3C),
+            ),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DailyTasksPage(attendanceId: widget.attendanceId),
+            ),
+          );
+        }
       } else {
-        final res = await ApiService.instance.startWork(attendanceId: widget.attendanceId);
-        if (res['success'] != true && mounted) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(res['message']?.toString() ?? 'Could not start duty'),
               backgroundColor: Colors.red,
             ),
           );
-          return;
         }
-      }
-
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DailyTasksPage(attendanceId: widget.attendanceId),
-          ),
-        );
       }
     } catch (e) {
       debugPrint('Error starting duty: $e');
@@ -255,6 +320,13 @@ class _DutyStartPageState extends State<DutyStartPage> {
                           children: [
                             if (_selfieFile != null)
                               Image.file(_selfieFile!, fit: BoxFit.cover)
+                            else if (widget.dutyStartPhotoUrl != null &&
+                                widget.dutyStartPhotoUrl!.isNotEmpty)
+                              Image.network(
+                                widget.dutyStartPhotoUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => _buildPlaceholder(),
+                              )
                             else if (widget.employeePhotoUrl != null &&
                                 widget.employeePhotoUrl!.isNotEmpty)
                               Image.network(
@@ -395,3 +467,4 @@ class _DutyStartPageState extends State<DutyStartPage> {
     );
   }
 }
+
