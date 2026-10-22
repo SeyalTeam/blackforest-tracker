@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 
 import 'api_service.dart';
 import 'camera_page.dart';
+import 'daily_tasks_page.dart';
 
 class DutyEndPage extends StatefulWidget {
   final String? attendanceId;
@@ -38,8 +39,10 @@ class _DutyEndPageState extends State<DutyEndPage> {
   bool _isEnding = false;
   late Timer _clockTimer;
   DateTime _currentTime = DateTime.now();
-  List<String> _displayTasks = [];
-  bool _loadingTasks = false;
+  List<Map<String, dynamic>> _completedTasksList = [];
+  List<Map<String, dynamic>> _pendingTasksList = [];
+  int _totalTaskCount = 0;
+  bool _loadingTasks = true;
 
   @override
   void initState() {
@@ -50,7 +53,7 @@ class _DutyEndPageState extends State<DutyEndPage> {
       }
     });
 
-    _prepareChecklist();
+    _loadTasks();
   }
 
   @override
@@ -59,54 +62,50 @@ class _DutyEndPageState extends State<DutyEndPage> {
     super.dispose();
   }
 
-  Future<void> _prepareChecklist() async {
-    final list = <String>[];
+  bool _isTaskDone(Map<String, dynamic> task) {
+    final status = task['status']?.toString().toLowerCase().trim();
+    if (status == 'yes' || status == 'completed' || status == 'no_complaint') return true;
+    if (status == null && task['completed'] == true) return true;
+    return false;
+  }
 
-    // If completed tasks passed in
-    if (widget.completedTasks != null && widget.completedTasks!.isNotEmpty) {
-      for (final t in widget.completedTasks!) {
-        final title = (t['title'] ?? t['name'] ?? t['taskName'])?.toString().trim();
-        if (title != null && title.isNotEmpty) {
-          list.add(title);
-        }
-      }
-    } else {
-      // Fetch daily tasks
-      setState(() => _loadingTasks = true);
-      try {
-        final res = await ApiService.instance.fetchMyDailyTasks();
-        if (res['success'] == true && res['tasks'] is List) {
-          final allTasks = res['tasks'] as List;
-          for (final t in allTasks) {
-            if (t is Map) {
-              final isDone = t['completed'] == true || t['status'] == 'completed';
-              final title = (t['title'] ?? t['name'] ?? t['taskName'])?.toString().trim();
-              if (isDone && title != null && title.isNotEmpty) {
-                list.add(title);
-              }
-            }
+  Future<void> _loadTasks() async {
+    setState(() => _loadingTasks = true);
+    try {
+      final res = await ApiService.instance.fetchMyDailyTasks();
+      if (res['success'] == true && res['tasks'] is List) {
+        final allTasks = List<Map<String, dynamic>>.from(
+          (res['tasks'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+        );
+        final completed = <Map<String, dynamic>>[];
+        final pending = <Map<String, dynamic>>[];
+        for (final t in allTasks) {
+          if (_isTaskDone(t)) {
+            completed.add(t);
+          } else {
+            pending.add(t);
           }
         }
-      } catch (e) {
-        debugPrint('Error fetching daily tasks for duty end: $e');
-      } finally {
-        if (mounted) setState(() => _loadingTasks = false);
+        if (mounted) {
+          setState(() {
+            _completedTasksList = completed;
+            _pendingTasksList = pending;
+            _totalTaskCount = allTasks.length;
+          });
+        }
       }
+    } catch (e) {
+      debugPrint('Error loading daily tasks in DutyEndPage: $e');
+    } finally {
+      if (mounted) setState(() => _loadingTasks = false);
     }
+  }
 
-    // Default handover items shown in mockup
-    if (!list.contains("Today's work completed")) {
-      list.add("Today's work completed");
-    }
-    list.add("Handover done");
-    list.add("No pending cash / stock");
-    list.add("No open issues");
-
-    if (mounted) {
-      setState(() {
-        _displayTasks = list;
-      });
-    }
+  bool get _canEndDuty {
+    if (_loadingTasks) return false;
+    // If there are pending tasks, do NOT allow ending duty
+    if (_pendingTasksList.isNotEmpty) return false;
+    return true;
   }
 
   Future<void> _takeSelfie() async {
@@ -172,6 +171,30 @@ class _DutyEndPageState extends State<DutyEndPage> {
 
   Future<void> _handleEndDuty() async {
     if (_isEnding) return;
+
+    if (!_canEndDuty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Cannot end duty: You have ${_pendingTasksList.length} incomplete task(s)! Please complete them first. ⚠️',
+          ),
+          backgroundColor: const Color(0xFFEA580C),
+          action: SnackBarAction(
+            label: 'VIEW TASKS',
+            textColor: Colors.white,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DailyTasksPage(attendanceId: widget.attendanceId),
+                ),
+              ).then((_) => _loadTasks());
+            },
+          ),
+        ),
+      );
+      return;
+    }
 
     if (_selfieFile == null && (widget.dutyCompletePhotoUrl == null || widget.dutyCompletePhotoUrl!.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -464,35 +487,170 @@ class _DutyEndPageState extends State<DutyEndPage> {
                       color: Color(0xFF64748B),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 22),
 
-                  // Completed Tasks / Handover Checklist
+                  // Section Title for Completed Tasks
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _totalTaskCount > 0
+                          ? 'Completed Tasks (${_completedTasksList.length}/$_totalTaskCount)'
+                          : 'Completed Tasks',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF334155),
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Real Completed Tasks ONLY
                   if (_loadingTasks)
                     const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
+                      padding: EdgeInsets.symmetric(vertical: 16),
                       child: Center(
                         child: CircularProgressIndicator(color: Color(0xFFFB8C00), strokeWidth: 2),
                       ),
                     )
+                  else if (_completedTasksList.isEmpty && _totalTaskCount > 0)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: const Text(
+                        'No tasks completed yet',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontStyle: FontStyle.italic,
+                          color: Color(0xFF94A3B8),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  else if (_completedTasksList.isEmpty && _totalTaskCount == 0)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFBBF7D0)),
+                      ),
+                      child: const Text(
+                        'No specific daily tasks assigned for today',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF166534),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
                   else
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
                       child: Column(
-                        children: _displayTasks.map(_buildCheckItem).toList(),
+                        children: _completedTasksList.map((t) {
+                          final title = (t['title'] ?? t['name'] ?? t['taskName'] ?? 'Task').toString();
+                          return _buildCheckItem(title);
+                        }).toList(),
                       ),
                     ),
 
+                  // Warning block if tasks are pending
+                  if (!_loadingTasks && _pendingTasksList.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFDBA74), width: 1.2),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.warning_amber_rounded, color: Color(0xFFEA580C), size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${_pendingTasksList.length} Task${_pendingTasksList.length > 1 ? 's' : ''} Still Pending',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFFC2410C),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'You must complete all daily tasks before you are allowed to end duty.',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: Color(0xFF7C2D12),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => DailyTasksPage(
+                                      attendanceId: widget.attendanceId,
+                                    ),
+                                  ),
+                                ).then((_) => _loadTasks());
+                              },
+                              icon: const Icon(Icons.task_alt, size: 16, color: Color(0xFFEA580C)),
+                              label: const Text(
+                                'Complete Pending Tasks Now',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFEA580C),
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFFEA580C), width: 1.2),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 28),
 
-                  // Action Button
+                  // Action Button (Disabled if pending tasks exist)
                   SizedBox(
                     width: double.infinity,
                     height: 52,
                     child: FilledButton(
                       onPressed: _isEnding ? null : _handleEndDuty,
                       style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFFB8C00),
-                        foregroundColor: Colors.white,
+                        backgroundColor: _canEndDuty
+                            ? const Color(0xFFFB8C00)
+                            : const Color(0xFFCBD5E1),
+                        foregroundColor: _canEndDuty
+                            ? Colors.white
+                            : const Color(0xFF64748B),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
@@ -507,10 +665,12 @@ class _DutyEndPageState extends State<DutyEndPage> {
                                 strokeWidth: 2.5,
                               ),
                             )
-                          : const Text(
-                              'END DUTY',
+                          : Text(
+                              _canEndDuty
+                                  ? 'END DUTY'
+                                  : 'COMPLETE ALL TASKS TO END DUTY',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: _canEndDuty ? 16 : 13.5,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 0.8,
                               ),
