@@ -2071,45 +2071,45 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 6),
 
                 SizedBox(
-                  width: 170,
-                  height: 115,
+                  width: 210,
+                  height: 145,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
                       CustomPaint(
-                        size: const Size(170, 115),
+                        size: const Size(210, 145),
                         painter: _PerformanceSpeedometerGauge(
                           progress: progress,
                         ),
                       ),
                       Positioned(
-                        top: 25,
+                        top: 30,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               scoreStr,
                               style: const TextStyle(
-                                fontSize: 32,
+                                fontSize: 36,
                                 fontWeight: FontWeight.w900,
                                 color: Color(0xFF1E293B),
                                 height: 1.0,
                                 letterSpacing: -0.5,
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 3),
                             Text(
                               '/$totalMaxStr',
                               style: const TextStyle(
-                                fontSize: 12.5,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFF64748B),
                                 height: 1.0,
                               ),
                             ),
-                            const SizedBox(height: 5),
+                            const SizedBox(height: 6),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                               decoration: BoxDecoration(
                                 color: statusColor.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(16),
@@ -2117,7 +2117,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               child: Text(
                                 statusTag,
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 10.5,
                                   fontWeight: FontWeight.w900,
                                   color: statusColor,
                                   letterSpacing: 0.8,
@@ -3783,9 +3783,9 @@ class _PerformanceSpeedometerGauge extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height * 0.66);
+    final center = Offset(size.width / 2, size.height * 0.58);
     final radius = size.width * 0.36;
-    const strokeWidth = 10.0;
+    const strokeWidth = 12.0;
 
     // Start angle: 140 degrees (in radians)
     // End angle: 400 degrees (sweeps 260 degrees = 4.5378 radians)
