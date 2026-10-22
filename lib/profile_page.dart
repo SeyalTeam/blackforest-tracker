@@ -1698,13 +1698,14 @@ class _ProfilePageState extends State<ProfilePage> {
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
-            fontSize: 18,
+            fontSize: 17,
           ),
         ),
         centerTitle: true,
         backgroundColor: const Color(0xFF5B36AC),
         foregroundColor: Colors.white,
         elevation: 0,
+        toolbarHeight: 46,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.white),
@@ -1748,20 +1749,20 @@ class _ProfilePageState extends State<ProfilePage> {
                   _buildPurpleTopHeader(),
 
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
                     child: Column(
                       children: [
                         // 2. Live Performance Score Card with Gauge & Target
                         _buildLivePerformanceCard(),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
                         // 3. Working Hours Black Box
                         _buildWorkingHoursBlackBox(),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 14),
 
                         // 4. 3x2 Square Grid
                         _buildSquareGrid(),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 14),
 
                         if (_workStatus != 'not_started') ...[
                           _buildWorkStatusSection(),
@@ -1790,9 +1791,9 @@ class _ProfilePageState extends State<ProfilePage> {
       width: double.infinity,
       decoration: const BoxDecoration(
         color: Color(0xFF5B36AC),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
       child: Row(
         children: [
           // Profile photo with camera badge preserving exact camera / selfie punch-in logic
@@ -1806,28 +1807,28 @@ class _ProfilePageState extends State<ProfilePage> {
               clipBehavior: Clip.none,
               children: [
                 Container(
-                  width: 62,
-                  height: 62,
+                  width: 50,
+                  height: 50,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: _hasActiveSession
                           ? (_activeSessionHasPhoto
                                 ? const Color(0xFF10B981)
                                 : const Color(0xFFEF4444))
                           : Colors.white.withValues(alpha: 0.85),
-                      width: 2.5,
+                      width: 2.0,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(13.5),
+                    borderRadius: BorderRadius.circular(12),
                     child: _capturedPunchInPhoto != null
                         ? Image.file(_capturedPunchInPhoto!, fit: BoxFit.cover)
                         : (_employeePhotoUrl != null && _employeePhotoUrl!.isNotEmpty
@@ -1836,40 +1837,40 @@ class _ProfilePageState extends State<ProfilePage> {
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) => Container(
                                   color: Colors.white24,
-                                  child: const Icon(Icons.person, color: Colors.white, size: 32),
+                                  child: const Icon(Icons.person, color: Colors.white, size: 26),
                                 ),
                               )
                             : Container(
                                 color: Colors.white24,
-                                child: const Icon(Icons.person, color: Colors.white, size: 32),
+                                child: const Icon(Icons.person, color: Colors.white, size: 26),
                               )),
                   ),
                 ),
                 Positioned(
-                  bottom: -3,
-                  right: -3,
+                  bottom: -2,
+                  right: -2,
                   child: Container(
-                    padding: const EdgeInsets.all(4),
+                    padding: const EdgeInsets.all(3.5),
                     decoration: BoxDecoration(
                       color: _hasActiveSession && !_activeSessionHasPhoto
                           ? const Color(0xFFEF4444)
                           : const Color(0xFF2563EB),
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1.5),
+                      border: Border.all(color: Colors.white, width: 1.2),
                     ),
                     child: Icon(
                       _hasActiveSession && !_activeSessionHasPhoto
                           ? Icons.add_a_photo
                           : Icons.camera_alt,
                       color: Colors.white,
-                      size: 13,
+                      size: 11,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1878,29 +1879,29 @@ class _ProfilePageState extends State<ProfilePage> {
                   _getGreeting(),
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    letterSpacing: 0.3,
+                    letterSpacing: 0.2,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   _employeeName ?? 'User',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.3,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   _getRoleAndBranchSubtitle(),
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
-                    fontSize: 12,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.w500,
                   ),
                   maxLines: 1,
@@ -1963,21 +1964,21 @@ class _ProfilePageState extends State<ProfilePage> {
       width: double.infinity,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFF1F5F9)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           onTap: () {
             Navigator.push(
               context,
@@ -1987,89 +1988,89 @@ class _ProfilePageState extends State<ProfilePage> {
             ).then((_) => _fetchReportCard());
           },
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Column(
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const SizedBox(width: 24),
+                    const SizedBox(width: 20),
                     const Text(
                       'LIVE PERFORMANCE SCORE',
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w800,
                         color: Color(0xFF1E293B),
-                        letterSpacing: 0.8,
+                        letterSpacing: 0.6,
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(3),
                       decoration: const BoxDecoration(
                         color: Color(0xFFF1F5F9),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
                         Icons.arrow_forward_ios_rounded,
-                        size: 12,
+                        size: 10,
                         color: Color(0xFF94A3B8),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
 
                 SizedBox(
-                  width: 220,
-                  height: 160,
+                  width: 170,
+                  height: 115,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
                       CustomPaint(
-                        size: const Size(220, 160),
+                        size: const Size(170, 115),
                         painter: _PerformanceSpeedometerGauge(
                           progress: progress,
                         ),
                       ),
                       Positioned(
-                        top: 40,
+                        top: 25,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               scoreStr,
                               style: const TextStyle(
-                                fontSize: 44,
+                                fontSize: 32,
                                 fontWeight: FontWeight.w900,
                                 color: Color(0xFF1E293B),
                                 height: 1.0,
-                                letterSpacing: -1,
+                                letterSpacing: -0.5,
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 2),
                             Text(
                               '/$totalMaxStr',
                               style: const TextStyle(
-                                fontSize: 16,
+                                fontSize: 12.5,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFF64748B),
                                 height: 1.0,
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 5),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
                                 color: statusColor.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(16),
                               ),
                               child: Text(
                                 statusTag,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w900,
                                   color: statusColor,
-                                  letterSpacing: 1.1,
+                                  letterSpacing: 0.8,
                                 ),
                               ),
                             ),
@@ -2081,7 +2082,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
 
                 Padding(
-                  padding: const EdgeInsets.only(top: 16),
+                  padding: const EdgeInsets.only(top: 10),
                   child: Row(
                     children: [
                       Expanded(
@@ -2091,7 +2092,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           color: const Color(0xFF10B981),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: _buildMiniStatBox(
                           label: 'This Week',
@@ -2099,7 +2100,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           color: const Color(0xFF10B981),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: _buildMiniStatBox(
                           label: 'This Month',
@@ -2124,10 +2125,10 @@ class _ProfilePageState extends State<ProfilePage> {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
@@ -2135,7 +2136,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Text(
             label,
             style: const TextStyle(
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: FontWeight.w600,
               color: Color(0xFF64748B),
             ),
@@ -2143,11 +2144,11 @@ class _ProfilePageState extends State<ProfilePage> {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             value,
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 14.5,
               fontWeight: FontWeight.w900,
               color: color,
             ),
@@ -3869,9 +3870,9 @@ class _PerformanceSpeedometerGauge extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height * 0.65);
-    final radius = size.width * 0.38;
-    const strokeWidth = 14.0;
+    final center = Offset(size.width / 2, size.height * 0.66);
+    final radius = size.width * 0.36;
+    const strokeWidth = 10.0;
 
     // Start angle: 140 degrees (in radians)
     // End angle: 400 degrees (sweeps 260 degrees = 4.5378 radians)
