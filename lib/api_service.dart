@@ -2547,7 +2547,11 @@ Future<List<dynamic>> fetchEmployees() async {
     return {'success': false, 'message': lastErrorMessage ?? 'Please punch in attendance before starting work.'};
   }
 
-  Future<Map<String, dynamic>> completeWork({String? attendanceId, String? dateString}) async {
+  Future<Map<String, dynamic>> completeWork({
+    String? attendanceId,
+    String? dateString,
+    String? dutyCompletePhoto,
+  }) async {
     final token = await _getToken();
     final today = dateString ?? DateFormat('yyyy-MM-dd').format(DateTime.now());
     final nowIso = DateTime.now().toUtc().toIso8601String();
@@ -2556,6 +2560,13 @@ Future<List<dynamic>> fetchEmployees() async {
     if (targetAttId == null || targetAttId.isEmpty) {
       targetAttId = await getTodayAttendanceId();
     }
+
+    final updatePayload = <String, dynamic>{
+      'workStatus': 'completed',
+      'workCompletedTime': nowIso,
+      if (dutyCompletePhoto != null && dutyCompletePhoto.isNotEmpty)
+        'dutyCompletePhoto': dutyCompletePhoto,
+    };
 
     // Direct collection patch strategy (100% reliable with standard Payload collection API)
     if (targetAttId != null && targetAttId.isNotEmpty) {
@@ -2569,10 +2580,7 @@ Future<List<dynamic>> fetchEmployees() async {
             'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
             if (token != null) 'Authorization': 'Bearer $token',
           },
-          body: jsonEncode({
-            'workStatus': 'completed',
-            'workCompletedTime': nowIso,
-          }),
+          body: jsonEncode(updatePayload),
         );
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
@@ -2580,6 +2588,7 @@ Future<List<dynamic>> fetchEmployees() async {
             'success': true,
             'workStatus': 'completed',
             'workCompletedTime': nowIso,
+            'dutyCompletePhoto': dutyCompletePhoto,
             'attendanceId': targetAttId,
             'doc': data,
           };
@@ -2611,6 +2620,8 @@ Future<List<dynamic>> fetchEmployees() async {
           },
           body: jsonEncode({
             'dateString': today,
+            if (dutyCompletePhoto != null && dutyCompletePhoto.isNotEmpty)
+              'dutyCompletePhoto': dutyCompletePhoto,
           }),
         );
         if (res.statusCode == 200) {

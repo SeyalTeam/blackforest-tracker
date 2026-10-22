@@ -23,6 +23,7 @@ import 'attendance_manager.dart';
 import 'attendance_calendar_page.dart';
 import 'daily_tasks_page.dart';
 import 'duty_start_page.dart';
+import 'duty_end_page.dart';
 import 'rank_card_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -53,6 +54,7 @@ class _ProfilePageState extends State<ProfilePage> {
   List<dynamic> _rawActivities = [];
   String _workStatus = 'not_started'; // 'not_started' | 'in_progress' | 'completed'
   String? _dutyStartPhotoUrl;
+  String? _dutyCompletePhotoUrl;
   // ignore: unused_field
   DateTime? _workStartTime;
   // ignore: unused_field
@@ -517,6 +519,16 @@ class _ProfilePageState extends State<ProfilePage> {
             _dutyStartPhotoUrl = dutyPhotoObj.startsWith('http') ? dutyPhotoObj : '${ApiService.baseUrl}$dutyPhotoObj';
           } else {
             _dutyStartPhotoUrl = null;
+          }
+
+          final dutyCompletePhotoObj = firstDoc['dutyCompletePhoto'];
+          if (dutyCompletePhotoObj is Map<String, dynamic> && dutyCompletePhotoObj['url'] != null) {
+            final raw = dutyCompletePhotoObj['url'].toString();
+            _dutyCompletePhotoUrl = raw.startsWith('http') ? raw : '${ApiService.baseUrl}$raw';
+          } else if (dutyCompletePhotoObj is String && dutyCompletePhotoObj.isNotEmpty) {
+            _dutyCompletePhotoUrl = dutyCompletePhotoObj.startsWith('http') ? dutyCompletePhotoObj : '${ApiService.baseUrl}$dutyCompletePhotoObj';
+          } else {
+            _dutyCompletePhotoUrl = null;
           }
           
           final loginBranchData = firstDoc['loginBranch'];
@@ -2233,13 +2245,13 @@ class _ProfilePageState extends State<ProfilePage> {
                 iconBgColor: _workStatus == 'completed'
                     ? const Color(0xFF2E7D32)
                     : (_workStatus == 'in_progress'
-                        ? const Color(0xFF1E88E5)
+                        ? const Color(0xFFFB8C00)
                         : const Color(0xFF00C853)),
                 label: _workStatus == 'completed'
                     ? 'Duty Done'
-                    : (_workStatus == 'in_progress' ? 'In Duty' : 'Duty Start'),
+                    : (_workStatus == 'in_progress' ? 'End Duty' : 'Duty Start'),
                 onTap: () {
-                  if (_workStatus == 'not_started' || _workStatus == 'in_progress') {
+                  if (_workStatus == 'not_started') {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -2250,13 +2262,37 @@ class _ProfilePageState extends State<ProfilePage> {
                           dutyStartPhotoUrl: _dutyStartPhotoUrl,
                           initialSelfie: _capturedPunchInPhoto,
                           hasActiveSession: _hasActiveSession,
-                          isAlreadyStarted: _workStatus == 'in_progress',
+                          isAlreadyStarted: false,
                           dutyStartTime: _workStartTime,
                           onPunchInRequired: (photo) async {
                             _capturedPunchInPhoto = photo;
                             await _submitPunchIn(isAuto: false);
                           },
                           onStartDuty: _handleStartWork,
+                        ),
+                      ),
+                    ).then((_) {
+                      _fetchAttendance();
+                      _fetchDailyTasks();
+                    });
+                  } else if (_workStatus == 'in_progress') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DutyEndPage(
+                          attendanceId: _attendanceDocId,
+                          branchName: _loginBranchName ?? _branchName ?? 'Branch',
+                          employeePhotoUrl: _employeePhotoUrl,
+                          dutyCompletePhotoUrl: _dutyCompletePhotoUrl,
+                          completedTasks: _dailyTasks.where((t) => t['completed'] == true || t['status'] == 'completed').toList(),
+                          onDutyEnded: () async {
+                            setState(() {
+                              _workStatus = 'completed';
+                              _workCompletedTime = DateTime.now();
+                            });
+                            await _fetchAttendance();
+                            await _fetchDailyTasks();
+                          },
                         ),
                       ),
                     ).then((_) {
