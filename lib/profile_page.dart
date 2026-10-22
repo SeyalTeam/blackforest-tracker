@@ -22,6 +22,7 @@ import 'notification_service.dart';
 import 'attendance_manager.dart';
 import 'attendance_calendar_page.dart';
 import 'daily_tasks_page.dart';
+import 'duty_start_page.dart';
 import 'rank_card_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -2227,8 +2228,29 @@ class _ProfilePageState extends State<ProfilePage> {
                     ? 'Duty Done'
                     : (_workStatus == 'in_progress' ? 'In Duty' : 'Duty Start'),
                 onTap: () {
-                  if (_workStatus == 'not_started') {
-                    _handleStartWork();
+                  if (_workStatus == 'not_started' || _workStatus == 'in_progress') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DutyStartPage(
+                          attendanceId: _attendanceDocId,
+                          branchName: _loginBranchName ?? _branchName ?? 'Branch',
+                          employeePhotoUrl: _employeePhotoUrl,
+                          initialSelfie: _capturedPunchInPhoto,
+                          hasActiveSession: _hasActiveSession,
+                          isAlreadyStarted: _workStatus == 'in_progress',
+                          dutyStartTime: _workStartTime,
+                          onPunchInRequired: (photo) async {
+                            _capturedPunchInPhoto = photo;
+                            await _submitPunchIn(isAuto: false);
+                          },
+                          onStartDuty: _handleStartWork,
+                        ),
+                      ),
+                    ).then((_) {
+                      _fetchAttendance();
+                      _fetchDailyTasks();
+                    });
                   } else {
                     Navigator.push(
                       context,
