@@ -21,6 +21,7 @@ import 'notification_service.dart';
 import 'attendance_manager.dart';
 import 'attendance_calendar_page.dart';
 import 'daily_tasks_page.dart';
+import 'rank_card_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -216,7 +217,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ? normalizedInput
         : '/$normalizedInput';
 
-    return 'https://blackforest.vseyal.com$relative';
+    return 'https://blackforest-api.vseyal.com$relative';
   }
 
   Future<void> _fetchEmployeeProfile() async {
@@ -2356,6 +2357,78 @@ class _ProfilePageState extends State<ProfilePage> {
                                     const SizedBox(height: 4),
                                     Text(
                                       'View your history and calendar',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_forward_ios,
+                                color: Colors.grey[400],
+                                size: 16,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const RankCardPage(),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                            border: Border.all(color: Colors.grey[200]!),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFD97706).withValues(alpha: 0.12),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.military_tech,
+                                  color: Color(0xFFD97706),
+                                  size: 26,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Rank Card',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Performance report card & role SLA rank',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: Colors.grey[600],

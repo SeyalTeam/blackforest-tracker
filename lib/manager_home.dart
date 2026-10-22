@@ -11,6 +11,7 @@ import 'manager_employee_list.dart';
 import 'manager_closing_control.dart';
 import 'manager_cash_drawer_control.dart';
 import 'manager_cctv_reports.dart';
+import 'rank_card_page.dart';
 
 class ManagerHomeGrid extends StatelessWidget {
   final List<String> managerCompanyIds;
@@ -224,6 +225,20 @@ class ManagerHomeGrid extends StatelessWidget {
                       builder: (context) => ManagerCctvReportsScreen(
                         managerCompanyIds: managerCompanyIds,
                       ),
+                    ),
+                  );
+                },
+              ),
+              _buildGridItem(
+                context,
+                title: 'Rank Card',
+                icon: Icons.military_tech,
+                color: Colors.amber.shade800,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const RankCardPage(),
                     ),
                   );
                 },
