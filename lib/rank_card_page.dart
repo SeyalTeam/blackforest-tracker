@@ -1278,12 +1278,13 @@ class _RankCardPageState extends State<RankCardPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // Subject Wise Score Section (Top 5 / Expand to 10)
+  // Subject Wise Score Section (Dynamic from configured active rules)
   // ---------------------------------------------------------------------------
   Widget _buildSubjectWiseScoreSection() {
     final subjects = _getSubjectWiseList();
+    if (subjects.isEmpty) return const SizedBox.shrink();
     final totalMarks = subjects.fold<int>(0, (sum, s) => sum + (s['score'] as int));
-    const totalMax = 1000;
+    final totalMax = subjects.fold<int>(0, (sum, s) => sum + (s['maxMarks'] as int));
     final displayedSubjects = _showAllSubjects ? subjects : subjects.take(5).toList();
 
     return Container(
@@ -1334,9 +1335,9 @@ class _RankCardPageState extends State<RankCardPage> {
                   color: Color(0xFF0F172A),
                 ),
               ),
-              const Text(
+              Text(
                 '/$totalMax',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF64748B),
@@ -1397,58 +1398,44 @@ class _RankCardPageState extends State<RankCardPage> {
               );
             },
           ),
-          const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: ElevatedButton(
-              onPressed: () {
-                setState(() => _showAllSubjects = !_showAllSubjects);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1E224F),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+          if (subjects.length > 5) ...[
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                onPressed: () {
+                  setState(() => _showAllSubjects = !_showAllSubjects);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E224F),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
-              ),
-              child: Text(
-                _showAllSubjects
-                    ? 'SHOW LESS'
-                    : 'VIEW ALL (${subjects.length} SUBJECTS)',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.6,
+                child: Text(
+                  _showAllSubjects
+                      ? 'SHOW LESS'
+                      : 'VIEW ALL (${subjects.length} RULES)',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
 
   List<Map<String, dynamic>> _getSubjectWiseList() {
-    final r1 = _reportData?['rule1CallSpeed'] as Map<String, dynamic>?;
-    final r2 = _reportData?['rule2Attendance'] as Map<String, dynamic>?;
-    final r3 = _reportData?['rule3Tasks'] as Map<String, dynamic>?;
-    final r4 = _reportData?['rule4Billing'] as Map<String, dynamic>?;
-    final r5 = _reportData?['rule5KotTime'] as Map<String, dynamic>?;
-    final r6 = _reportData?['rule6TableBilling'] as Map<String, dynamic>?;
-    final r7 = _reportData?['rule7CounterBilling'] as Map<String, dynamic>?;
-
-    final attScore = (r2?['score'] as num?)?.toInt() ?? 82;
-    final callScore = (r1?['score'] as num?)?.toInt() ?? 68;
-    final tableScore = (r6?['score'] as num?)?.toInt() ?? 74;
-    final billScore = (r4?['score'] as num?)?.toInt() ?? 61;
-    final kotScore = (r5?['score'] as num?)?.toInt() ?? 65;
-    final kotDeliveryScore = (r5?['onTimeRatePercent'] as num?)?.toInt() ?? 58;
-    final counterScore = (r7?['score'] as num?)?.toInt() ?? 62;
-    final taskScore = (r3?['score'] as num?)?.toInt() ?? 52;
-    const hygieneScore = 48;
-    const disciplineScore = 42;
+    final rules = (_reportData?['rules'] as List<dynamic>?) ?? [];
+    if (rules.isEmpty) return [];
 
     Color getBarColor(int s) {
       if (s >= 70) return const Color(0xFF22C55E); // Green
@@ -1457,68 +1444,23 @@ class _RankCardPageState extends State<RankCardPage> {
       return const Color(0xFFEF4444); // Red
     }
 
-    return [
-      {
-        'title': 'Attendance & Punctuality',
-        'score': attScore,
-        'maxMarks': 100,
-        'color': getBarColor(attScore),
-      },
-      {
-        'title': 'Customer Service',
-        'score': callScore,
-        'maxMarks': 100,
-        'color': getBarColor(callScore),
-      },
-      {
-        'title': 'Sales Performance',
-        'score': tableScore,
-        'maxMarks': 100,
-        'color': getBarColor(tableScore),
-      },
-      {
-        'title': 'Order Accuracy',
-        'score': billScore,
-        'maxMarks': 100,
-        'color': getBarColor(billScore),
-      },
-      {
-        'title': 'Product Knowledge',
-        'score': kotScore,
-        'maxMarks': 100,
-        'color': getBarColor(kotScore),
-      },
-      {
-        'title': 'Table Delivery SLA',
-        'score': kotDeliveryScore,
-        'maxMarks': 100,
-        'color': getBarColor(kotDeliveryScore),
-      },
-      {
-        'title': 'Counter Billing',
-        'score': counterScore,
-        'maxMarks': 100,
-        'color': getBarColor(counterScore),
-      },
-      {
-        'title': 'Daily Tasks Discipline',
-        'score': taskScore,
-        'maxMarks': 100,
-        'color': getBarColor(taskScore),
-      },
-      {
-        'title': 'Hygiene & Grooming',
-        'score': hygieneScore,
-        'maxMarks': 100,
-        'color': getBarColor(hygieneScore),
-      },
-      {
-        'title': 'Standard Operating Discipline',
-        'score': disciplineScore,
-        'maxMarks': 100,
-        'color': getBarColor(disciplineScore),
-      },
-    ];
+    return rules.map((r) {
+      final map = r is Map ? r : <String, dynamic>{};
+      final rawTitle = (map['title'] ?? '').toString();
+      // Remove leading emojis and clean up for readable title
+      final cleanTitle = rawTitle
+          .replaceAll(RegExp(r'^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\s]+', unicode: true), '')
+          .trim();
+      final score = ((map['score'] as num?) ?? 0).round();
+      final maxMarks = ((map['maxMarks'] as num?) ?? 100).round();
+      final percent = maxMarks > 0 ? ((score / maxMarks) * 100).round() : score;
+      return {
+        'title': cleanTitle.isNotEmpty ? cleanTitle : rawTitle,
+        'score': score,
+        'maxMarks': maxMarks,
+        'color': getBarColor(percent),
+      };
+    }).toList();
   }
 
   String _cleanBranchName(String raw) {
