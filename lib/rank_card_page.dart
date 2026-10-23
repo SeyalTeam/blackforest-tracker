@@ -34,6 +34,24 @@ class _RankCardPageState extends State<RankCardPage> {
   String _employeeDocId = '';
   String _userId = '';
 
+  String get _roleSingular {
+    final r = _employeeRole.toLowerCase();
+    if (r == 'chef' || r == 'kitchen') return 'Chef';
+    if (r == 'supervisor' || r == 'manager') return 'Supervisor';
+    if (r == 'cashier') return 'Cashier';
+    if (r == 'driver') return 'Driver';
+    return 'Waiter';
+  }
+
+  String get _rolePlural {
+    final r = _employeeRole.toLowerCase();
+    if (r == 'chef' || r == 'kitchen') return 'Chefs';
+    if (r == 'supervisor' || r == 'manager') return 'Supervisors';
+    if (r == 'cashier') return 'Cashiers';
+    if (r == 'driver') return 'Drivers';
+    return 'Waiters';
+  }
+
   Map<String, dynamic>? _reportData;
 
   @override
@@ -288,55 +306,122 @@ class _RankCardPageState extends State<RankCardPage> {
     String gradeFor(int s) => s >= 90 ? 'Grade A+' : s >= 80 ? 'Grade A' : s >= 65 ? 'Grade B' : 'Grade C';
     String tagFor(int s) => s >= 90 ? '🌟 Star Performer' : s >= 80 ? '✅ Target Met' : s >= 65 ? '⚠️ Average' : '🚨 Needs Attention';
 
-    // 1. VSeyal Branch Active Waiters (Strictly only active waiters at VSeyal)
-    final branchWaitersRaw = <Map<String, dynamic>>[
-      {'name': _employeeName, 'score': avg, 'isCurrent': true, 'branchName': branchNameVal, 'companyName': companyNameVal},
-      {'name': 'THIRUMAARAN', 'score': (avg >= 88 ? 85 : 91), 'isCurrent': false, 'branchName': branchNameVal, 'companyName': companyNameVal},
-    ];
+    final isChefRole = _employeeRole.toLowerCase() == 'chef' || _employeeRole.toLowerCase() == 'kitchen';
+    final isSupervisorRole = _employeeRole.toLowerCase() == 'supervisor' || _employeeRole.toLowerCase() == 'manager';
 
-    // 2. Company Active Waiters (BlackForest Cakes branches)
-    // Dynamic by period (Today: 12 active who worked today; Week: 14 active; Month: 17 active)
-    final companyWaitersRaw = <Map<String, dynamic>>[
-      ...branchWaitersRaw,
-      {'name': 'JOSEPH', 'score': 96, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-      {'name': 'Vijayalakshmi', 'score': 94, 'isCurrent': false, 'branchName': 'VVD', 'companyName': 'BlackForest Cakes'},
-      {'name': 'Muthu', 'score': 93, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-      {'name': 'ANNALAKSHMI -CDM', 'score': 92, 'isCurrent': false, 'branchName': 'CHIDAMBARAM NAGAR', 'companyName': 'BlackForest Cakes'},
-      {'name': 'Ajsh mon', 'score': 91, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-      {'name': 'KARTHIKA', 'score': 89, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-      {'name': 'SERMA MUTHUESWARI- KMC', 'score': 87, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
-      {'name': 'RAVICHANDRAN -CDM', 'score': 86, 'isCurrent': false, 'branchName': 'CHIDAMBARAM NAGAR', 'companyName': 'BlackForest Cakes'},
-      {'name': 'PREETHI', 'score': 85, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-      {'name': 'Manikandan', 'score': 82, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-      if (!isToday) ...[
-        {'name': 'SUGADEESH', 'score': 93, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-        {'name': 'MUTHURAJA', 'score': 80, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-      ],
-      if (!isToday && !isWeek) ...[
-        {'name': 'SANTHOSH- VVD', 'score': 80, 'isCurrent': false, 'branchName': 'VVD', 'companyName': 'BlackForest Cakes'},
-        {'name': 'SHAHIB', 'score': 78, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
-        {'name': 'Swathi', 'score': 77, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
-      ],
-    ];
+    final List<Map<String, dynamic>> branchStaffRaw;
+    final List<Map<String, dynamic>> companyStaffRaw;
+    final List<Map<String, dynamic>> overallStaffRaw;
 
-    // 3. Overall Active Waiters (All 3 companies: BlackForest Cakes, Thoothukudi Hotel, Thoothukudi Macroon)
-    // Dynamic by period (Today: 16 active; Week: 20 active; Month: 25 active)
-    final overallWaitersRaw = <Map<String, dynamic>>[
-      ...companyWaitersRaw,
-      {'name': 'Lakshmi', 'score': 95, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
-      {'name': 'M.VENKATESH', 'score': 94, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
-      {'name': 'Jeeva', 'score': 90, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
-      {'name': 'ANANTHA MURUGAN', 'score': 88, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
-      {'name': 'IKRAM', 'score': 84, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
-      if (!isToday) ...[
-        {'name': 'palanisamy', 'score': 82, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
-      ],
-      if (!isToday && !isWeek) ...[
-        {'name': 'GANESH KUMAR', 'score': 82, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
-        {'name': 'MITHRA', 'score': 80, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
-        {'name': 'karthikeyann', 'score': 78, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
-      ],
-    ];
+    if (isChefRole) {
+      // 1. VSeyal Branch Chefs (Strictly only chefs at VSeyal)
+      branchStaffRaw = <Map<String, dynamic>>[
+        {'name': _employeeName, 'score': avg, 'isCurrent': true, 'branchName': branchNameVal, 'companyName': companyNameVal},
+        {'name': 'CHEF', 'score': (avg >= 88 ? 85 : 91), 'isCurrent': false, 'branchName': branchNameVal, 'companyName': companyNameVal},
+      ];
+
+      // 2. Company Chefs (BlackForest Cakes branches)
+      companyStaffRaw = <Map<String, dynamic>>[
+        ...branchStaffRaw,
+        {'name': 'INFANT RAJ', 'score': 97, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
+        {'name': 'SHINOSH VVD', 'score': 95, 'isCurrent': false, 'branchName': 'VVD', 'companyName': 'BlackForest Cakes'},
+        {'name': 'SATHIYARAJ', 'score': 90, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'SIGAMANI', 'score': 89, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'ALWIN', 'score': 88, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'JASTEN -KMC', 'score': 88, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
+        {'name': 'SRIKANTH', 'score': 88, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'SELVAKUMAR', 'score': 87, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'VEERAMANI', 'score': 87, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'MANI', 'score': 86, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+      ];
+
+      // 3. Overall Chefs (All companies)
+      overallStaffRaw = <Map<String, dynamic>>[
+        ...companyStaffRaw,
+        {'name': 'P MUTHU', 'score': 97, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        {'name': 'SARAVANAN', 'score': 97, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        {'name': 'KISHORE', 'score': 96, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        {'name': 'SUNIL', 'score': 96, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        {'name': 'AKASH', 'score': 95, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+      ];
+    } else if (isSupervisorRole) {
+      // 1. VSeyal Branch Supervisors (Strictly only supervisors at VSeyal)
+      branchStaffRaw = <Map<String, dynamic>>[
+        {'name': _employeeName, 'score': avg, 'isCurrent': true, 'branchName': branchNameVal, 'companyName': companyNameVal},
+      ];
+
+      // 2. Company Supervisors (BlackForest Cakes branches)
+      companyStaffRaw = <Map<String, dynamic>>[
+        ...branchStaffRaw,
+        {'name': 'MUTHU KUMAR', 'score': 97, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'PARAMASIVAM', 'score': 95, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'SHIVA -KMC', 'score': 92, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
+        {'name': 'ARUNPRASAD', 'score': 90, 'isCurrent': false, 'branchName': 'VVD', 'companyName': 'BlackForest Cakes'},
+        {'name': 'MURUGANANTHAM', 'score': 89, 'isCurrent': false, 'branchName': 'CHIDAMBARAM NAGAR', 'companyName': 'BlackForest Cakes'},
+        {'name': 'RAJESH SP', 'score': 87, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'DHAMOTHARAN', 'score': 86, 'isCurrent': false, 'branchName': 'CHIDAMBARAM NAGAR', 'companyName': 'BlackForest Cakes'},
+        {'name': 'MATHEW', 'score': 85, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
+      ];
+
+      // 3. Overall Supervisors (All companies)
+      overallStaffRaw = <Map<String, dynamic>>[
+        ...companyStaffRaw,
+        {'name': 'HOTEL1', 'score': 96, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        {'name': 'EAGLEEYES', 'score': 94, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        {'name': 'R VENKATESH', 'score': 93, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
+        {'name': 'MARIMURUGAN', 'score': 90, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
+      ];
+    } else {
+      // 1. VSeyal Branch Active Waiters (Strictly only active waiters at VSeyal)
+      branchStaffRaw = <Map<String, dynamic>>[
+        {'name': _employeeName, 'score': avg, 'isCurrent': true, 'branchName': branchNameVal, 'companyName': companyNameVal},
+        {'name': 'THIRUMAARAN', 'score': (avg >= 88 ? 85 : 91), 'isCurrent': false, 'branchName': branchNameVal, 'companyName': companyNameVal},
+      ];
+
+      // 2. Company Active Waiters (BlackForest Cakes branches)
+      // Dynamic by period (Today: 12 active who worked today; Week: 14 active; Month: 17 active)
+      companyStaffRaw = <Map<String, dynamic>>[
+        ...branchStaffRaw,
+        {'name': 'JOSEPH', 'score': 96, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'Vijayalakshmi', 'score': 94, 'isCurrent': false, 'branchName': 'VVD', 'companyName': 'BlackForest Cakes'},
+        {'name': 'Muthu', 'score': 93, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'ANNALAKSHMI -CDM', 'score': 92, 'isCurrent': false, 'branchName': 'CHIDAMBARAM NAGAR', 'companyName': 'BlackForest Cakes'},
+        {'name': 'Ajsh mon', 'score': 91, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'KARTHIKA', 'score': 89, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'SERMA MUTHUESWARI- KMC', 'score': 87, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
+        {'name': 'RAVICHANDRAN -CDM', 'score': 86, 'isCurrent': false, 'branchName': 'CHIDAMBARAM NAGAR', 'companyName': 'BlackForest Cakes'},
+        {'name': 'PREETHI', 'score': 85, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        {'name': 'Manikandan', 'score': 82, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        if (!isToday) ...[
+          {'name': 'SUGADEESH', 'score': 93, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+          {'name': 'MUTHURAJA', 'score': 80, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+        ],
+        if (!isToday && !isWeek) ...[
+          {'name': 'SANTHOSH- VVD', 'score': 80, 'isCurrent': false, 'branchName': 'VVD', 'companyName': 'BlackForest Cakes'},
+          {'name': 'SHAHIB', 'score': 78, 'isCurrent': false, 'branchName': 'ETP-Ettayapuram Road', 'companyName': 'BlackForest Cakes'},
+          {'name': 'Swathi', 'score': 77, 'isCurrent': false, 'branchName': 'KMC', 'companyName': 'BlackForest Cakes'},
+        ],
+      ];
+
+      // 3. Overall Active Waiters (All 3 companies: BlackForest Cakes, Thoothukudi Hotel, Thoothukudi Macroon)
+      // Dynamic by period (Today: 16 active; Week: 20 active; Month: 25 active)
+      overallStaffRaw = <Map<String, dynamic>>[
+        ...companyStaffRaw,
+        {'name': 'Lakshmi', 'score': 95, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        {'name': 'M.VENKATESH', 'score': 94, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
+        {'name': 'Jeeva', 'score': 90, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
+        {'name': 'ANANTHA MURUGAN', 'score': 88, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
+        {'name': 'IKRAM', 'score': 84, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        if (!isToday) ...[
+          {'name': 'palanisamy', 'score': 82, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+        ],
+        if (!isToday && !isWeek) ...[
+          {'name': 'GANESH KUMAR', 'score': 82, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+          {'name': 'MITHRA', 'score': 80, 'isCurrent': false, 'branchName': 'TH1-THOOTHUKUDI HOTEL1', 'companyName': 'Thoothukudi Hotel'},
+          {'name': 'karthikeyann', 'score': 78, 'isCurrent': false, 'branchName': 'THOOTHUKUDI MACROON', 'companyName': 'Thoothukudi Macroon'},
+        ],
+      ];
+    }
 
     List<Map<String, dynamic>> buildRanking(List<Map<String, dynamic>> raw) {
       final sorted = List<Map<String, dynamic>>.from(raw)
@@ -368,9 +453,9 @@ class _RankCardPageState extends State<RankCardPage> {
       }).toList();
     }
 
-    final bRanked = buildRanking(branchWaitersRaw);
-    final cRanked = buildRanking(companyWaitersRaw);
-    final oRanked = buildRanking(overallWaitersRaw);
+    final bRanked = buildRanking(branchStaffRaw);
+    final cRanked = buildRanking(companyStaffRaw);
+    final oRanked = buildRanking(overallStaffRaw);
 
     final bUserRank = bRanked.firstWhere((r) => r['isCurrent'] == true, orElse: () => bRanked.first)['rank'] as int;
     final cUserRank = cRanked.firstWhere((r) => r['isCurrent'] == true, orElse: () => cRanked.first)['rank'] as int;
@@ -1383,25 +1468,23 @@ class _RankCardPageState extends State<RankCardPage> {
     // Resolve scope data
     Map<String, dynamic>? activeScopeData;
     String scopeTitle = 'Branch';
-    String scopeSubtitle = 'Classroom ranking among waiters at ${_branchName.isNotEmpty ? _branchName : "your branch"}';
+    String scopeSubtitle = 'Classroom ranking among ${_rolePlural.toLowerCase()} at ${_branchName.isNotEmpty ? _branchName : "your branch"}';
 
     if (_leaderboardScope == 'branch') {
       activeScopeData = _reportData?['branchRanking'] as Map<String, dynamic>?;
       scopeTitle = activeScopeData?['scopeName']?.toString() ?? (_branchName.isNotEmpty ? _branchName : 'Branch');
-      scopeSubtitle = 'All waiters at $scopeTitle branch';
+      scopeSubtitle = 'All ${_rolePlural.toLowerCase()} at $scopeTitle branch';
     } else if (_leaderboardScope == 'company') {
       activeScopeData = _reportData?['companyRanking'] as Map<String, dynamic>?;
       scopeTitle = activeScopeData?['scopeName']?.toString() ?? (_companyName.isNotEmpty ? _companyName : 'Blackforest Foods');
-      scopeSubtitle = 'All waiters in $scopeTitle across all branches';
+      scopeSubtitle = 'All ${_rolePlural.toLowerCase()} in $scopeTitle across all branches';
     } else {
       activeScopeData = _reportData?['overallRanking'] as Map<String, dynamic>?;
       scopeTitle = activeScopeData?['scopeName']?.toString() ?? 'All Companies & Branches';
-      scopeSubtitle = 'All waiters across all companies and all branches';
+      scopeSubtitle = 'All ${_rolePlural.toLowerCase()} across all companies and all branches';
     }
 
-    List<dynamic> rankingList = (activeScopeData?['rankingList'] as List<dynamic>?) ??
-        (_reportData?['rankingList'] as List<dynamic>?) ??
-        [];
+    List<dynamic> rankingList = (activeScopeData?['rankingList'] as List<dynamic>?) ?? [];
 
     if (rankingList.isEmpty) {
       final monthStr = DateFormat('yyyy-MM').format(_selectedMonth);
@@ -1413,6 +1496,18 @@ class _RankCardPageState extends State<RankCardPage> {
       } else {
         rankingList = (fallback['overallRanking']?['rankingList'] as List<dynamic>?) ?? [];
       }
+    }
+
+    // STRICT DEFENSIVE FILTER FOR BRANCH VIEW:
+    // When viewing branch scope, strictly isolate peers belonging to the user's branch
+    if (_leaderboardScope == 'branch') {
+      final targetBranchClean = _cleanBranchName(_branchName.isNotEmpty ? _branchName : scopeTitle).toLowerCase();
+      rankingList = rankingList.where((p) {
+        if (p is! Map) return false;
+        if (p['isCurrent'] == true) return true;
+        final pBranch = _cleanBranchName(p['branchName']?.toString() ?? '').toLowerCase();
+        return pBranch.isEmpty || pBranch == targetBranchClean;
+      }).toList();
     }
 
     if (rankingList.isEmpty && _reportData == null) return const SizedBox.shrink();
@@ -1611,7 +1706,7 @@ class _RankCardPageState extends State<RankCardPage> {
                             ),
                           ),
                           TextSpan(
-                            text: 'of $totalRanked Waiters',
+                            text: 'of $totalRanked $_rolePlural',
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -1711,7 +1806,7 @@ class _RankCardPageState extends State<RankCardPage> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'ALL WAITERS (${rankingList.length})',
+                          'ALL ${_rolePlural.toUpperCase()} (${rankingList.length})',
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
@@ -1753,7 +1848,7 @@ class _RankCardPageState extends State<RankCardPage> {
                 itemBuilder: (context, idx) {
                   final peer = rankingList[idx] as Map<String, dynamic>;
                   final rankNum = peer['rank'] ?? (idx + 1);
-                  final name = peer['name']?.toString() ?? 'Waiter';
+                  final name = peer['name']?.toString() ?? _roleSingular;
                   final score = (peer['score'] ?? 0) as num;
                   final isCurrent = peer['isCurrent'] == true;
                   final peerGrade = peer['grade']?.toString() ?? 'Grade A';

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'home.dart';
 import 'geofence_util.dart';
@@ -43,7 +44,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _fetchDynamicRanges() async {
     try {
       final res = await http.get(
-        Uri.parse('https://blackforest.vseyal.com/api/branches?limit=1000'),
+        Uri.parse('https://blackforest-api.vseyal.com/api/branches?limit=1000'),
       );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -157,7 +158,7 @@ class _LoginPageState extends State<LoginPage> {
         final emailToUse = rawInput.contains('@') ? rawInput : '$rawInput@bf.com';
 
         var res = await http.post(
-          Uri.parse('https://blackforest.vseyal.com/api/users/login'),
+          Uri.parse('https://blackforest-api.vseyal.com/api/users/login'),
           headers: {
             'Content-Type': 'application/json',
             'x-private-ip': _privateIp ?? '',
@@ -175,7 +176,7 @@ class _LoginPageState extends State<LoginPage> {
         // Fallback: If @bf.com failed and input had no @, try sending rawInput directly as identifier
         if (res.statusCode != 200 && !rawInput.contains('@')) {
           final fallbackRes = await http.post(
-            Uri.parse('https://blackforest.vseyal.com/api/users/login'),
+            Uri.parse('https://blackforest-api.vseyal.com/api/users/login'),
             headers: {
               'Content-Type': 'application/json',
               'x-private-ip': _privateIp ?? '',
@@ -288,17 +289,50 @@ class _LoginPageState extends State<LoginPage> {
           // Extract Branch ID and Name for ALL roles (crucial for notifications filtering)
           final branchObj = fullUser['branch'];
           final kitchenBranches = fullUser['kitchenBranches'] as List?;
-          var bId = (branchObj is Map ? branchObj['id'] : branchObj)?.toString() ?? '';
+          var bId = (branchObj is Map ? (branchObj['id'] ?? branchObj['_id']) : branchObj)?.toString() ?? '';
+          var bName = (branchObj is Map ? branchObj['name'] : null)?.toString() ?? '';
           
           if (bId.isEmpty && kitchenBranches != null && kitchenBranches.isNotEmpty) {
             final firstBranch = kitchenBranches.first;
-            bId = (firstBranch is Map ? firstBranch['id'] : firstBranch)?.toString() ?? '';
+            bId = (firstBranch is Map ? (firstBranch['id'] ?? firstBranch['_id']) : firstBranch)?.toString() ?? '';
+            if (bName.isEmpty && firstBranch is Map && firstBranch['name'] != null) {
+              bName = firstBranch['name'].toString();
+            }
           }
           if (bId.isEmpty && fullUser['employee'] is Map) {
             final emp = fullUser['employee'];
-            bId = (emp['branch'] is Map ? emp['branch']['id'] : emp['branch'])?.toString() ?? '';
+            bId = (emp['branch'] is Map ? (emp['branch']['id'] ?? emp['branch']['_id']) : emp['branch'])?.toString() ?? '';
+            if (bName.isEmpty && emp['branch'] is Map && emp['branch']['name'] != null) {
+              bName = emp['branch']['name'].toString();
+            }
           }
+
+          final prefs = await SharedPreferences.getInstance();
+          if (bName.isEmpty) {
+            bName = prefs.getString('branchName') ?? prefs.getString('lastGpsBranchName') ?? '';
+          }
+
           await storage.write(key: 'userBranchId', value: bId);
+          await storage.write(key: 'userBranchName', value: bName);
+          if (bId.isNotEmpty) {
+            await prefs.setString('branchId', bId);
+            await prefs.setString('branch', bId);
+          }
+          if (bName.isNotEmpty) {
+            await prefs.setString('branchName', bName);
+          }
+
+          if (fullUser['employee'] != null) {
+            final emp = fullUser['employee'];
+            final empDocId = (emp is Map ? (emp['id'] ?? emp['_id']) : emp)?.toString() ?? '';
+            if (empDocId.isNotEmpty) {
+              await storage.write(key: 'employeeDocId', value: empDocId);
+              await prefs.setString('employee_id', empDocId);
+              if (emp is Map && emp['name'] != null) {
+                await prefs.setString('employee_name', emp['name'].toString());
+              }
+            }
+          }
           
 
           if (isKitchen || userRole == 'chef') {
