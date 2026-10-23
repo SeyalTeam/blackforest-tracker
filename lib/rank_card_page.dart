@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart' hide TextDirection;
@@ -63,6 +64,7 @@ class _RankCardPageState extends State<RankCardPage> {
   }
 
   Map<String, dynamic>? _reportData;
+  DateTime? _cachedWorkStartTime;
 
   @override
   void initState() {
@@ -111,6 +113,14 @@ class _RankCardPageState extends State<RankCardPage> {
       final cachedIsKitchen = cachedIsKitchenStr == null ? true : (cachedIsKitchenStr == 'true');
       final cachedIsStock = cachedIsStockStr == null ? false : (cachedIsStockStr == 'true');
 
+      final cachedWorkStart = (await _storage.read(key: 'workStartTime')) ??
+          prefs.getString('workStartTime') ??
+          prefs.getString('user_work_start_time');
+      DateTime? resolvedStart;
+      if (cachedWorkStart != null && cachedWorkStart.isNotEmpty) {
+        resolvedStart = DateTime.tryParse(cachedWorkStart);
+      }
+
       if (mounted) {
         setState(() {
           _employeeName = cachedName;
@@ -124,6 +134,9 @@ class _RankCardPageState extends State<RankCardPage> {
           _photoUrl = cachedPhoto;
           _isKitchen = cachedIsKitchen;
           _isStock = cachedIsStock;
+          if (resolvedStart != null) {
+            _cachedWorkStartTime = resolvedStart;
+          }
         });
       }
 
@@ -179,6 +192,16 @@ class _RankCardPageState extends State<RankCardPage> {
             currentIsStock = res['isStock'] as bool;
             _storage.write(key: 'userIsStock', value: currentIsStock.toString());
             SharedPreferences.getInstance().then((p) => p.setString('userIsStock', currentIsStock.toString()));
+          }
+
+          if (res['workStartTime'] != null && res['workStartTime'].toString().isNotEmpty) {
+            final wStartStr = res['workStartTime'].toString();
+            _storage.write(key: 'workStartTime', value: wStartStr);
+            SharedPreferences.getInstance().then((p) => p.setString('workStartTime', wStartStr));
+            final parsed = DateTime.tryParse(wStartStr);
+            if (parsed != null) {
+              _cachedWorkStartTime = parsed;
+            }
           }
 
           final fallback = _generateLocalFallbackData(monthStr, _selectedPeriod);
@@ -1158,8 +1181,8 @@ class _RankCardPageState extends State<RankCardPage> {
       deltaPoints = "+22 Points";
     }
 
-    final trendValues = _getTrendValues(overallScore.toDouble());
     final trendLabels = _getTrendLabels();
+    final trendValues = _getTrendValues(overallScore.toDouble(), count: trendLabels.length);
 
     return Container(
       width: double.infinity,
@@ -1237,20 +1260,115 @@ class _RankCardPageState extends State<RankCardPage> {
     );
   }
 
-  List<double> _getTrendValues(double target) {
+  DateTime _resolveTodayStartTime() {
+    final now = DateTime.now();
+
+    // 1. Check reportData workStartTime
+    final raw = _reportData?['workStartTime'] ??
+        _reportData?['rule2Attendance']?['workStartTime'];
+    if (raw != null && raw.toString().isNotEmpty) {
+      final parsed = DateTime.tryParse(raw.toString())?.toLocal();
+      if (parsed != null &&
+          parsed.year == now.year &&
+          parsed.month == now.month &&
+          parsed.day == now.day) {
+        if (parsed.isBefore(now)) return parsed;
+      }
+    }
+
+    // 2. Check cached workStartTime from local storage / prefs
+    if (_cachedWorkStartTime != null) {
+      final local = _cachedWorkStartTime!.toLocal();
+      if (local.year == now.year &&
+          local.month == now.month &&
+          local.day == now.day) {
+        if (local.isBefore(now)) return local;
+      }
+    }
+
+    // 3. Fallback: If after 9:00 AM, start at 9:00 AM today; otherwise 3 hours prior to now
+    if (now.hour >= 9) {
+      return DateTime(now.year, now.month, now.day, 9, 0);
+    } else {
+      return now.subtract(const Duration(hours: 3));
+    }
+  }
+
+  String _formatTrendTime(DateTime dt, {bool isNow = false}) {
+    if (isNow) {
+      return DateFormat('h:mm a').format(dt);
+    }
+    if (dt.minute == 0) {
+      return DateFormat('h a').format(dt);
+    }
+    return DateFormat('h:mm a').format(dt);
+  }
+
+  DateTime _roundToNearestMinutes(DateTime dt, int interval) {
+    if (interval <= 0) return dt;
+    final m = dt.minute;
+    final roundedM = ((m + interval / 2) ~/ interval) * interval;
+    return DateTime(dt.year, dt.month, dt.day, dt.hour).add(Duration(minutes: roundedM));
+  }
+
+  List<String> _getTrendLabels() {
     if (_selectedPeriod == 'today') {
-      final base = (target * 0.45).clamp(20.0, 38.0);
-      return [
-        base,
-        (base + 12).clamp(10.0, 95.0),
-        (base + 25).clamp(10.0, 95.0),
-        (base + 18).clamp(10.0, 95.0),
-        (base + 30).clamp(10.0, 95.0),
-        (base + 42).clamp(10.0, 95.0),
-        (base + 32).clamp(10.0, 95.0),
-        (base + 44).clamp(10.0, 95.0),
-        target.clamp(10.0, 100.0),
-      ];
+      final now = DateTime.now();
+      final startTime = _resolveTodayStartTime();
+
+      final safeStart = startTime.isBefore(now)
+          ? startTime
+          : now.subtract(const Duration(hours: 3));
+
+      final diffMinutes = now.difference(safeStart).inMinutes;
+
+      // Choose number of points (4 to 5 points)
+      final int count = diffMinutes <= 75 ? 4 : 5;
+      final List<String> labels = [];
+
+      for (int i = 0; i < count; i++) {
+        if (i == 0) {
+          labels.add(_formatTrendTime(safeStart));
+        } else if (i == count - 1) {
+          labels.add(_formatTrendTime(now, isNow: true));
+        } else {
+          final rawTime = safeStart.add(
+            Duration(minutes: (diffMinutes * i / (count - 1)).round()),
+          );
+          final cleanTime = diffMinutes >= 90
+              ? _roundToNearestMinutes(rawTime, 15)
+              : rawTime;
+          labels.add(_formatTrendTime(cleanTime));
+        }
+      }
+      return labels;
+    } else if (_selectedPeriod == 'week') {
+      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    } else {
+      return ['W1', 'W2', 'W3', 'W4'];
+    }
+  }
+
+  List<double> _getTrendValues(double target, {int count = 5}) {
+    if (_selectedPeriod == 'today') {
+      if (target <= 0) {
+        return List<double>.filled(count, 0.0);
+      }
+      final base = (target * 0.45).clamp(15.0, target);
+      if (count <= 1) return [target.clamp(0.0, 100.0)];
+
+      final List<double> values = [];
+      for (int i = 0; i < count; i++) {
+        if (i == count - 1) {
+          values.add(target.clamp(0.0, 100.0));
+        } else {
+          final frac = i / (count - 1);
+          final progress = math.pow(frac, 0.85).toDouble();
+          final val = base + (target - base) * progress;
+          values.add(val.clamp(10.0, 100.0));
+        }
+      }
+      return values;
     } else if (_selectedPeriod == 'week') {
       return [
         (target - 15).clamp(20.0, 95.0),
@@ -1268,16 +1386,6 @@ class _RankCardPageState extends State<RankCardPage> {
         (target + 3).clamp(20.0, 95.0),
         target.clamp(20.0, 100.0),
       ];
-    }
-  }
-
-  List<String> _getTrendLabels() {
-    if (_selectedPeriod == 'today') {
-      return ['9AM', '12PM', '3PM', '6PM', '9PM'];
-    } else if (_selectedPeriod == 'week') {
-      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    } else {
-      return ['W1', 'W2', 'W3', 'W4'];
     }
   }
 
@@ -2170,20 +2278,26 @@ class ScoreTrendPainter extends CustomPainter {
 
     // 2. Draw X labels
     if (xLabels.isNotEmpty) {
-      final step = plotWidth / (xLabels.length - 1);
+      final step = xLabels.length > 1 ? plotWidth / (xLabels.length - 1) : 0.0;
       for (int i = 0; i < xLabels.length; i++) {
         final x = leftPadding + (i * step);
         final tp = TextPainter(
           text: TextSpan(text: xLabels[i], style: textStyle),
           textDirection: TextDirection.ltr,
         )..layout();
-        tp.paint(canvas, Offset(x - tp.width / 2, size.height - tp.height));
+        double drawX = x - tp.width / 2;
+        if (i == 0) {
+          drawX = drawX.clamp(leftPadding - 6, size.width);
+        } else if (i == xLabels.length - 1) {
+          drawX = drawX.clamp(0.0, size.width - tp.width - 2);
+        }
+        tp.paint(canvas, Offset(drawX, size.height - tp.height));
       }
     }
 
     // 3. Compute data point offsets
     final List<Offset> points = [];
-    final xStep = plotWidth / (values.length - 1);
+    final xStep = values.length > 1 ? plotWidth / (values.length - 1) : 0.0;
     for (int i = 0; i < values.length; i++) {
       final val = values[i].clamp(minY, maxY);
       final normY = (val - minY) / (maxY - minY);
