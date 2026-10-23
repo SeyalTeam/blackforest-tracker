@@ -252,16 +252,15 @@ class _LoginPageState extends State<LoginPage> {
 
           setState(() => _isLoading = false);
 
-          final isKitchen = fullUser['isKitchen'] is bool
-              ? fullUser['isKitchen'] as bool
-              : (fullUser['isKitchen'] == true || userRole == 'kitchen');
-          final isStock = fullUser['isStock'] is bool
-              ? fullUser['isStock'] as bool
-              : (fullUser['isStock'] == true ||
-                  userRole == 'chef' ||
-                  userRole == 'supervisor' ||
-                  userRole == 'manager' ||
-                  userRole == 'driver');
+          final bool hasKitchenFlag = fullUser['isKitchen'] is bool;
+          final bool hasStockFlag = fullUser['isStock'] is bool;
+
+          final bool isKitchen = hasKitchenFlag
+              ? (fullUser['isKitchen'] as bool)
+              : (userRole == 'kitchen' || userRole == 'chef');
+          final bool isStock = hasStockFlag
+              ? (fullUser['isStock'] as bool)
+              : (['supervisor', 'manager', 'driver'].contains(userRole) || (userRole == 'chef' && !hasKitchenFlag));
 
           const storage = FlutterSecureStorage();
           await storage.write(key: 'isLoggedIn', value: 'true');
@@ -314,6 +313,8 @@ class _LoginPageState extends State<LoginPage> {
 
           await storage.write(key: 'userBranchId', value: bId);
           await storage.write(key: 'userBranchName', value: bName);
+          await prefs.setString('userIsKitchen', isKitchen.toString());
+          await prefs.setString('userIsStock', isStock.toString());
           if (bId.isNotEmpty) {
             await prefs.setString('branchId', bId);
             await prefs.setString('branch', bId);

@@ -2678,6 +2678,8 @@ Future<List<dynamic>> fetchEmployees() async {
         '';
     final now = DateTime.now();
     final resolvedMonth = month ?? DateFormat('yyyy-MM').format(now);
+    final resolvedIsKitchen = await storage.read(key: 'userIsKitchen');
+    final resolvedIsStock = await storage.read(key: 'userIsStock');
 
     final queryParams = <String, String>{
       if (resolvedEmpId.isNotEmpty) 'employeeId': resolvedEmpId,
@@ -2687,6 +2689,8 @@ Future<List<dynamic>> fetchEmployees() async {
       'month': resolvedMonth,
       if (resolvedRole.isNotEmpty) 'role': resolvedRole,
       if (period != null && period.isNotEmpty) 'period': period,
+      if (resolvedIsKitchen != null && resolvedIsKitchen.isNotEmpty) 'isKitchen': resolvedIsKitchen,
+      if (resolvedIsStock != null && resolvedIsStock.isNotEmpty) 'isStock': resolvedIsStock,
     };
 
     final endpoints = [

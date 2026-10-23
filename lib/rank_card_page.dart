@@ -33,10 +33,16 @@ class _RankCardPageState extends State<RankCardPage> {
   String? _photoUrl;
   String _employeeDocId = '';
   String _userId = '';
+  bool _isKitchen = true;
+  bool _isStock = false;
 
   String get _roleSingular {
     final r = _employeeRole.toLowerCase();
-    if (r == 'chef' || r == 'kitchen') return 'Chef';
+    if (r == 'chef' || r == 'kitchen') {
+      if (_isKitchen && !_isStock) return 'Kitchen Chef';
+      if (_isStock && !_isKitchen) return 'Stock Chef';
+      return 'Chef';
+    }
     if (r == 'supervisor' || r == 'manager') return 'Supervisor';
     if (r == 'cashier') return 'Cashier';
     if (r == 'driver') return 'Driver';
@@ -45,7 +51,11 @@ class _RankCardPageState extends State<RankCardPage> {
 
   String get _rolePlural {
     final r = _employeeRole.toLowerCase();
-    if (r == 'chef' || r == 'kitchen') return 'Chefs';
+    if (r == 'chef' || r == 'kitchen') {
+      if (_isKitchen && !_isStock) return 'Kitchen Chefs';
+      if (_isStock && !_isKitchen) return 'Stock Chefs';
+      return 'Chefs';
+    }
     if (r == 'supervisor' || r == 'manager') return 'Supervisors';
     if (r == 'cashier') return 'Cashiers';
     if (r == 'driver') return 'Drivers';
@@ -94,6 +104,12 @@ class _RankCardPageState extends State<RankCardPage> {
           prefs.getString('userId') ??
           '';
       final cachedPhoto = prefs.getString('employee_photo_url');
+      final cachedIsKitchenStr = (await _storage.read(key: 'userIsKitchen')) ??
+          prefs.getString('userIsKitchen');
+      final cachedIsStockStr = (await _storage.read(key: 'userIsStock')) ??
+          prefs.getString('userIsStock');
+      final cachedIsKitchen = cachedIsKitchenStr == null ? true : (cachedIsKitchenStr == 'true');
+      final cachedIsStock = cachedIsStockStr == null ? false : (cachedIsStockStr == 'true');
 
       if (mounted) {
         setState(() {
@@ -106,6 +122,8 @@ class _RankCardPageState extends State<RankCardPage> {
           _companyName = cachedCompany.isNotEmpty ? cachedCompany : 'BlackForest Cakes';
           _userId = cachedUserId;
           _photoUrl = cachedPhoto;
+          _isKitchen = cachedIsKitchen;
+          _isStock = cachedIsStock;
         });
       }
 
@@ -150,6 +168,15 @@ class _RankCardPageState extends State<RankCardPage> {
              (res['rankingList'] is List && (res['rankingList'] as List).isNotEmpty));
 
         if (hasScores && hasRankings) {
+          bool currentIsKitchen = _isKitchen;
+          bool currentIsStock = _isStock;
+          if (res['isKitchen'] is bool) {
+            currentIsKitchen = res['isKitchen'] as bool;
+          }
+          if (res['isStock'] is bool) {
+            currentIsStock = res['isStock'] as bool;
+          }
+
           final fallback = _generateLocalFallbackData(monthStr, _selectedPeriod);
           final merged = Map<String, dynamic>.from(fallback)..addAll(res);
           if (res['rule6TableBilling'] == null && fallback['rule6TableBilling'] != null) {
@@ -161,10 +188,30 @@ class _RankCardPageState extends State<RankCardPage> {
 
           // Handle dynamic rules list from server
           final resRules = (res['rules'] as List<dynamic>?) ?? [];
-          if (resRules.isNotEmpty) {
-            merged['rules'] = resRules;
+          final rawRules = resRules.isNotEmpty ? resRules : ((fallback['rules'] as List<dynamic>?) ?? []);
+
+          // Strictly filter rules based on role and assignment (Kitchen vs Stock vs Both)
+          final isChefRole = _employeeRole.toLowerCase() == 'chef' || _employeeRole.toLowerCase() == 'kitchen';
+          if (isChefRole) {
+            merged['rules'] = rawRules.where((r) {
+              if (r is! Map) return true;
+              final cat = (r['category'] ?? '').toString();
+              // Exclude waiter-only and cashier-only rules for chefs
+              if (cat == 'call_speed' || cat == 'billing' || cat == 'billing_table' || cat == 'billing_counter') {
+                return false;
+              }
+              // If not kitchen assigned, do not show kitchen SLA or kitchen volume
+              if (!currentIsKitchen && (cat == 'kot_time' || cat == 'chef_kitchen_volume')) {
+                return false;
+              }
+              // If not stock assigned, do not show stock fulfillment or stock volume
+              if (!currentIsStock && (cat == 'chef_stock_fulfillment' || cat == 'chef_stock_volume')) {
+                return false;
+              }
+              return true;
+            }).toList();
           } else {
-            merged['rules'] = (fallback['rules'] as List<dynamic>?) ?? [];
+            merged['rules'] = rawRules;
           }
 
           // Safeguard scope rankings if server returned empty or missing scopes
@@ -178,7 +225,7 @@ class _RankCardPageState extends State<RankCardPage> {
             }
           }
 
-          // Recalculate totalScore and totalMaxMarks across all rules
+          // Recalculate totalScore and totalMaxMarks across all active rules
           final finalRules = (merged['rules'] as List<dynamic>?) ?? [];
           if (finalRules.isNotEmpty) {
             final computedMax = finalRules.fold<num>(0, (sum, r) => sum + ((r is Map ? r['maxMarks'] : 100) as num? ?? 100));
@@ -190,6 +237,8 @@ class _RankCardPageState extends State<RankCardPage> {
             }
           }
           setState(() {
+            _isKitchen = currentIsKitchen;
+            _isStock = currentIsStock;
             _reportData = merged;
             if (res['employeeName'] != null && res['employeeName'].toString().isNotEmpty) {
               _employeeName = res['employeeName'].toString();
@@ -234,31 +283,17 @@ class _RankCardPageState extends State<RankCardPage> {
     final kotScore = (90 + (seed % 9)).clamp(70, 100);
     final tableScore = (91 + (seed % 9)).clamp(75, 100);
     final counterScore = (88 + (seed % 11)).clamp(70, 100);
-
-    final totalMarksVal = (callScore + attScore + taskScore + billScore + kotScore + tableScore + counterScore);
-    const totalMaxMarksVal = 700;
-    final avg = (totalMarksVal / 7).round();
-
-    String grade = 'Grade A';
-    String gradeTag = '✅ Target Met';
-    String recommendation = 'Solid, consistent performance meeting operational targets. Keep up the high standard.';
-
-    if (avg >= 90) {
-      grade = 'Grade A+';
-      gradeTag = '🌟 Star Performer';
-      recommendation = 'Outstanding overall performance across punctuality, task execution, and table service. Highly recommended for incentive.';
-    } else if (avg < 80 && avg >= 65) {
-      grade = 'Grade B';
-      gradeTag = '⚠️ Average';
-      recommendation = 'Fair contribution with minor gaps in table response timing. Supervisor coaching recommended.';
-    } else if (avg < 65) {
-      grade = 'Grade C';
-      gradeTag = '🚨 Needs Improvement';
-      recommendation = 'Performance is below acceptable SLA thresholds. Immediate counseling required.';
-    }
+    final chefKitchenScore = (89 + (seed % 9)).clamp(70, 100);
+    final chefStockFulfillScore = (92 + (seed % 7)).clamp(70, 100);
+    final chefStockVolScore = (90 + (seed % 8)).clamp(70, 100);
 
     final isToday = period == 'today';
     final isWeek = period == 'week';
+
+    final isChefRole = _employeeRole.toLowerCase() == 'chef' || _employeeRole.toLowerCase() == 'kitchen';
+    final isSupervisorRole = _employeeRole.toLowerCase() == 'supervisor' || _employeeRole.toLowerCase() == 'manager';
+    final isCashierRole = _employeeRole.toLowerCase() == 'cashier';
+    final isWaiterRole = !isChefRole && !isSupervisorRole && !isCashierRole;
 
     final totalCalls = isToday ? (5 + (seed % 4)) : isWeek ? (22 + (seed % 6)) : (85 + (seed % 15));
     final under30s = totalCalls > 1 ? totalCalls - 1 : totalCalls;
@@ -303,11 +338,135 @@ class _RankCardPageState extends State<RankCardPage> {
     final branchNameVal = _branchName.isNotEmpty ? _branchName : 'VSeyal';
     final companyNameVal = _companyName.isNotEmpty ? _companyName : 'BlackForest Cakes';
 
+    final List<Map<String, dynamic>> fallbackRules = [
+      if (isWaiterRole)
+        {
+          'id': 'rule-call-speed',
+          'title': '🚨 Waiter Call Response Speed SLA (< 30s)',
+          'category': 'call_speed',
+          'maxMarks': 100,
+          'score': callScore,
+          'ratingLabel': '🟢 Excellent (< 30s)',
+          'summary': '${avgSpeed}s avg speed ($under30s/$totalCalls calls < 30s)',
+        },
+      {
+        'id': 'rule-attendance',
+        'title': '⏰ Shift Attendance & Punctuality',
+        'category': 'attendance',
+        'maxMarks': 100,
+        'score': attScore,
+        'ratingLabel': '🟢 Perfect / On-Time',
+        'summary': isToday
+            ? '1 shift (1 on-time, 0 late, 100% attendance)'
+            : isWeek
+                ? '$presentDays shifts ($onTimeDays on-time, $lateDays late, 100% attendance)'
+                : '$presentDays shifts ($onTimeDays on-time, $lateDays late, $attendanceRate% attendance)',
+      },
+      {
+        'id': 'rule-tasks',
+        'title': '📋 Daily Tasks & Routine Checklist',
+        'category': 'tasks',
+        'maxMarks': 100,
+        'score': taskScore,
+        'ratingLabel': '🟢 High Checklist Discipline',
+        'summary': '$totalCompleted/$totalAssigned tasks done ($completionRatePercent% completion rate)',
+      },
+      if (isWaiterRole)
+        {
+          'id': 'rule-billing',
+          'title': '🍽️ Table Service & Billing Accuracy',
+          'category': 'billing',
+          'maxMarks': 100,
+          'score': billScore,
+          'ratingLabel': '🟢 High Accuracy',
+          'summary': '$servedProducts/$totalProducts items served (${isToday ? 100 : 98}% accuracy)',
+        },
+      if (isWaiterRole || (isChefRole && _isKitchen) || isSupervisorRole)
+        {
+          'id': 'rule-kot-time',
+          'title': isChefRole ? '⏱️ Kitchen KOT Timing SLA (< 5m)' : '⏱️ KOT Timing SLA',
+          'category': 'kot_time',
+          'maxMarks': 100,
+          'score': kotScore,
+          'ratingLabel': '🟢 Fast Table Delivery (< 5m)',
+          'summary': '$onTimeCount/$totalItems delivered < 5m ($onTimeRatePercent% SLA adherence)',
+        },
+      if (isWaiterRole)
+        {
+          'id': 'rule-billing-table',
+          'title': '🍽️ Table Order Billing & Revenue SLA',
+          'category': 'billing_table',
+          'maxMarks': 100,
+          'score': tableScore,
+          'ratingLabel': tableScore >= 95 ? '🌟 Star Contributor' : '🟢 Target Met',
+          'summary': '₹${NumberFormat.decimalPattern('en_IN').format(tableRevenue)} from $tableBills tables • $tableAchPercent% benchmark',
+        },
+      if (isWaiterRole || isCashierRole)
+        {
+          'id': 'rule-billing-counter',
+          'title': '🛍️ Counter Bill (Non-Table KOT) Revenue SLA',
+          'category': 'billing_counter',
+          'maxMarks': 100,
+          'score': counterScore,
+          'ratingLabel': counterScore >= 95 ? '🌟 Star Contributor' : '🟢 Target Met',
+          'summary': '₹${NumberFormat.decimalPattern('en_IN').format(counterRevenue)} from $counterBills counter bills • $counterAchPercent% benchmark',
+        },
+      if (isChefRole && _isKitchen)
+        {
+          'id': 'rule-chef-kitchen-volume',
+          'title': '🍳 Kitchen Order Production Output SLA',
+          'category': 'chef_kitchen_volume',
+          'maxMarks': 100,
+          'score': chefKitchenScore,
+          'ratingLabel': '🟢 Target Met',
+          'summary': '${isToday ? '8' : isWeek ? '36' : '142'} dishes prepared • ₹${NumberFormat.decimalPattern('en_IN').format(isToday ? 2800 : isWeek ? 12500 : 54000)} output',
+        },
+      if (isChefRole && _isStock) ...[
+        {
+          'id': 'rule-chef-stock-fulfillment',
+          'title': '📦 Stock Order Fulfillment SLA',
+          'category': 'chef_stock_fulfillment',
+          'maxMarks': 100,
+          'score': chefStockFulfillScore,
+          'ratingLabel': '🟢 High Fulfillment',
+          'summary': '${isToday ? '15 / 16' : isWeek ? '72 / 75' : '290 / 300'} items fulfilled (96%)',
+        },
+        {
+          'id': 'rule-chef-stock-volume',
+          'title': '🚚 Stock Order Production Volume SLA',
+          'category': 'chef_stock_volume',
+          'maxMarks': 100,
+          'score': chefStockVolScore,
+          'ratingLabel': '🟢 Target Met',
+          'summary': '₹${NumberFormat.decimalPattern('en_IN').format(isToday ? 3200 : isWeek ? 16400 : 68000)} dispatched across ${isToday ? '2' : isWeek ? '10' : '42'} orders',
+        },
+      ],
+    ];
+
+    final int totalMarksVal = fallbackRules.fold<int>(0, (sum, r) => sum + (r['score'] as int));
+    final int totalMaxMarksVal = fallbackRules.fold<int>(0, (sum, r) => sum + (r['maxMarks'] as int));
+    final int avg = totalMaxMarksVal > 0 ? ((totalMarksVal / totalMaxMarksVal) * 100).round() : 85;
+
+    String grade = 'Grade A';
+    String gradeTag = '✅ Target Met';
+    String recommendation = 'Solid, consistent performance meeting operational targets. Keep up the high standard.';
+
+    if (avg >= 90) {
+      grade = 'Grade A+';
+      gradeTag = '🌟 Star Performer';
+      recommendation = 'Outstanding overall performance across punctuality, task execution, and role standards. Highly recommended for incentive.';
+    } else if (avg < 80 && avg >= 65) {
+      grade = 'Grade B';
+      gradeTag = '⚠️ Average';
+      recommendation = 'Fair contribution with minor gaps in operational response timing. Supervisor coaching recommended.';
+    } else if (avg < 65) {
+      grade = 'Grade C';
+      gradeTag = '🚨 Needs Improvement';
+      recommendation = 'Performance is below acceptable SLA thresholds. Immediate counseling required.';
+    }
+
     String gradeFor(int s) => s >= 90 ? 'Grade A+' : s >= 80 ? 'Grade A' : s >= 65 ? 'Grade B' : 'Grade C';
     String tagFor(int s) => s >= 90 ? '🌟 Star Performer' : s >= 80 ? '✅ Target Met' : s >= 65 ? '⚠️ Average' : '🚨 Needs Attention';
-
-    final isChefRole = _employeeRole.toLowerCase() == 'chef' || _employeeRole.toLowerCase() == 'kitchen';
-    final isSupervisorRole = _employeeRole.toLowerCase() == 'supervisor' || _employeeRole.toLowerCase() == 'manager';
 
     final List<Map<String, dynamic>> branchStaffRaw;
     final List<Map<String, dynamic>> companyStaffRaw;
@@ -542,100 +701,7 @@ class _RankCardPageState extends State<RankCardPage> {
         'alertTag': counterScore >= 95 ? '🌟 Star Contributor' : '🟢 Target Met',
         'ratingLabel': counterScore >= 95 ? '🌟 Star Contributor' : '🟢 Target Met',
       },
-      'rules': [
-        if (_employeeRole.isEmpty || _employeeRole == 'waiter')
-          {
-            'id': 'rule-call-speed',
-            'title': '🚨 Waiter Call Response Speed SLA (< 30s)',
-            'category': 'call_speed',
-            'maxMarks': 100,
-            'score': callScore,
-            'ratingLabel': '🟢 Excellent (< 30s)',
-            'summary': '${avgSpeed}s avg speed ($under30s/$totalCalls calls < 30s)',
-          },
-        {
-          'id': 'rule-attendance',
-          'title': '⏰ Shift Attendance & Punctuality',
-          'category': 'attendance',
-          'maxMarks': 100,
-          'score': attScore,
-          'ratingLabel': '🟢 Perfect / On-Time',
-          'summary': isToday
-              ? '1 shift (1 on-time, 0 late, 100% attendance)'
-              : isWeek
-                  ? '$presentDays shifts ($onTimeDays on-time, $lateDays late, 100% attendance)'
-                  : '$presentDays shifts ($onTimeDays on-time, $lateDays late, $attendanceRate% attendance)',
-        },
-        {
-          'id': 'rule-tasks',
-          'title': '📋 Daily Tasks & Routine Checklist',
-          'category': 'tasks',
-          'maxMarks': 100,
-          'score': taskScore,
-          'ratingLabel': '🟢 High Checklist Discipline',
-          'summary': '$totalCompleted/$totalAssigned tasks done ($completionRatePercent% completion rate)',
-        },
-        if (_employeeRole.isEmpty || _employeeRole == 'waiter')
-          {
-            'id': 'rule-billing',
-            'title': '🍽️ Table Service & Billing Accuracy',
-            'category': 'billing',
-            'maxMarks': 100,
-            'score': billScore,
-            'ratingLabel': '🟢 High Accuracy',
-            'summary': '$servedProducts/$totalProducts items served (${isToday ? 100 : 98}% accuracy)',
-          },
-        if (_employeeRole.isEmpty || _employeeRole == 'waiter' || _employeeRole == 'chef' || _employeeRole == 'kitchen' || _employeeRole == 'supervisor' || _employeeRole == 'manager')
-          {
-            'id': 'rule-kot-time',
-            'title': '⏱️ KOT Timing SLA',
-            'category': 'kot_time',
-            'maxMarks': 100,
-            'score': kotScore,
-            'ratingLabel': '🟢 Fast Table Delivery (< 5m)',
-            'summary': '$onTimeCount/$totalItems delivered < 5m ($onTimeRatePercent% SLA adherence)',
-          },
-        if (_employeeRole.isEmpty || _employeeRole == 'waiter')
-          {
-            'id': 'rule-billing-table',
-            'title': '🍽️ Table Order Billing & Revenue SLA',
-            'category': 'billing_table',
-            'maxMarks': 100,
-            'score': tableScore,
-            'ratingLabel': tableScore >= 95 ? '🌟 Star Contributor' : '🟢 Target Met',
-            'summary': '₹${NumberFormat.decimalPattern('en_IN').format(tableRevenue)} from $tableBills tables • $tableAchPercent% benchmark',
-          },
-        if (_employeeRole.isEmpty || _employeeRole == 'waiter' || _employeeRole == 'cashier')
-          {
-            'id': 'rule-billing-counter',
-            'title': '🛍️ Counter Bill (Non-Table KOT) Revenue SLA',
-            'category': 'billing_counter',
-            'maxMarks': 100,
-            'score': counterScore,
-            'ratingLabel': counterScore >= 95 ? '🌟 Star Contributor' : '🟢 Target Met',
-            'summary': '₹${NumberFormat.decimalPattern('en_IN').format(counterRevenue)} from $counterBills counter bills • $counterAchPercent% benchmark',
-          },
-        if (_employeeRole == 'chef' || _employeeRole == 'kitchen') ...[
-          {
-            'id': 'rule-chef-kitchen-volume',
-            'title': '🍳 Kitchen Order Production Output SLA',
-            'category': 'chef_kitchen_volume',
-            'maxMarks': 100,
-            'score': 0,
-            'ratingLabel': '⚪ Pending / No Activity',
-            'summary': '0 dishes prepared • ₹0 output',
-          },
-          {
-            'id': 'rule-chef-stock-fulfillment',
-            'title': '📦 Stock Order Fulfillment SLA',
-            'category': 'chef_stock_fulfillment',
-            'maxMarks': 100,
-            'score': 0,
-            'ratingLabel': '⚪ Pending / No Activity',
-            'summary': '0 items fulfilled • 0% fulfillment',
-          },
-        ],
-      ],
+      'rules': fallbackRules,
       'companyName': companyNameVal,
       'branchRanking': {
         'scope': 'branch',
