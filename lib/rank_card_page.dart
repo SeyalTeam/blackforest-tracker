@@ -172,9 +172,13 @@ class _RankCardPageState extends State<RankCardPage> {
           bool currentIsStock = _isStock;
           if (res['isKitchen'] is bool) {
             currentIsKitchen = res['isKitchen'] as bool;
+            _storage.write(key: 'userIsKitchen', value: currentIsKitchen.toString());
+            SharedPreferences.getInstance().then((p) => p.setString('userIsKitchen', currentIsKitchen.toString()));
           }
           if (res['isStock'] is bool) {
             currentIsStock = res['isStock'] as bool;
+            _storage.write(key: 'userIsStock', value: currentIsStock.toString());
+            SharedPreferences.getInstance().then((p) => p.setString('userIsStock', currentIsStock.toString()));
           }
 
           final fallback = _generateLocalFallbackData(monthStr, _selectedPeriod);
@@ -196,8 +200,8 @@ class _RankCardPageState extends State<RankCardPage> {
             merged['rules'] = rawRules.where((r) {
               if (r is! Map) return true;
               final cat = (r['category'] ?? '').toString();
-              // Exclude waiter-only and cashier-only rules for chefs
-              if (cat == 'call_speed' || cat == 'billing' || cat == 'billing_table' || cat == 'billing_counter') {
+              // Exclude waiter-only, cashier-only, and front-of-house hygiene/grooming rules for chefs
+              if (cat == 'call_speed' || cat == 'billing' || cat == 'billing_table' || cat == 'billing_counter' || cat == 'hygiene') {
                 return false;
               }
               // If not kitchen assigned, do not show kitchen SLA or kitchen volume
