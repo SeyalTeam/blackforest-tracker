@@ -42,7 +42,7 @@ class BranchExpenseDetailsScreen extends StatelessWidget {
                 // Fix relative URLs
                 String fullImageUrl = imageUrl;
                 if (imageUrl.isNotEmpty && imageUrl.startsWith('/')) {
-                  fullImageUrl = 'https://blackforest.vseyal.com$imageUrl';
+                  fullImageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
                 }
 
                 return Card(

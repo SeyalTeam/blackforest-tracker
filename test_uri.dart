@@ -14,7 +14,7 @@ void main() {
   final endStr = endOfMonth.toUtc().toIso8601String();
   final userId = "6a51c3edec08231d01c3a3d1";
 
-  final urlString = 'https://blackforest.vseyal.com/api/attendance?where[user][equals]=$userId&where[date][greater_than_equal]=$startStr&where[date][less_than_equal]=$endStr&limit=100';
+  final urlString = 'https://blackforest-api.vseyal.com/api/attendance?where[user][equals]=$userId&where[date][greater_than_equal]=$startStr&where[date][less_than_equal]=$endStr&limit=100';
   
   try {
     final url = Uri.parse(urlString);

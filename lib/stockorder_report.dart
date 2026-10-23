@@ -974,7 +974,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
 
       // 3. Send PATCH Request
-      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
+      final url = 'https://blackforest-api.vseyal.com/api/stock-orders/$orderId';
       final res = await http.patch(
         Uri.parse(url),
         headers: {
@@ -1083,7 +1083,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
       if (!found) return;
 
-      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
+      final url = 'https://blackforest-api.vseyal.com/api/stock-orders/$orderId';
       final res = await http.patch(
         Uri.parse(url),
         headers: {
@@ -1368,7 +1368,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
       if (!found) return;
 
-      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
+      final url = 'https://blackforest-api.vseyal.com/api/stock-orders/$orderId';
       await http.patch(
         Uri.parse(url),
         headers: {
@@ -3149,7 +3149,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
     }
 
     if (imageUrl != null) {
@@ -3500,7 +3500,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
     }
 
     if (imageUrl != null) {
@@ -3870,7 +3870,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
 
     if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
     }
 
     if (imageUrl != null) {
