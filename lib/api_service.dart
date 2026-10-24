@@ -67,7 +67,12 @@ class ApiService {
       final url = '$_baseUrl/users/me?depth=2';
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -105,7 +110,12 @@ class ApiService {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -150,7 +160,12 @@ class ApiService {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -230,7 +245,12 @@ class ApiService {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -483,7 +503,12 @@ Future<List<dynamic>> fetchManagerClosingReplies({
       
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -555,7 +580,12 @@ Future<List<dynamic>> fetchEmployees() async {
       final url = '$_baseUrl/employees?limit=2000&where[status][equals]=active';
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -637,7 +667,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -710,7 +745,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -899,6 +939,40 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
+  Future<bool> updateUserStockCategories({
+    required String userId,
+    required List<String> stockCategoryIds,
+  }) async {
+    try {
+      final token = await _getToken();
+      final url = '$_baseUrl/users/$userId';
+
+      final body = {
+        'stockCategories': stockCategoryIds,
+      };
+
+      final res = await http.patch(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (res.statusCode != 200) {
+        debugPrint('DEBUG: updateUserStockCategories failed (${res.statusCode}): ${res.body}');
+        throw Exception('Failed to update stock categories (${res.statusCode}): ${res.body}');
+      }
+      return true;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> fetchProducts({List<String>? categoryIds}) async {
     try {
       final token = await _getToken();
@@ -912,7 +986,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -946,7 +1025,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -967,7 +1051,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -1151,7 +1240,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       debugPrint('DEBUG: fetchKitchenKOTs response status: ${res.statusCode}');
@@ -1244,7 +1338,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {
@@ -1294,7 +1393,12 @@ Future<List<dynamic>> fetchEmployees() async {
 
       final res = await http.get(
         Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
+          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
       );
 
       if (res.statusCode == 200) {

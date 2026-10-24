@@ -35,6 +35,7 @@ import 'manager_home.dart';
 import 'watcher_home.dart';
 import 'attendance_manager.dart';
 import 'tracker_contact_book_page.dart';
+import 'chef_category_management_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -69,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isFirstLoad = true;
   String _userBranchId = '';
   String _userKitchenId = '';
+  String _userKitchenName = '';
   List<String> _userKitchenCategoryIds = [];
   List<String> _userStockCategoryIds = [];
   List<dynamic> _kitchenOrders = [];
@@ -408,6 +410,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _storage.read(key: 'user_id'),
       _storage.read(key: 'managerCompanyIds'),
       _storage.read(key: 'userStockCategoryIds'),
+      _storage.read(key: 'userKitchenName'),
     ]);
 
     final role = values[0];
@@ -419,11 +422,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String uId = values[6] ?? values[7] ?? '';
     final managerCompaniesStr = values[8];
     final stockCatIds = values[9];
+    final kName = values[10];
 
     String syncedRole = role ?? '';
     String syncedIsKit = isKit ?? 'false';
     String syncedIsStk = isStk ?? 'false';
     String syncedKitchenId = kId ?? '';
+    String syncedKitchenName = kName ?? '';
     List<String> syncedKitchenCategoryIds =
         catIds?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
     List<String> syncedStockCategoryIds =
@@ -434,6 +439,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted && syncedRole.isNotEmpty) {
       setState(() {
         _userRole = syncedRole.toLowerCase();
+        _userKitchenName = syncedKitchenName;
         _isKitchenEnabled = syncedIsKit == 'true';
         _isStockEnabled = syncedIsStk == 'true';
         _managerCompanyIds = syncedManagerCompanyIds;
@@ -606,6 +612,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _userRole = syncedRole.isNotEmpty ? syncedRole.toLowerCase() : (role?.toLowerCase() ?? '');
         _userBranchId = bId ?? '';
         _userKitchenId = syncedKitchenId;
+        _userKitchenName = syncedKitchenName;
         _userId = uId;
         _userKitchenCategoryIds = syncedKitchenCategoryIds;
         _userStockCategoryIds = syncedStockCategoryIds;
@@ -2372,13 +2379,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 _buildChefGridItemWithBadge(
                   context,
-                  title: 'KOT Category',
-                  icon: Icons.category_rounded,
-                  color: Colors.indigo,
-                  onTap: () {
-                    _showKotCategoryDialog();
+                  title: 'Stock Category',
+                  icon: Icons.inventory_2_rounded,
+                  color: Colors.teal,
+                  onTap: () async {
+                    final updated = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ChefCategoryManagementScreen(
+                          mode: ChefCategoryMode.stock,
+                        ),
+                      ),
+                    );
+                    if (updated == true) {
+                      await _fetchUserRole();
+                      _fetchCounts(forceRefresh: true);
+                    }
                   },
-                  badgeCount: _userKitchenCategoryIds.length,
+                  badgeCount: _userStockCategoryIds.length,
                 ),
                 _buildChefGridItemWithBadge(
                   context,
@@ -2778,8 +2796,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 title: 'KOT Category',
                                 icon: Icons.category_rounded,
                                 color: Colors.indigo,
-                                onTap: () {
-                                  _showKotCategoryDialog();
+                                onTap: () async {
+                                  final updated = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ChefCategoryManagementScreen(
+                                        mode: ChefCategoryMode.kitchen,
+                                        kitchenId: _userKitchenId,
+                                        kitchenName: _userKitchenName,
+                                      ),
+                                    ),
+                                  );
+                                  if (updated == true) {
+                                    await _fetchUserRole();
+                                    _fetchKitchenOrders();
+                                  }
                                 },
                                 badgeCount: _userKitchenCategoryIds.length,
                               ),
