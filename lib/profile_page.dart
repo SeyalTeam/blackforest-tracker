@@ -124,10 +124,17 @@ class _ProfilePageState extends State<ProfilePage> {
       final cachedRole = await _storage.read(key: 'userRole');
       final cachedKitchenName = await _storage.read(key: 'userKitchenName');
       final cachedChefCats = (await _storage.read(key: 'userKitchenCategoryNames'))?.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
-      final cachedKitchenCats = ((await _storage.read(key: 'userKitchenCategoryNames')) ?? (await _storage.read(key: 'userKitchenOnlyCategoryNames')))?
-          .split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
-      final cachedStockCats = ((await _storage.read(key: 'userStockCategoryNames')) ?? (await _storage.read(key: 'userStockOnlyCategoryNames')))?
-          .split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
+      final rawKit = (await _storage.read(key: 'userKitchenCategoryNames')) ??
+          (await _storage.read(key: 'userKitchenOnlyCategoryNames'));
+      final cachedKitchenCats = rawKit != null && rawKit.isNotEmpty
+          ? rawKit.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+          : <String>[];
+
+      final rawStk = (await _storage.read(key: 'userStockCategoryNames')) ??
+          (await _storage.read(key: 'userStockOnlyCategoryNames'));
+      final cachedStockCats = rawStk != null && rawStk.isNotEmpty
+          ? rawStk.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+          : <String>[];
       final cachedIsStock = await _storage.read(key: 'userIsStock');
       final cachedIsKitchen = await _storage.read(key: 'userIsKitchen');
       final cachedBranchName = await _storage.read(key: 'userBranchName');
