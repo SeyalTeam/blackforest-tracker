@@ -40,6 +40,11 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _employeeRole;
   List<String> _managerCompanyNames = [];
   String? _kitchenName;
+  List<String> _chefCategoryNames = [];
+  List<String> _kitchenCategoryNames = [];
+  List<String> _stockCategoryNames = [];
+  bool _userIsStock = false;
+  bool _userIsKitchen = false;
   String? _employeeId;
   String? _employeePhotoUrl;
   String? _branchName;
@@ -118,6 +123,13 @@ class _ProfilePageState extends State<ProfilePage> {
       final cachedName = await _storage.read(key: 'userName');
       final cachedRole = await _storage.read(key: 'userRole');
       final cachedKitchenName = await _storage.read(key: 'userKitchenName');
+      final cachedChefCats = (await _storage.read(key: 'userKitchenCategoryNames'))?.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
+      final cachedKitchenCats = ((await _storage.read(key: 'userKitchenCategoryNames')) ?? (await _storage.read(key: 'userKitchenOnlyCategoryNames')))?
+          .split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
+      final cachedStockCats = ((await _storage.read(key: 'userStockCategoryNames')) ?? (await _storage.read(key: 'userStockOnlyCategoryNames')))?
+          .split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
+      final cachedIsStock = await _storage.read(key: 'userIsStock');
+      final cachedIsKitchen = await _storage.read(key: 'userIsKitchen');
       final cachedBranchName = await _storage.read(key: 'userBranchName');
       final cachedEmpId = await _storage.read(key: 'employeeId');
       final cachedCompaniesStr = await _storage.read(key: 'managerCompanyNames');
@@ -166,6 +178,21 @@ class _ProfilePageState extends State<ProfilePage> {
           _employeeRole = cachedRole;
           if (cachedKitchenName != null && cachedKitchenName.isNotEmpty) {
             _kitchenName = cachedKitchenName;
+          }
+          if (cachedChefCats.isNotEmpty) {
+            _chefCategoryNames = cachedChefCats;
+          }
+          if (cachedKitchenCats.isNotEmpty) {
+            _kitchenCategoryNames = cachedKitchenCats;
+          }
+          if (cachedStockCats.isNotEmpty) {
+            _stockCategoryNames = cachedStockCats;
+          }
+          if (cachedIsStock != null) {
+            _userIsStock = cachedIsStock == 'true';
+          }
+          if (cachedIsKitchen != null) {
+            _userIsKitchen = cachedIsKitchen == 'true';
           }
           if (cachedBranchName != null && cachedBranchName.isNotEmpty) {
             _branchName = cachedBranchName;
@@ -372,6 +399,79 @@ class _ProfilePageState extends State<ProfilePage> {
           );
         }
 
+        final bool isStockFlag = user['isStock'] is bool
+            ? user['isStock'] as bool
+            : (user['isStock'] == true ||
+                role?.toLowerCase() == 'chef' ||
+                role?.toLowerCase() == 'supervisor' ||
+                role?.toLowerCase() == 'manager' ||
+                role?.toLowerCase() == 'driver' ||
+                role?.toLowerCase() == 'factory');
+        final bool isKitchenFlag = user['isKitchen'] is bool
+            ? user['isKitchen'] as bool
+            : (user['isKitchen'] == true ||
+                role?.toLowerCase() == 'chef' ||
+                role?.toLowerCase() == 'kitchen');
+
+        List<String> kitCatIds = [];
+        List<String> kitCatNames = [];
+        final rawCats = user['categories'];
+        if (rawCats is List) {
+          for (final c in rawCats) {
+            final cId = (c is Map ? (c['id'] ?? c['_id'] ?? c[r'$oid']) : c)?.toString().trim() ?? '';
+            final cName = (c is Map ? (c['name'] ?? c['title']) : null)?.toString().trim() ?? '';
+            if (cId.isNotEmpty) {
+              kitCatIds.add(cId);
+              if (cName.isNotEmpty && !kitCatNames.contains(cName)) {
+                kitCatNames.add(cName);
+              }
+            }
+          }
+        }
+
+        List<String> stkCatIds = [];
+        List<String> stkCatNames = [];
+        final rawStockCats = user['stockCategories'];
+        if (rawStockCats is List) {
+          for (final c in rawStockCats) {
+            final cId = (c is Map ? (c['id'] ?? c['_id'] ?? c[r'$oid']) : c)?.toString().trim() ?? '';
+            final cName = (c is Map ? (c['name'] ?? c['title']) : null)?.toString().trim() ?? '';
+            if (cId.isNotEmpty) {
+              stkCatIds.add(cId);
+              if (cName.isNotEmpty && !stkCatNames.contains(cName)) {
+                stkCatNames.add(cName);
+              }
+            }
+          }
+        }
+
+        if (kitCatNames.length < kitCatIds.length || stkCatNames.length < stkCatIds.length) {
+          try {
+            final allCats = await ApiService.instance.fetchCategories();
+            for (final cat in allCats) {
+              final id = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)?.toString() ?? '';
+              final name = cat is Map ? cat['name']?.toString() : null;
+              if (name != null && name.isNotEmpty) {
+                if (kitCatIds.contains(id) && !kitCatNames.contains(name)) {
+                  kitCatNames.add(name);
+                }
+                if (stkCatIds.contains(id) && !stkCatNames.contains(name)) {
+                  stkCatNames.add(name);
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
+        await _storage.write(key: 'userKitchenCategoryNames', value: kitCatNames.join(','));
+        await _storage.write(key: 'userKitchenCategoryIds', value: kitCatIds.join(','));
+        await _storage.write(key: 'userKitchenOnlyCategoryNames', value: kitCatNames.join(','));
+        await _storage.write(key: 'userStockCategoryNames', value: stkCatNames.join(','));
+        await _storage.write(key: 'userStockOnlyCategoryNames', value: stkCatNames.join(','));
+        await _storage.write(key: 'userStockCategoryIds', value: stkCatIds.join(','));
+        await _storage.write(key: 'userIsStock', value: isStockFlag.toString());
+        await _storage.write(key: 'userIsKitchen', value: isKitchenFlag.toString());
+
         if (mounted) {
           setState(() {
             if (name != null) _employeeName = name;
@@ -382,6 +482,11 @@ class _ProfilePageState extends State<ProfilePage> {
             if (kName != null && kName.isNotEmpty) _kitchenName = kName;
             if (resolvedUrl != null) _employeePhotoUrl = resolvedUrl;
             if (companyNames.isNotEmpty) _managerCompanyNames = companyNames;
+            _chefCategoryNames = kitCatNames;
+            _kitchenCategoryNames = kitCatNames;
+            _stockCategoryNames = stkCatNames;
+            _userIsStock = isStockFlag;
+            _userIsKitchen = isKitchenFlag;
           });
         }
       }
@@ -451,6 +556,11 @@ class _ProfilePageState extends State<ProfilePage> {
         ? _employeeRole![0].toUpperCase() + _employeeRole!.substring(1)
         : 'Staff';
     final branch = _loginBranchName ?? _branchName ?? '';
+    final roleLower = _employeeRole?.toLowerCase() ?? '';
+    if ((roleLower == 'chef' || roleLower == 'kitchen') && _kitchenName != null && _kitchenName!.isNotEmpty) {
+      final base = branch.isNotEmpty ? '$roleStr • $branch • $_kitchenName' : '$roleStr • $_kitchenName';
+      return _chefCategoryNames.isNotEmpty ? '$base (${_chefCategoryNames.join(', ')})' : base;
+    }
     if (branch.isNotEmpty) {
       return '$roleStr • $branch';
     }
@@ -1132,19 +1242,8 @@ class _ProfilePageState extends State<ProfilePage> {
   void _startGeofenceWatcher() async {
     _geofenceTimer?.cancel();
     _geofenceTimer = null;
-
-    final role = (_employeeRole ?? await _storage.read(key: 'userRole'))?.toLowerCase();
-    if (role == 'watcher') {
-      debugPrint('Geofence watcher skipped for watcher role');
-      return;
-    }
-
-    // Check IMMEDIATELY on start / refresh
-    _checkGeofence();
-
-    _geofenceTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
-      await _checkGeofence();
-    });
+    // Periodic monitoring is managed app-wide by AttendanceManager.instance.startForegroundWatcher().
+    // Avoid running duplicate 15s timers here which cause rapid re-evaluations and ping-pong triggers.
   }
 
   Future<void> _checkGeofence() async {
@@ -2825,8 +2924,38 @@ class _ProfilePageState extends State<ProfilePage> {
               _buildProfileInfoTile(Icons.store_outlined, 'Branch', _loginBranchName ?? _branchName ?? '-'),
               if (_managerCompanyNames.isNotEmpty)
                 _buildProfileInfoTile(Icons.business_outlined, 'Companies', _managerCompanyNames.join(' • ')),
-              if (_kitchenName != null && _kitchenName!.isNotEmpty)
+              if (_kitchenName != null && _kitchenName!.isNotEmpty) ...[
                 _buildProfileInfoTile(Icons.restaurant_outlined, 'Kitchen', _kitchenName!),
+                _buildProfileInfoTile(
+                  Icons.category_outlined,
+                  'Kitchen Category',
+                  _kitchenCategoryNames.isNotEmpty
+                      ? _kitchenCategoryNames.join(' • ')
+                      : (_chefCategoryNames.isNotEmpty
+                          ? _chefCategoryNames.join(' • ')
+                          : 'No categories assigned'),
+                ),
+              ],
+              if (_userIsStock || _employeeRole?.toLowerCase() == 'chef') ...[
+                _buildProfileInfoTile(
+                  Icons.inventory_2_outlined,
+                  'Stock Order Category',
+                  _stockCategoryNames.isNotEmpty
+                      ? _stockCategoryNames.join(' • ')
+                      : (_chefCategoryNames.isNotEmpty
+                          ? _chefCategoryNames.join(' • ')
+                          : 'No categories assigned'),
+                ),
+              ],
+              if ((_kitchenName == null || _kitchenName!.isEmpty) &&
+                  !(_userIsStock || _employeeRole?.toLowerCase() == 'chef') &&
+                  _chefCategoryNames.isNotEmpty) ...[
+                _buildProfileInfoTile(
+                  Icons.category_outlined,
+                  'Category',
+                  _chefCategoryNames.join(' • '),
+                ),
+              ],
               if (_employeePhone != null && _employeePhone!.isNotEmpty)
                 _buildProfileInfoTile(Icons.phone_outlined, 'Phone', _employeePhone!),
               const SizedBox(height: 20),

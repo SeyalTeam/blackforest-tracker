@@ -57,6 +57,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   List<Map<String, dynamic>> departments = [];
   Map<String, dynamic>? _combinedOrder;
   String _userRole = '';
+  List<String> _chefAssignedCategoryIds = [];
 
   bool get isChef => _userRole == 'chef';
   bool get isSupervisor => _userRole == 'supervisor';
@@ -155,8 +156,14 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   Future<void> _getUserRole() async {
     const storage = FlutterSecureStorage();
     String? role = await storage.read(key: 'userRole');
+    String? rawCats = (await storage.read(key: 'userStockCategoryIds')) ??
+        (await storage.read(key: 'userKitchenCategoryIds'));
+    final cats = rawCats != null && rawCats.isNotEmpty
+        ? rawCats.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+        : <String>[];
     setState(() {
       _userRole = role?.toLowerCase() ?? '';
+      _chefAssignedCategoryIds = cats;
     });
   }
 
@@ -378,6 +385,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         // Calculate Pending Items
         int pendingItems = 0;
         for (var item in items) {
+          if (isChef) {
+            final product = item['product'];
+            final pMap = product is Map ? product : {};
+            final catObj = pMap['category'];
+            final cId = (catObj is Map ? (catObj['id'] ?? catObj['_id']) : catObj)?.toString() ?? '';
+            if (_chefAssignedCategoryIds.isEmpty || cId.isEmpty || !_chefAssignedCategoryIds.contains(cId)) {
+              continue;
+            }
+          }
           bool isDone = false;
           if (isChef) {
             isDone = ((item['sendingQty'] as num?) ?? 0) > 0;
@@ -489,6 +505,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             orElse: () => {},
           );
           if (found.isNotEmpty) cMap = found;
+        }
+
+        // Filter by Chef assigned categories
+        if (isChef) {
+          if (_chefAssignedCategoryIds.isEmpty || cId.isEmpty || !_chefAssignedCategoryIds.contains(cId)) {
+            continue;
+          }
         }
 
         // Filter by Category if set

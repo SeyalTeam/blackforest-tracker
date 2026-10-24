@@ -380,36 +380,21 @@ class _LoginPageState extends State<LoginPage> {
             }
 
             final userCats = fullUser['categories'] as List?;
+            final List<String> categoryNames = [];
             if (userCats != null && userCats.isNotEmpty) {
               for (var c in userCats) {
                 final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                final cName = (c is Map ? (c['name'] ?? c['title']) : null)?.toString() ?? '';
                 if (cId.isNotEmpty && !categories.contains(cId)) {
                   categories.add(cId);
+                }
+                if (cName.isNotEmpty && !categoryNames.contains(cName)) {
+                  categoryNames.add(cName);
                 }
               }
             }
 
-            if (categories.isEmpty && kitchenId.isNotEmpty) {
-              try {
-                final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
-                if (kitchenDetails['name'] != null) {
-                  kitchenName = kitchenDetails['name'].toString();
-                }
-                final cats = (kitchenDetails['categories'] as List?) ?? [];
-                for (var c in cats) {
-                  final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-                  if (cId.isNotEmpty) categories.add(cId);
-                }
-              } catch (e) {
-                debugPrint('DEBUG: Failed to fetch kitchen details on login: $e');
-                if (kitchenObj is Map && kitchenObj['categories'] is List) {
-                  for (var c in kitchenObj['categories']) {
-                    final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-                    if (cId.isNotEmpty) categories.add(cId);
-                  }
-                }
-              }
-            } else if (kitchenName.isEmpty && kitchenId.isNotEmpty) {
+            if (kitchenName.isEmpty && kitchenId.isNotEmpty) {
               try {
                 final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
                 if (kitchenDetails['name'] != null) {
@@ -417,8 +402,6 @@ class _LoginPageState extends State<LoginPage> {
                 }
               } catch (_) {}
             }
-
-
 
             debugPrint(
               'DEBUG: Extracted kitchenId: "$kitchenId", KitchenName: "$kitchenName", BranchId: "$bId", Categories: ${categories.length}',
@@ -431,6 +414,36 @@ class _LoginPageState extends State<LoginPage> {
             await storage.write(
               key: 'userKitchenCategoryIds',
               value: categories.join(','),
+            );
+            await storage.write(
+              key: 'userKitchenCategoryNames',
+              value: categoryNames.join(','),
+            );
+
+            // Extract Stock Order Categories
+            final userStockCats = fullUser['stockCategories'] as List?;
+            final List<String> stockCategoryIds = [];
+            final List<String> stockCategoryNames = [];
+            if (userStockCats != null && userStockCats.isNotEmpty) {
+              for (var c in userStockCats) {
+                final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+                final cName = (c is Map ? (c['name'] ?? c['title']) : null)?.toString() ?? '';
+                if (cId.isNotEmpty && !stockCategoryIds.contains(cId)) {
+                  stockCategoryIds.add(cId);
+                }
+                if (cName.isNotEmpty && !stockCategoryNames.contains(cName)) {
+                  stockCategoryNames.add(cName);
+                }
+              }
+            }
+
+            await storage.write(
+              key: 'userStockCategoryIds',
+              value: stockCategoryIds.join(','),
+            );
+            await storage.write(
+              key: 'userStockCategoryNames',
+              value: stockCategoryNames.join(','),
             );
           }
 

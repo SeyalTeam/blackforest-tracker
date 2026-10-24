@@ -54,17 +54,64 @@ class _BranchListPageState extends State<BranchListPage> {
     }
   }
 
+  List<String> _userStockCategoryIds = [];
+
+  String _resolveItemCategoryId(dynamic item) {
+    if (item is! Map) return '';
+    final cat = item['category'] ?? item['categoryId'];
+    if (cat != null) {
+      if (cat is Map) {
+        final id = (cat['id'] ?? cat['_id'] ?? cat[r'$oid'])?.toString().trim();
+        if (id != null && id.isNotEmpty) return id;
+      } else {
+        final id = cat.toString().trim();
+        if (id.isNotEmpty) return id;
+      }
+    }
+    final prod = item['product'];
+    if (prod is Map) {
+      final pCat = prod['category'] ?? prod['categoryId'];
+      if (pCat != null) {
+        if (pCat is Map) {
+          final id = (pCat['id'] ?? pCat['_id'] ?? pCat[r'$oid'])?.toString().trim();
+          if (id != null && id.isNotEmpty) return id;
+        } else {
+          final id = pCat.toString().trim();
+          if (id.isNotEmpty) return id;
+        }
+      }
+    }
+    return '';
+  }
+
   Future<void> _fetchUserRole() async {
     final role = await _storage.read(key: 'userRole');
+    final rawCats = (await _storage.read(key: 'userStockCategoryIds')) ??
+        (await _storage.read(key: 'userKitchenCategoryIds'));
+    final cats = rawCats != null && rawCats.isNotEmpty
+        ? rawCats.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+        : <String>[];
     if (mounted) {
       setState(() {
         _userRole = role?.toLowerCase() ?? '';
+        _userStockCategoryIds = cats;
       });
     }
   }
 
   Future<void> _fetchCounts({bool forceRefresh = false}) async {
     try {
+      if (_userRole == 'chef') {
+        if (_userStockCategoryIds.isEmpty) {
+          if (mounted) {
+            setState(() {
+              _recentOrders = [];
+              _isLoading = false;
+            });
+          }
+          return;
+        }
+      }
       // Only show global loading if we have no data or forced
       if (forceRefresh || _recentOrders.isEmpty) {
         if (mounted) setState(() => _isLoading = true);
@@ -118,6 +165,10 @@ class _BranchListPageState extends State<BranchListPage> {
 
           if (_userRole == 'chef') {
             shouldShow = items.any((item) {
+              final catId = _resolveItemCategoryId(item);
+              if (catId.isEmpty || !_userStockCategoryIds.contains(catId)) {
+                return false;
+              }
               final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
               return s == 'ordered' || s == 'pending' || s == 'sending';
             });
@@ -280,8 +331,17 @@ class _BranchListPageState extends State<BranchListPage> {
   int _selectedTab = 0; // 0=New, 1=Working, 2=Completed
 
   int _getOrderStatus(dynamic order) {
-    final items = (order['items'] as List?) ?? [];
-    if (items.isEmpty) return 0; // New (Safe default)
+    final rawItems = (order['items'] as List?) ?? [];
+    if (rawItems.isEmpty) return 0; // New (Safe default)
+
+    final items = _userRole == 'chef'
+        ? rawItems.where((item) {
+            final catId = _resolveItemCategoryId(item);
+            return catId.isNotEmpty && _userStockCategoryIds.contains(catId);
+          }).toList()
+        : rawItems;
+
+    if (items.isEmpty) return 0;
 
     int totalItems = items.length;
     int touchedItems = 0;

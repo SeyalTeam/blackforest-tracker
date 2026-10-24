@@ -22,6 +22,7 @@ class AttendanceManager {
   static bool _isExecuting = false;
   static DateTime? _lastActionTime;
   static int _consecutiveOutsideTicks = 0;
+  static int _consecutiveInsideTicks = 0;
 
   /// Starts the app-wide foreground geofence watcher that runs every 15-20 seconds
   /// regardless of which page the user is viewing.
@@ -51,6 +52,7 @@ class AttendanceManager {
     _foregroundTimer?.cancel();
     _foregroundTimer = null;
     _consecutiveOutsideTicks = 0;
+    _consecutiveInsideTicks = 0;
   }
 
   /// Immediately triggers a check and auto-punch-in / auto-punch-out evaluation.
@@ -85,12 +87,14 @@ class AttendanceManager {
       final geo = await GeofenceUtil.checkLocationAndGeofence();
       final position = geo.position;
 
-      if (position == null) {
-        debugPrint('AttendanceManager: Could not get GPS fix. Skipping attendance check.');
+      if (geo.hasError || position == null) {
+        debugPrint(
+            'AttendanceManager: GPS/Geofence unavailable or uncertain (${geo.errorMessage}). Skipping attendance check.');
         return;
       }
 
       final isInside = geo.isInside;
+      final isOutside = geo.isOutside;
 
       // 2. Fetch today's attendance document for this user
       final now = DateTime.now();
@@ -216,20 +220,39 @@ class AttendanceManager {
       }
 
       debugPrint(
-        'AttendanceManager tick: [bg=$isBackground] isInside=$isInside, hasActive=${activeSession != null}, hasPhoto=$activePhotoFound, lastPunchOut=$latestPunchOutType',
+        'AttendanceManager tick: [bg=$isBackground] isInside=$isInside, isOutside=$isOutside, hasActive=${activeSession != null}, hasPhoto=$activePhotoFound, lastPunchOut=$latestPunchOutType',
       );
 
       // ── 5. AUTO PUNCH OUT EVALUATION ──────────────────────────────────────
       if (activeSession != null) {
-        if (!isInside) {
-          _consecutiveOutsideTicks++;
+        _consecutiveInsideTicks = 0;
 
-          if (_consecutiveOutsideTicks >= 1) {
-            // Punch out
+        if (isOutside) {
+          _consecutiveOutsideTicks++;
+          debugPrint(
+            'AttendanceManager: Outside tick $_consecutiveOutsideTicks/3 (accuracy: ${position.accuracy.toStringAsFixed(1)}m, dist: ${geo.distance?.toStringAsFixed(1)}m)',
+          );
+
+          if (_consecutiveOutsideTicks >= 3) {
+            // Check minimum active session duration: do not auto punch-out a session that started < 2 minutes ago
+            // unless user is verified far away (> 500m)
             final punchInStr = activeSession['punchIn']?.toString() ?? '';
             final punchInTime = DateTime.tryParse(punchInStr)?.toLocal() ?? now;
             final durationSecs = now.difference(punchInTime).inSeconds;
 
+            if (durationSecs < 120 && (geo.distance ?? 0) < 500.0) {
+              debugPrint('AttendanceManager: Session started recently ($durationSecs s ago). Holding auto punch-out.');
+              return;
+            }
+
+            // Check action cooldown (at least 90 seconds since last punch action)
+            if (_lastActionTime != null &&
+                now.difference(_lastActionTime!).inSeconds < 90) {
+              debugPrint('AttendanceManager: Auto punch-out debounced (action cooldown).');
+              return;
+            }
+
+            // Punch out
             activeSession['punchOut'] = now.toUtc().toIso8601String();
             activeSession['status'] = 'closed';
             activeSession['durationSeconds'] = durationSecs > 0 ? durationSecs : 0;
@@ -247,8 +270,10 @@ class AttendanceManager {
 
             if (patchRes.statusCode == 200) {
               debugPrint('AttendanceManager: Auto punch-out SUCCESS!');
-              await _storage.write(key: 'lastPunchOutType', value: 'auto');
+              _lastActionTime = now;
               _consecutiveOutsideTicks = 0;
+              _consecutiveInsideTicks = 0;
+              await _storage.write(key: 'lastPunchOutType', value: 'auto');
 
               await _showLocalNotification(
                 id: 991,
@@ -269,7 +294,10 @@ class AttendanceManager {
             }
           }
         } else {
-          // Inside branch
+          // Inside branch or in hysteresis buffer zone
+          if (_consecutiveOutsideTicks > 0) {
+            debugPrint('AttendanceManager: User confirmed inside/buffer zone. Resetting outside ticks.');
+          }
           _consecutiveOutsideTicks = 0;
         }
       }
@@ -282,96 +310,109 @@ class AttendanceManager {
         final shouldAutoPunchIn = latestPunchOutType == 'auto' && docId != null;
 
         if (shouldAutoPunchIn && isInside) {
-          // Debounce to prevent rapid re-triggering
+          _consecutiveInsideTicks++;
+          debugPrint('AttendanceManager: Inside tick $_consecutiveInsideTicks/2 for auto punch-in.');
+
+          // Cooldown check: at least 90 seconds between punch actions
           if (_lastActionTime != null &&
-              now.difference(_lastActionTime!).inSeconds < 25) {
-            debugPrint('AttendanceManager: Auto punch-in debounced (recently executed).');
+              now.difference(_lastActionTime!).inSeconds < 90) {
+            debugPrint('AttendanceManager: Auto punch-in debounced (action cooldown).');
             return;
           }
-          _lastActionTime = now;
 
-          final newActivity = {
-            'type': 'session',
-            'punchIn': now.toUtc().toIso8601String(),
-            'status': 'active',
-            'capturedImage': null,
-            'punchInType': 'auto',
-            'latitude': position.latitude,
-            'longitude': position.longitude,
-          };
+          // Require at least 2 consecutive inside ticks to confirm stable arrival
+          if (_consecutiveInsideTicks >= 2) {
+            _lastActionTime = now;
+            _consecutiveInsideTicks = 0;
+            _consecutiveOutsideTicks = 0;
 
-          if (docId != null) {
-            final updatedActivities = List<dynamic>.from(rawActivities)..add(newActivity);
-            final patchUrl = '${ApiService.baseUrl}/attendance/$docId';
-            final patchRes = await http.patch(
-              Uri.parse(patchUrl),
-              headers: {
-                'Authorization': 'Bearer $token',
-                'Content-Type': 'application/json',
-              },
-              body: jsonEncode({'activities': updatedActivities}),
-            );
+            final newActivity = {
+              'type': 'session',
+              'punchIn': now.toUtc().toIso8601String(),
+              'status': 'active',
+              'capturedImage': null,
+              'punchInType': 'auto',
+              'latitude': position.latitude,
+              'longitude': position.longitude,
+            };
 
-            if (patchRes.statusCode == 200) {
-              debugPrint('AttendanceManager: Auto punch-in SUCCESS (patched)!');
-              await _storage.delete(key: 'lastPunchOutType');
-
-              await _showLocalNotification(
-                id: 992,
-                title: '⚡ Auto Punched In',
-                body: 'You arrived at the branch! Session started. Tap here to add your selfie.',
-                payload: 'auto_punch_in',
+            if (docId != null) {
+              final updatedActivities = List<dynamic>.from(rawActivities)..add(newActivity);
+              final patchUrl = '${ApiService.baseUrl}/attendance/$docId';
+              final patchRes = await http.patch(
+                Uri.parse(patchUrl),
+                headers: {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                },
+                body: jsonEncode({'activities': updatedActivities}),
               );
 
-              if (!isBackground) {
-                instance._updateController.add({
-                  'type': 'auto_punch_in',
-                  'docId': docId,
-                  'timestamp': now.toIso8601String(),
-                });
+              if (patchRes.statusCode == 200) {
+                debugPrint('AttendanceManager: Auto punch-in SUCCESS (patched)!');
+                _lastActionTime = now;
+                await _storage.delete(key: 'lastPunchOutType');
+
+                await _showLocalNotification(
+                  id: 992,
+                  title: '⚡ Auto Punched In',
+                  body: 'You arrived at the branch! Session started. Tap here to add your selfie.',
+                  payload: 'auto_punch_in',
+                );
+
+                if (!isBackground) {
+                  instance._updateController.add({
+                    'type': 'auto_punch_in',
+                    'docId': docId,
+                    'timestamp': now.toIso8601String(),
+                  });
+                }
+              } else {
+                debugPrint('AttendanceManager: Auto punch-in PATCH failed (${patchRes.statusCode}): ${patchRes.body}');
               }
             } else {
-              debugPrint('AttendanceManager: Auto punch-in PATCH failed (${patchRes.statusCode}): ${patchRes.body}');
-            }
-          } else {
-            // Create new today document
-            final postUrl = '${ApiService.baseUrl}/attendance';
-            final postRes = await http.post(
-              Uri.parse(postUrl),
-              headers: {
-                'Authorization': 'Bearer $token',
-                'Content-Type': 'application/json',
-              },
-              body: jsonEncode({
-                'user': userId,
-                'date': localMidnight.toUtc().toIso8601String(),
-                'dateString': queryDateStr,
-                'activities': [newActivity],
-                if (geo.branchId != null) 'loginBranch': geo.branchId,
-              }),
-            );
-
-            if (postRes.statusCode == 200 || postRes.statusCode == 201) {
-              debugPrint('AttendanceManager: Auto punch-in SUCCESS (posted new doc)!');
-              await _storage.delete(key: 'lastPunchOutType');
-
-              await _showLocalNotification(
-                id: 992,
-                title: '⚡ Auto Punched In',
-                body: 'You arrived at the branch! Session started. Tap here to add your selfie.',
-                payload: 'auto_punch_in',
+              // Create new today document
+              final postUrl = '${ApiService.baseUrl}/attendance';
+              final postRes = await http.post(
+                Uri.parse(postUrl),
+                headers: {
+                  'Authorization': 'Bearer $token',
+                  'Content-Type': 'application/json',
+                },
+                body: jsonEncode({
+                  'user': userId,
+                  'date': localMidnight.toUtc().toIso8601String(),
+                  'dateString': queryDateStr,
+                  'activities': [newActivity],
+                  if (geo.branchId != null) 'loginBranch': geo.branchId,
+                }),
               );
 
-              if (!isBackground) {
-                instance._updateController.add({
-                  'type': 'auto_punch_in',
-                  'timestamp': now.toIso8601String(),
-                });
+              if (postRes.statusCode == 200 || postRes.statusCode == 201) {
+                debugPrint('AttendanceManager: Auto punch-in SUCCESS (posted new doc)!');
+                _lastActionTime = now;
+                await _storage.delete(key: 'lastPunchOutType');
+
+                await _showLocalNotification(
+                  id: 992,
+                  title: '⚡ Auto Punched In',
+                  body: 'You arrived at the branch! Session started. Tap here to add your selfie.',
+                  payload: 'auto_punch_in',
+                );
+
+                if (!isBackground) {
+                  instance._updateController.add({
+                    'type': 'auto_punch_in',
+                    'timestamp': now.toIso8601String(),
+                  });
+                }
+              } else {
+                debugPrint('AttendanceManager: Auto punch-in POST failed (${postRes.statusCode}): ${postRes.body}');
               }
-            } else {
-              debugPrint('AttendanceManager: Auto punch-in POST failed (${postRes.statusCode}): ${postRes.body}');
             }
           }
+        } else {
+          _consecutiveInsideTicks = 0;
         }
       }
     } catch (e) {

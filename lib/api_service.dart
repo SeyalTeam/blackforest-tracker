@@ -64,7 +64,7 @@ class ApiService {
   Future<Map<String, dynamic>> fetchUserProfile() async {
     try {
       final token = await _getToken();
-      final url = '$_baseUrl/users/me';
+      final url = '$_baseUrl/users/me?depth=2';
       final res = await http.get(
         Uri.parse(url),
         headers: token != null ? {'Authorization': 'Bearer $token'} : {},
@@ -873,7 +873,11 @@ Future<List<dynamic>> fetchEmployees() async {
         body: jsonEncode(body),
       );
 
-      return res.statusCode == 200;
+      if (res.statusCode != 200) {
+        debugPrint('DEBUG: updateUserCategories failed (${res.statusCode}): ${res.body}');
+        throw Exception('Failed to update categories (${res.statusCode}): ${res.body}');
+      }
+      return true;
     } catch (e) {
       rethrow;
     }

@@ -70,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _userBranchId = '';
   String _userKitchenId = '';
   List<String> _userKitchenCategoryIds = [];
+  List<String> _userStockCategoryIds = [];
   List<dynamic> _kitchenOrders = [];
   DateTime? _selectedKitchenDate;
   final PageController _kitchenPageController = PageController();
@@ -406,6 +407,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _storage.read(key: 'userId'),
       _storage.read(key: 'user_id'),
       _storage.read(key: 'managerCompanyIds'),
+      _storage.read(key: 'userStockCategoryIds'),
     ]);
 
     final role = values[0];
@@ -416,6 +418,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final isStk = values[5];
     String uId = values[6] ?? values[7] ?? '';
     final managerCompaniesStr = values[8];
+    final stockCatIds = values[9];
 
     String syncedRole = role ?? '';
     String syncedIsKit = isKit ?? 'false';
@@ -423,6 +426,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String syncedKitchenId = kId ?? '';
     List<String> syncedKitchenCategoryIds =
         catIds?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
+    List<String> syncedStockCategoryIds =
+        stockCatIds?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
     List<String> syncedManagerCompanyIds = managerCompaniesStr?.split(',').where((id) => id.isNotEmpty).toList() ?? [];
 
     // Immediately update local role state from cached storage to prevent UI flash
@@ -535,31 +540,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             }
           }
 
-          // Fallback to kitchen categories only if user has no explicit categories assigned
-          if (categories.isEmpty && kitchenId.isNotEmpty) {
-            try {
-              final kitchenDetails = await ApiService.instance.fetchKitchenDetails(kitchenId);
-              final cats = (kitchenDetails['categories'] as List?) ?? [];
-              for (var c in cats) {
-                final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-                if (cId.isNotEmpty) categories.add(cId);
-              }
-            } catch (e) {
-              debugPrint('DEBUG: Failed to sync kitchen details in _fetchUserRole: $e');
-              if (kitchenObj is Map && kitchenObj['categories'] is List) {
-                for (var c in kitchenObj['categories']) {
-                  final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-                  if (cId.isNotEmpty) categories.add(cId);
-                }
+          final userStockCats = profile['stockCategories'] as List?;
+          List<String> stockCategories = [];
+          if (userStockCats != null && userStockCats.isNotEmpty) {
+            for (var c in userStockCats) {
+              final cId = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
+              if (cId.isNotEmpty && !stockCategories.contains(cId)) {
+                stockCategories.add(cId);
               }
             }
           }
 
           syncedKitchenId = kitchenId;
           syncedKitchenCategoryIds = categories;
+          syncedStockCategoryIds = stockCategories;
 
           await _storage.write(key: 'userKitchenId', value: kitchenId);
           await _storage.write(key: 'userKitchenCategoryIds', value: categories.join(','));
+          await _storage.write(key: 'userStockCategoryIds', value: stockCategories.join(','));
         }
       }
     } catch (e) {
@@ -610,6 +608,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _userKitchenId = syncedKitchenId;
         _userId = uId;
         _userKitchenCategoryIds = syncedKitchenCategoryIds;
+        _userStockCategoryIds = syncedStockCategoryIds;
         _isKitchenEnabled = syncedIsKit == 'true';
         _isStockEnabled = syncedIsStk == 'true';
         _selectedDepartmentFilter = 'ALL';
@@ -690,6 +689,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
 
+      final bool isChefUser = _userRole == 'chef' || _isKitchenEnabled;
+      if (isChefUser && _userKitchenCategoryIds.isEmpty) {
+        if (_kitchenNotifications.isNotEmpty && mounted) {
+          setState(() {
+            _kitchenNotifications = [];
+          });
+        }
+        return;
+      }
+
       debugPrint(
         'DEBUG: _syncLiveNotifications running for role: $_userRole, user: $_userId, branch: $_userBranchId',
       );
@@ -739,10 +748,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ?.toString() ??
               '';
 
-          final isAllCategoriesAllowed = _userKitchenCategoryIds.isEmpty;
-          if (!isAllCategoriesAllowed &&
-              (cId.isEmpty || !_userKitchenCategoryIds.contains(cId))) {
-            continue; // Skip items not belonging to the Chef's selected categories
+          // --- Category Filter Logic ---
+          final bool matchesCategory =
+              cId.isNotEmpty && _userKitchenCategoryIds.contains(cId);
+          if (!matchesCategory) {
+            continue; // Skip items not belonging to the Chef's assigned categories
           }
           // -----------------------------
 
@@ -1359,26 +1369,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       if (mounted && showLoader) setState(() => _isLoading = true);
 
-      // Fetch Kitchen categories if empty or to ensure sync
-      if (_userKitchenCategoryIds.isEmpty && _userKitchenId.isNotEmpty) {
-        debugPrint('DEBUG: Categories empty, fetching kitchen details...');
-        final kitchen = await ApiService.instance.fetchKitchenDetails(
-          _userKitchenId,
-        );
-        final cats = (kitchen['categories'] as List?) ?? [];
-        final List<String> fetchedCatIds = [];
-        for (var c in cats) {
-          final id = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString() ?? '';
-          if (id.isNotEmpty) fetchedCatIds.add(id);
-        }
+      final bool isChefUser = _userRole == 'chef' || _isKitchenEnabled;
+      if (isChefUser && _userKitchenCategoryIds.isEmpty) {
+        debugPrint('DEBUG: Chef has no assigned categories. Showing zero kitchen orders.');
         if (mounted) {
           setState(() {
-            _userKitchenCategoryIds = fetchedCatIds;
+            _kitchenOrders = [];
+            if (showLoader) _isLoading = false;
           });
         }
-        debugPrint(
-          'DEBUG: Fetched ${fetchedCatIds.length} categories from API',
-        );
+        return;
       }
 
       // Default dashboard should show today's live KOTs.
@@ -1485,9 +1485,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             );
           }
 
-          final isAllCategoriesAllowed = _userKitchenCategoryIds.isEmpty;
-          if (!isAllCategoriesAllowed &&
-              (cId.isEmpty || !_userKitchenCategoryIds.contains(cId))) {
+          final bool matchesCategory =
+              cId.isNotEmpty && _userKitchenCategoryIds.contains(cId);
+          if (!matchesCategory) {
             continue;
           }
 
@@ -1909,11 +1909,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           bool shouldShow = false;
 
           if (_userRole == 'chef') {
-            // Chef sees orders with ANY Pending, Ordered OR Sending items
-            shouldShow = items.any((item) {
-              final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
-              return s == 'ordered' || s == 'pending' || s == 'sending';
-            });
+            if (_userStockCategoryIds.isEmpty) {
+              shouldShow = false;
+            } else {
+              shouldShow = items.any((item) {
+                final catId = _resolveItemCategoryId(item);
+                if (catId.isEmpty || !_userStockCategoryIds.contains(catId)) return false;
+                final s = (item['status'] as String?)?.toLowerCase() ?? 'pending';
+                return s == 'ordered' || s == 'pending' || s == 'sending';
+              });
+            }
           } else if (_userRole == 'supervisor' || _isManager) {
             // Supervisor/Manager sees ALL orders for the day (Simplified for full visibility)
             shouldShow = true;
@@ -1928,7 +1933,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
           int status = _getOrderStatus(o);
           if (status == 2) {
-            shouldShow = true; // Still show completed orders for the day
+            if (_userRole == 'chef') {
+              shouldShow = _userStockCategoryIds.isNotEmpty && items.any((item) {
+                final catId = _resolveItemCategoryId(item);
+                return catId.isNotEmpty && _userStockCategoryIds.contains(catId);
+              });
+            } else {
+              shouldShow = true; // Still show completed orders for the day
+            }
           }
 
           bool isLive = isOrderedOnFilterDate && isDeliveryOnFilterDate;
@@ -2149,9 +2161,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   int _selectedTab = 0; // 0=New, 1=Working, 2=Completed
 
+  String _resolveItemCategoryId(dynamic item) {
+    if (item is! Map) return '';
+    final cat = item['category'] ?? item['categoryId'];
+    if (cat != null) {
+      if (cat is Map) {
+        final id = (cat['id'] ?? cat['_id'] ?? cat[r'$oid'])?.toString().trim();
+        if (id != null && id.isNotEmpty) return id;
+      } else {
+        final id = cat.toString().trim();
+        if (id.isNotEmpty) return id;
+      }
+    }
+    final prod = item['product'];
+    if (prod is Map) {
+      final pCat = prod['category'] ?? prod['categoryId'];
+      if (pCat != null) {
+        if (pCat is Map) {
+          final id = (pCat['id'] ?? pCat['_id'] ?? pCat[r'$oid'])?.toString().trim();
+          if (id != null && id.isNotEmpty) return id;
+        } else {
+          final id = pCat.toString().trim();
+          if (id.isNotEmpty) return id;
+        }
+      }
+    }
+    return '';
+  }
+
   int _getOrderStatus(dynamic order) {
-    final items = (order['items'] as List?) ?? [];
-    if (items.isEmpty) return 0; // New (Safe default)
+    final rawItems = (order['items'] as List?) ?? [];
+    if (rawItems.isEmpty) return 0; // New (Safe default)
+
+    final items = _userRole == 'chef'
+        ? rawItems.where((item) {
+            final catId = _resolveItemCategoryId(item);
+            return catId.isNotEmpty && _userStockCategoryIds.contains(catId);
+          }).toList()
+        : rawItems;
+    if (items.isEmpty) return 0;
 
     int totalItems = items.length;
     int touchedItems = 0;
@@ -5830,7 +5878,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final branchId = _userBranchId;
       final kitchens = await ApiService.instance.fetchKitchens();
       List<dynamic> branchKitchens = [];
-      if (branchId.isNotEmpty) {
+      if (_userKitchenId.isNotEmpty) {
+        branchKitchens = kitchens.where((k) {
+          final id = (k['id'] ?? k['_id'])?.toString() ?? '';
+          return id == _userKitchenId;
+        }).toList();
+      } else if (branchId.isNotEmpty) {
         branchKitchens = kitchens.where((k) {
           final bList = k['branches'] as List?;
           if (bList == null) return false;
@@ -5840,9 +5893,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           });
         }).toList();
       }
-      if (branchKitchens.isEmpty) {
-        branchKitchens = kitchens;
-      }
 
       final allChefs = await ApiService.instance.fetchChefs();
 
@@ -5851,21 +5901,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (branchKitchens.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No kitchens found for this branch.')),
+            const SnackBar(content: Text('No kitchen assigned to your profile. Please contact admin.')),
           );
         }
         return;
       }
 
-      // Map category ID to assigned chef's name
-      final Map<String, String> categoryToChefMap = {};
+      // Map category ID to assigned chefs' names
+      final Map<String, List<String>> categoryToChefsMap = {};
       for (var cDoc in allChefs) {
+        final cIdDoc = (cDoc['id'] ?? cDoc['_id'])?.toString() ?? '';
+        if (cIdDoc == _userId) continue;
         final cName = (cDoc['name'] ?? cDoc['username'])?.toString() ?? 'Chef';
         final cCats = (cDoc['categories'] as List?) ?? [];
         for (var cat in cCats) {
           final catId = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)?.toString() ?? '';
           if (catId.isNotEmpty) {
-            categoryToChefMap[catId] = cName;
+            categoryToChefsMap.putIfAbsent(catId, () => []).add(cName);
           }
         }
       }
@@ -5985,16 +6037,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 final catName = cat is Map ? (cat['name']?.toString() ?? 'Category') : 'Category';
                                 final isChecked = selectedCatIds.contains(catId);
 
-                                final assignedChef = categoryToChefMap[catId];
+                                final otherChefs = categoryToChefsMap[catId] ?? [];
 
                                 String chefLabel = 'Unassigned';
                                 Color chefLabelColor = Colors.grey;
-                                if (assignedChef != null && assignedChef.isNotEmpty) {
-                                  chefLabel = 'Assigned: $assignedChef';
+                                if (otherChefs.isNotEmpty) {
+                                  chefLabel = 'Assigned: ${otherChefs.join(', ')}';
                                   chefLabelColor = Colors.orange.shade800;
                                 }
                                 if (isChecked) {
-                                  chefLabel = 'Assigned to You';
+                                  chefLabel = otherChefs.isNotEmpty
+                                      ? 'Assigned to You & ${otherChefs.join(', ')}'
+                                      : 'Assigned to You';
                                   chefLabelColor = Colors.green.shade700;
                                 }
 
@@ -6078,6 +6132,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _saveUserKotCategoryAssignments(String kitchenId, List<String> categoryIds) async {
+    if (_userId.isEmpty) {
+      final savedId = await _storage.read(key: 'userId');
+      if (savedId != null && savedId.isNotEmpty) {
+        _userId = savedId;
+      } else {
+        try {
+          final profile = await ApiService.instance.fetchUserProfile();
+          _userId = (profile['id'] ?? profile['_id'])?.toString() ?? '';
+        } catch (_) {}
+      }
+    }
     if (_userId.isEmpty) return;
 
     showDialog(
@@ -6095,6 +6160,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       await _storage.write(key: 'userKitchenId', value: kitchenId);
       await _storage.write(key: 'userKitchenCategoryIds', value: categoryIds.join(','));
+
+      try {
+        final allCats = await ApiService.instance.fetchCategories();
+        final selectedNames = allCats
+            .where((cat) {
+              final id = (cat is Map ? (cat['id'] ?? cat['_id']) : cat)?.toString() ?? '';
+              return categoryIds.contains(id);
+            })
+            .map((cat) => (cat is Map ? cat['name'] : '')?.toString() ?? '')
+            .where((name) => name.isNotEmpty)
+            .toList();
+        await _storage.write(key: 'userKitchenCategoryNames', value: selectedNames.join(','));
+        await _storage.write(key: 'userKitchenOnlyCategoryNames', value: selectedNames.join(','));
+      } catch (_) {}
 
       if (mounted) {
         setState(() {
