@@ -61,26 +61,27 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> fetchUserProfile() async {
+  Future<Map<String, dynamic>> fetchUserProfile({String? token}) async {
     try {
-      final token = await _getToken();
+      final effectiveToken = token ?? await _getToken();
       final url = '$_baseUrl/users/me?depth=2';
       final res = await http.get(
         Uri.parse(url),
         headers: {
           'Accept': 'application/json',
-          'x-app-key': 'bf_pos_9f8d7e6c5b4a3210',
-          'x-app-secret': 'bf_pos_9f8d7e6c5b4a3210',
-          if (token != null) 'Authorization': 'Bearer $token',
+          'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
+          'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
+          if (effectiveToken != null && effectiveToken.isNotEmpty)
+            'Authorization': 'Bearer $effectiveToken',
         },
-      );
+      ).timeout(const Duration(seconds: 25));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         debugPrint('DEBUG: fetchUserProfile success. Data: ${res.body}');
         return data['user'] ?? {};
       } else {
-        throw Exception('Failed to fetch user profile');
+        throw Exception('Failed to fetch user profile: ${res.statusCode}');
       }
     } catch (e) {
       rethrow;
@@ -209,13 +210,15 @@ class ApiService {
     try {
       final token = await _getToken();
       final res = await http.get(
-        Uri.parse('$_baseUrl/globals/branch-geo-settings'),
+        Uri.parse('$_baseUrl/globals/branch-geo-settings?depth=0'),
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
+          'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
+          'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
+          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
         },
-      );
+      ).timeout(const Duration(seconds: 25));
 
       if (res.statusCode == 200) {
         return jsonDecode(res.body) as Map<String, dynamic>;

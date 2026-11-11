@@ -24,6 +24,9 @@ class TrackerRealtimeService {
   final _callSignalController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get onCallSignal => _callSignalController.stream;
 
+  final _categoryUpdateController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get onCategoryUpdated => _categoryUpdateController.stream;
+
   bool get isConnected => _wsSocket != null && _wsSocket!.readyState == io.WebSocket.open;
 
   Future<void> _loadSession() async {
@@ -55,8 +58,7 @@ class TrackerRealtimeService {
     _wsReconnectTimer?.cancel();
     await _loadSession();
     if (_wsToken.isEmpty) {
-      debugPrint('TrackerRealtimeService: no token found, scheduling reconnect in 4s');
-      _scheduleReconnect();
+      debugPrint('TrackerRealtimeService: no token found, not connecting WS');
       return;
     }
 
@@ -151,6 +153,10 @@ class TrackerRealtimeService {
           decoded['action'] == 'call_signal') {
         _callSignalController.add(decoded);
       }
+
+      if (eventType == 'chef_categories_updated') {
+        _categoryUpdateController.add(decoded);
+      }
     } catch (e) {
       debugPrint('TrackerRealtimeService: error parsing frame: $e');
     }
@@ -196,5 +202,6 @@ class TrackerRealtimeService {
     _wsReconnectTimer?.cancel();
     _closeSocket();
     _callSignalController.close();
+    _categoryUpdateController.close();
   }
 }

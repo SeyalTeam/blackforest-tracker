@@ -88,6 +88,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   DateTime _selectedDate = DateTime.now();
   Timer? _syncTimer;
   Timer? _kitchenClockTimer;
+  StreamSubscription? _categoryUpdateSubscription;
   bool _isKitchenSyncInProgress = false;
   List<Map<String, dynamic>> _kitchenNotifications = [];
   final Set<String> _readNotificationIds = {};
@@ -325,6 +326,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AttendanceManager.instance.startForegroundWatcher();
+    _categoryUpdateSubscription = TrackerRealtimeService.instance.onCategoryUpdated.listen(_handleRealtimeCategoryUpdate);
     _initData();
     _startSyncTimer();
     _startKitchenClockTimer();
@@ -334,6 +336,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     AttendanceManager.instance.stopForegroundWatcher();
+    _categoryUpdateSubscription?.cancel();
     _syncTimer?.cancel();
     _kitchenClockTimer?.cancel();
     _kitchenPageController.dispose();
@@ -519,7 +522,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
 
 
-        if (profileIsKitchen) {
+        if (profileIsKitchen || profileRole == 'chef') {
           final kitchenObj = profile['kitchen'];
           String kitchenId = '';
           List<String> categories = [];
@@ -546,6 +549,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             }
           }
 
+          syncedKitchenId = kitchenId;
+          syncedKitchenCategoryIds = categories;
+
+          await _storage.write(key: 'userKitchenId', value: kitchenId);
+          await _storage.write(key: 'userKitchenCategoryIds', value: categories.join(','));
+        }
+
+        if (profileIsStock || profileRole == 'chef' || profileRole == 'supervisor') {
           final userStockCats = profile['stockCategories'] as List?;
           List<String> stockCategories = [];
           if (userStockCats != null && userStockCats.isNotEmpty) {
@@ -557,12 +568,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             }
           }
 
-          syncedKitchenId = kitchenId;
-          syncedKitchenCategoryIds = categories;
           syncedStockCategoryIds = stockCategories;
-
-          await _storage.write(key: 'userKitchenId', value: kitchenId);
-          await _storage.write(key: 'userKitchenCategoryIds', value: categories.join(','));
           await _storage.write(key: 'userStockCategoryIds', value: stockCategories.join(','));
         }
       }
@@ -636,6 +642,90 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _isFirstLoad = false;
         }
       });
+    }
+  }
+
+  void _handleRealtimeCategoryUpdate(Map<String, dynamic> data) async {
+    final targetUserId = data['targetUserId']?.toString();
+    if (targetUserId != null && targetUserId.isNotEmpty && targetUserId != _userId) {
+      return; // Not targeted to this user
+    }
+
+    final action = data['action']?.toString();
+    final claimedByName = data['claimedByChefName']?.toString() ?? 'Another Chef';
+    final rawKitchenCats = data['kitchenCategoryIds'] as List?;
+    final rawStockCats = data['stockCategoryIds'] as List?;
+
+    List<String>? newKitchenCats;
+    if (rawKitchenCats != null) {
+      newKitchenCats = rawKitchenCats
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    List<String>? newStockCats;
+    if (rawStockCats != null) {
+      newStockCats = rawStockCats
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    if (newKitchenCats != null) {
+      _userKitchenCategoryIds = newKitchenCats;
+      await _storage.write(key: 'userKitchenCategoryIds', value: newKitchenCats.join(','));
+    }
+
+    if (newStockCats != null) {
+      _userStockCategoryIds = newStockCats;
+      await _storage.write(key: 'userStockCategoryIds', value: newStockCats.join(','));
+    }
+
+    if (!mounted) return;
+
+    setState(() {});
+
+    if (action == 'removed' && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.info_outline, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('A category was claimed by $claimedByName and removed from your list.'),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.orange.shade900,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } else if (action == 'assigned' && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle_outline, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(child: Text('Your assigned categories have been updated.')),
+            ],
+          ),
+          backgroundColor: Colors.teal.shade800,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+
+    // Instantly refresh orders without loader so products of the old category disappear immediately
+    if (_isKitchenEnabled) {
+      _fetchKitchenOrders(showLoader: false);
+    }
+    if (_isStockEnabled) {
+      _fetchCounts(forceRefresh: true);
     }
   }
 

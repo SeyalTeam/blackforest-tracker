@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
 import 'home.dart';
 import 'notification_service.dart';
@@ -45,6 +46,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     _checkInitialNotification();
     _checkLoginStatus();
+
+    // Fallback safeguard: Never leave user on splash loading screen for more than 2.5s
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted && _isLoggedIn == null) {
+        setState(() {
+          _isLoggedIn = false;
+        });
+      }
+    });
   }
 
   Future<void> _checkInitialNotification() async {
@@ -103,14 +113,32 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   Future<void> _checkLoginStatus() async {
-    const storage = FlutterSecureStorage();
-    String? isLoggedIn = await storage.read(key: 'isLoggedIn');
+    bool loggedIn = false;
+    try {
+      // 1. Instant check from SharedPreferences (avoids Android Keystore blocking/hanging on startup)
+      final prefs = await SharedPreferences.getInstance();
+      final spVal = prefs.getString('isLoggedIn') ?? prefs.getBool('isLoggedIn')?.toString();
+      if (spVal == 'true') {
+        loggedIn = true;
+      } else {
+        // 2. Fallback check from FlutterSecureStorage with a safe 2-second timeout
+        const storage = FlutterSecureStorage();
+        final secVal = await storage.read(key: 'isLoggedIn').timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => null,
+        );
+        loggedIn = secVal == 'true';
+      }
+    } catch (e) {
+      debugPrint('main: _checkLoginStatus error: $e');
+      loggedIn = false;
+    }
 
     if (mounted) {
       setState(() {
-        _isLoggedIn = isLoggedIn == 'true';
+        _isLoggedIn = loggedIn;
       });
-      if (_isLoggedIn == true) {
+      if (loggedIn) {
         TrackerRealtimeService.instance.connect();
       }
     }

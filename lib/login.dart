@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'app_http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
 import 'api_service.dart';
 import 'home.dart';
 import 'geofence_util.dart';
@@ -37,15 +38,35 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _initializeAuth() async {
-    await _fetchDynamicRanges();
-    await _fetchIp();
+    _fetchDynamicRanges();
+    _fetchIp();
+    _prewarmLocationAndSettings();
+  }
+
+  Future<void> _prewarmLocationAndSettings() async {
+    try {
+      // Request location permission upfront as soon as the login screen appears
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        await Geolocator.requestPermission();
+      }
+      // Preload branch settings in memory in background
+      GeofenceUtil.preloadSettings();
+    } catch (e) {
+      debugPrint('Prewarm location/settings error: $e');
+    }
   }
 
   Future<void> _fetchDynamicRanges() async {
     try {
       final res = await http.get(
-        Uri.parse('https://blackforest-api.vseyal.com/api/branches?limit=1000'),
-      );
+        Uri.parse('${ApiService.baseUrl}/branches?limit=1000&depth=0'),
+        headers: {
+          'Accept': 'application/json',
+          'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
+          'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
+        },
+      ).timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final docs = data['docs'] as List?;
@@ -105,7 +126,7 @@ class _LoginPageState extends State<LoginPage> {
       final interfaces = await NetworkInterface.list(
         includeLoopback: false,
         type: InternetAddressType.IPv4,
-      );
+      ).timeout(const Duration(seconds: 3));
 
       if (interfaces.isNotEmpty) {
         // Find the best local IP (prioritize common LAN ranges)
@@ -139,44 +160,110 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _login() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+    if (!_formKey.currentState!.validate()) return;
 
-      // Fetch Private IP if available
+    // Check GPS service immediately before spinning loader / long network calls
+    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.location_off, color: Colors.white),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Location services are disabled. Please turn ON GPS.',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red[800],
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Location permission is required to verify branch attendance.'),
+              backgroundColor: Colors.red[800],
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Location permission is permanently denied. Please enable in App Settings.'),
+            backgroundColor: Colors.red[800],
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Fetch Private IP if available (with timeout)
       if (_privateIp == null) {
         await _fetchIp();
       }
 
+      // Quick GPS capture - permission is verified, grab fast fix or last known position
+      Position? loginPosition;
       try {
-        // Attempt Real Login
-        // Assuming 'email' is the identifier. The UI says 'Branch', but payload default is email.
-        // We try sending the input as email.
+        loginPosition = await Geolocator.getLastKnownPosition();
+        if (loginPosition == null) {
+          loginPosition = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+            ),
+          ).timeout(const Duration(seconds: 3));
+        }
+      } catch (_) {}
 
-        final rawInput = _branchController.text.trim();
-        final emailToUse = rawInput.contains('@') ? rawInput : '$rawInput@bf.com';
+      final rawInput = _branchController.text.trim();
+      final emailToUse = rawInput.contains('@') ? rawInput : '$rawInput@bf.com';
 
-        var res = await http.post(
-          Uri.parse('https://blackforest-api.vseyal.com/api/users/login'),
-          headers: {
-            'Content-Type': 'application/json',
-            'x-private-ip': _privateIp ?? '',
-            'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
-            'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
-          },
-          body: jsonEncode({
-            'email': emailToUse,
-            'password': _passwordController.text,
-            'privateIp':
-                _privateIp, // Send private IP for server-side validation
-          }),
-        );
+      var res = await http.post(
+        Uri.parse('${ApiService.baseUrl}/users/login'),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-private-ip': _privateIp ?? '',
+          'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
+          'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
+        },
+        body: jsonEncode({
+          'email': emailToUse,
+          'password': _passwordController.text,
+          'privateIp': _privateIp,
+        }),
+      ).timeout(const Duration(seconds: 40));
 
-        // Fallback: If @bf.com failed and input had no @, try sending rawInput directly as identifier
-        if (res.statusCode != 200 && !rawInput.contains('@')) {
+      // Fallback: If @bf.com failed and input had no @, try sending rawInput directly as identifier
+      if (res.statusCode != 200 && !rawInput.contains('@')) {
+        try {
           final fallbackRes = await http.post(
-            Uri.parse('https://blackforest-api.vseyal.com/api/users/login'),
+            Uri.parse('${ApiService.baseUrl}/users/login'),
             headers: {
               'Content-Type': 'application/json',
               'x-private-ip': _privateIp ?? '',
@@ -188,88 +275,121 @@ class _LoginPageState extends State<LoginPage> {
               'password': _passwordController.text,
               'privateIp': _privateIp,
             }),
-          );
+          ).timeout(const Duration(seconds: 40));
           if (fallbackRes.statusCode == 200) {
             res = fallbackRes;
           }
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final token = (data['token'] ?? '').toString();
+        final user = data['user'] ?? {};
+
+        const storage = FlutterSecureStorage();
+        final prefs = await SharedPreferences.getInstance();
+
+        // Immediately persist token so that all subsequent requests are authenticated
+        if (token.isNotEmpty) {
+          await storage.write(key: 'token', value: token);
+          await prefs.setString('token', token);
+          await prefs.setString('auth_token', token);
         }
 
-        if (!mounted) {
-          setState(() => _isLoading = false);
+        // FETCH FULL PROFILE to ensure nested fields like user.kitchen are populated
+        Map<String, dynamic> fullUser = user;
+        try {
+          final profile = await ApiService.instance.fetchUserProfile(token: token);
+          if (profile.isNotEmpty) fullUser = profile;
+        } catch (e) {
+          debugPrint('DEBUG: Failed to fetch full profile: $e');
+        }
+
+        final userRole = fullUser['role']?.toString().toLowerCase() ?? '';
+        final userName = fullUser['name']?.toString() ?? '';
+        final userId = (fullUser['id'] ?? fullUser['_id'])?.toString() ?? '';
+
+        debugPrint(
+          'DEBUG: Login attempt. Role: $userRole, Name: $userName, ID: $userId',
+        );
+
+        // Block factory, admin, and superadmin roles from logging into Tracker App
+        if (userRole == 'factory' || userRole == 'admin' || userRole == 'superadmin') {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Access Denied: $userRole role is not permitted to access Tracker App.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
           return;
         }
 
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          final token = data['token'];
-          final user = data['user'] ?? {};
+        // Watcher does not require branch geofence circle to login
+        final isExemptFromGeofence = userRole == 'watcher';
 
-          // FETCH FULL PROFILE to ensure nested fields like user.kitchen are populated
-          Map<String, dynamic> fullUser = user;
-          try {
-            final profile = await ApiService.instance.fetchUserProfile();
-            if (profile.isNotEmpty) fullUser = profile;
-          } catch (e) {
-            debugPrint('DEBUG: Failed to fetch full profile: $e');
-          }
-
-          final userRole = fullUser['role']?.toString().toLowerCase() ?? '';
-          final userName = fullUser['name']?.toString() ?? '';
-          final userId = (fullUser['id'] ?? fullUser['_id'])?.toString() ?? '';
-
-          debugPrint(
-            'DEBUG: Login attempt. Role: $userRole, Name: $userName, ID: $userId',
+        if (!isExemptFromGeofence) {
+          if (!mounted) return;
+          final geoResult = await GeofenceUtil.checkLocationAndGeofence(
+            existingPosition: loginPosition,
           );
-
-          // Block factory, admin, and superadmin roles from logging into Tracker App
-          if (userRole == 'factory' || userRole == 'admin' || userRole == 'superadmin') {
-            if (!mounted) return;
-            setState(() {
-              _isLoading = false;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Access Denied: $userRole role is not permitted to access Tracker App.',
+          if (!geoResult.isInside) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.location_off, color: Colors.white),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          geoResult.errorMessage ?? 'Not inside branch geofence. Login blocked.',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: Colors.red[800],
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  duration: const Duration(seconds: 5),
                 ),
-                backgroundColor: Colors.red,
-              ),
-            );
-            return;
-          }
-
-          // Watcher does not require branch geofence circle to login
-          final isExemptFromGeofence = userRole == 'watcher';
-
-          if (!isExemptFromGeofence) {
-            if (!mounted) return;
-            final isInside = await GeofenceUtil.isInsideAnyBranch(context);
-            if (!isInside && mounted) {
-              setState(() => _isLoading = false);
-              return; // Block login if not inside branch circle
+              );
             }
+            return; // Block login if not inside branch circle
           }
+        }
 
-          setState(() => _isLoading = false);
+        final bool hasKitchenFlag = fullUser['isKitchen'] is bool;
+        final bool hasStockFlag = fullUser['isStock'] is bool;
 
-          final bool hasKitchenFlag = fullUser['isKitchen'] is bool;
-          final bool hasStockFlag = fullUser['isStock'] is bool;
+        final bool isKitchen = hasKitchenFlag
+            ? (fullUser['isKitchen'] as bool)
+            : (userRole == 'kitchen' || userRole == 'chef');
+        final bool isStock = hasStockFlag
+            ? (fullUser['isStock'] as bool)
+            : (['supervisor', 'manager', 'driver'].contains(userRole) || (userRole == 'chef' && !hasKitchenFlag));
 
-          final bool isKitchen = hasKitchenFlag
-              ? (fullUser['isKitchen'] as bool)
-              : (userRole == 'kitchen' || userRole == 'chef');
-          final bool isStock = hasStockFlag
-              ? (fullUser['isStock'] as bool)
-              : (['supervisor', 'manager', 'driver'].contains(userRole) || (userRole == 'chef' && !hasKitchenFlag));
-
-          const storage = FlutterSecureStorage();
-          await storage.write(key: 'isLoggedIn', value: 'true');
-          await storage.write(key: 'token', value: token);
-          await storage.write(key: 'userId', value: userId);
-          await storage.write(key: 'userRole', value: userRole);
-          await storage.write(key: 'userName', value: userName);
-          await storage.write(key: 'userIsKitchen', value: isKitchen.toString());
-          await storage.write(key: 'userIsStock', value: isStock.toString());
+        await storage.write(key: 'isLoggedIn', value: 'true');
+        await prefs.setString('isLoggedIn', 'true');
+        await storage.write(key: 'token', value: token);
+        await prefs.setString('token', token);
+        await prefs.setString('auth_token', token);
+        await storage.write(key: 'userId', value: userId);
+        await prefs.setString('userId', userId);
+        await storage.write(key: 'userRole', value: userRole);
+        await prefs.setString('userRole', userRole);
+        await storage.write(key: 'userName', value: userName);
+        await prefs.setString('userName', userName);
+        await storage.write(key: 'userIsKitchen', value: isKitchen.toString());
+        await prefs.setString('userIsKitchen', isKitchen.toString());
+        await storage.write(key: 'userIsStock', value: isStock.toString());
+        await prefs.setString('userIsStock', isStock.toString());
 
           // Extract manager_companies (for manager role)
           if (userRole == 'manager') {
@@ -306,7 +426,6 @@ class _LoginPageState extends State<LoginPage> {
             }
           }
 
-          final prefs = await SharedPreferences.getInstance();
           if (bName.isEmpty) {
             bName = prefs.getString('branchName') ?? prefs.getString('lastGpsBranchName') ?? '';
           }
@@ -419,7 +538,9 @@ class _LoginPageState extends State<LoginPage> {
               key: 'userKitchenCategoryNames',
               value: categoryNames.join(','),
             );
+          }
 
+          if (isStock || userRole == 'chef' || userRole == 'supervisor') {
             // Extract Stock Order Categories
             final userStockCats = fullUser['stockCategories'] as List?;
             final List<String> stockCategoryIds = [];
@@ -498,7 +619,6 @@ class _LoginPageState extends State<LoginPage> {
           });
         }
       }
-    }
   }
 
   @override

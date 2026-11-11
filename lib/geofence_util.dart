@@ -32,6 +32,25 @@ class GeofenceUtil {
   static Map<String, dynamic>? _cachedBranchGeoSettings;
   static DateTime? _lastBranchSettingsFetch;
 
+  /// Pre-loads branch geo settings into cache so that subsequent geofence checks are instant.
+  static Future<void> preloadSettings() async {
+    try {
+      final now = DateTime.now();
+      if (_cachedBranchGeoSettings == null ||
+          _lastBranchSettingsFetch == null ||
+          now.difference(_lastBranchSettingsFetch!).inMinutes >= 10) {
+        final data = await ApiService.instance
+            .fetchBranchGeoSettings()
+            .timeout(const Duration(seconds: 15));
+        _cachedBranchGeoSettings = data;
+        _lastBranchSettingsFetch = now;
+        debugPrint('GeofenceUtil: Settings preloaded successfully.');
+      }
+    } catch (e) {
+      debugPrint('GeofenceUtil: Failed to preload settings: $e');
+    }
+  }
+
   /// Checks whether the device is inside any branch geofence circle.
   /// Can be called from any background or foreground service without a BuildContext.
   static Future<GeofenceResult> checkLocationAndGeofence({
@@ -132,7 +151,7 @@ class GeofenceUtil {
         try {
           data = await ApiService.instance
               .fetchBranchGeoSettings()
-              .timeout(const Duration(seconds: 6));
+              .timeout(const Duration(seconds: 20));
           _cachedBranchGeoSettings = data;
           _lastBranchSettingsFetch = now;
         } catch (e) {
