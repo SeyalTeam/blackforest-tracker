@@ -47,6 +47,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   bool _loading = true;
   bool _loadingBranches = true;
   bool _isSaving = false;
+  final Set<String> _savingProductIds = {};
   DateTime? fromDate;
   DateTime? toDate;
   List<Map<String, String>> branches = [];
@@ -59,8 +60,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   String _userRole = '';
   List<String> _chefAssignedCategoryIds = [];
 
-  bool get isChef => _userRole == 'chef';
-  bool get isSupervisor => _userRole == 'supervisor';
+  bool get isChef => _userRole == 'chef' || _userRole == 'kitchen';
+  bool get isSupervisor => _userRole == 'supervisor' || isManager;
   bool get isDriver => _userRole == 'driver';
   bool get isFactory => _userRole == 'factory';
   bool get isManager => _userRole == 'manager';
@@ -701,8 +702,20 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }).toList();
     }
 
-    // 1. Grid List (Alphabetical Only)
+    // 1. Grid List (Alphabetical Only - in active grid mode, hide completed items for the user's role)
     List<Map<String, dynamic>> gridList = List.from(rawList);
+    if (_statusFilter == 'ALL') {
+      gridList = gridList.where((item) {
+        if (isChef) {
+          return ((item['sendingQty'] as num?) ?? 0) == 0;
+        } else if (isSupervisor) {
+          return ((item['confirmedQty'] as num?) ?? 0) == 0;
+        } else if (isDriver) {
+          return ((item['pickedQty'] as num?) ?? 0) == 0;
+        }
+        return true;
+      }).toList();
+    }
     gridList.sort((a, b) {
       int cmp = (a['departmentName'] ?? '').compareTo(
         b['departmentName'] ?? '',
@@ -1149,7 +1162,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   // currently re-using existing logic is fine but we need to handle the display.
 
   Future<void> _saveConsolidatedConfirm(Map<String, dynamic> entry) async {
-    if (_isSaving) return;
+    final pId = (entry['productId'] ?? '').toString();
+    if (_savingProductIds.contains(pId)) return;
+    _savingProductIds.add(pId);
     setState(() => _isSaving = true);
     try {
       _markUpdated(entry['productId']);
@@ -1180,7 +1195,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         _processStockOrders();
       });
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      _savingProductIds.remove(pId);
+      if (mounted) setState(() => _isSaving = _savingProductIds.isNotEmpty);
     }
   }
 
@@ -1189,7 +1205,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     Map<String, dynamic> entry,
     double totalQty,
   ) async {
-    if (_isSaving) return;
+    final pId = (entry['productId'] ?? '').toString();
+    if (_savingProductIds.contains(pId)) return;
+    _savingProductIds.add(pId);
     setState(() => _isSaving = true);
     try {
       double remaining = totalQty;
@@ -1263,7 +1281,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         _processStockOrders();
       });
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      _savingProductIds.remove(pId);
+      if (mounted) setState(() => _isSaving = _savingProductIds.isNotEmpty);
     }
   }
 
@@ -1271,7 +1290,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     Map<String, dynamic> entry,
     double newVal,
   ) async {
-    if (_isSaving) return;
+    final pId = (entry['productId'] ?? '').toString();
+    if (_savingProductIds.contains(pId)) return;
+    _savingProductIds.add(pId);
     setState(() => _isSaving = true);
     try {
       _markUpdated(entry['productId']);
@@ -1316,7 +1337,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         _processStockOrders();
       });
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      _savingProductIds.remove(pId);
+      if (mounted) setState(() => _isSaving = _savingProductIds.isNotEmpty);
     }
   }
 
@@ -1430,7 +1452,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     Map<String, dynamic> entry,
     double val,
   ) async {
-    if (_isSaving) return;
+    final pId = (entry['productId'] ?? '').toString();
+    if (_savingProductIds.contains(pId)) return;
+    _savingProductIds.add(pId);
     setState(() => _isSaving = true);
     try {
       _markUpdated(entry['productId']);
@@ -1475,12 +1499,15 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         _processStockOrders();
       });
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      _savingProductIds.remove(pId);
+      if (mounted) setState(() => _isSaving = _savingProductIds.isNotEmpty);
     }
   }
 
   Future<void> _saveConsolidatedPick(Map<String, dynamic> entry) async {
-    if (_isSaving) return;
+    final pId = (entry['productId'] ?? '').toString();
+    if (_savingProductIds.contains(pId)) return;
+    _savingProductIds.add(pId);
     setState(() => _isSaving = true);
     try {
       _markUpdated(entry['productId']);
@@ -1512,7 +1539,8 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         _processStockOrders();
       });
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      _savingProductIds.remove(pId);
+      if (mounted) setState(() => _isSaving = _savingProductIds.isNotEmpty);
     }
   }
 
@@ -1868,9 +1896,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                childAspectRatio: 0.75,
-                crossAxisSpacing: 4,
-                mainAxisSpacing: 4,
+                childAspectRatio: 0.70,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
               ),
               itemCount: items.length,
               itemBuilder: (context, index) {
@@ -1894,9 +1922,9 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
           sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
-              childAspectRatio: 0.75,
-              crossAxisSpacing: 4,
-              mainAxisSpacing: 4,
+              childAspectRatio: 0.70,
+              crossAxisSpacing: 6,
+              mainAxisSpacing: 6,
             ),
             delegate: SliverChildBuilderDelegate((context, index) {
               final item = items[index];
@@ -3135,9 +3163,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   }
 
   Widget _buildDriverGridItem(Map<String, dynamic> entry) {
-    if (entry['type'] != 'item') {
-      return const SizedBox.shrink();
-    }
+    if (entry['type'] != 'item') return const SizedBox.shrink();
 
     final product = entry['product'];
     final productName = entry['productName'] as String;
@@ -3179,11 +3205,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       imageProvider = NetworkImage(imageUrl);
     }
 
-    final statuses = entry['statuses'] as Set;
-
-    // Lock if Picked or Received
+    final statuses = (entry['statuses'] as Set?) ?? {};
     final isLocked =
-        statuses.contains('picked') || statuses.contains('received');
+        statuses.contains('picked') ||
+        statuses.contains('received') ||
+        pickedRaw > 0;
 
     final key = 'driver_pick_${entry['productId']}';
     if (!_controllers.containsKey(key)) {
@@ -3193,7 +3219,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     final controller = _controllers[key]!;
 
-    // Unified Interaction Logic
+    final displayQty = (entry['val_local'] != null)
+        ? _formatQty(entry['val_local'])
+        : _formatQty(pickedDisplay);
+
+    // Unified Interaction Logic (Single Tap to Pick & Remove)
     void onAutoAction() {
       if (selectedBranchId == 'ALL') {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3206,8 +3236,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         );
         return;
       }
-      if (_isSaving) return;
-      if (isLocked) {
+      if (confirmedRaw == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nothing confirmed by Supervisor. Cannot pick.'),
+            duration: Duration(milliseconds: 1000),
+          ),
+        );
+        return;
+      }
+      if (isLocked && pickedRaw == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Item is received by Branch. Cannot edit.'),
@@ -3216,12 +3254,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         );
         return;
       }
-
-      // Compulsory Double Tap to Save
-      if (confirmedRaw == 0) {
+      if (pickedRaw > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Nothing confirmed by Supervisor. Cannot pick.'),
+            content: Text('Item already PICKED.'),
             duration: Duration(milliseconds: 1000),
           ),
         );
@@ -3235,13 +3271,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         valToSave = entry['val_local'];
       }
 
-      // Compulsory Double Tap to Save
-      _saveManualConsolidatedPick(entry, valToSave);
+      // Optimistic update and instant removal from list
       setState(() {
-        entry['pickedQty'] = valToSave; // COMMIT TO GREEN
+        entry['pickedQty'] = valToSave;
+        entry['statuses'] = ((entry['statuses'] as Set?) ?? {})..add('picked');
         entry['val_local'] = null;
         entry['isTyping'] = false;
+        _processStockOrders();
       });
+
+      _saveManualConsolidatedPick(entry, valToSave);
     }
 
     void onManualEdit() {
@@ -3276,206 +3315,248 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
       setState(() {
         entry['isTyping'] = true;
-        if (entry['val_local'] != null) {
-          controller.text = _formatQty(entry['val_local']);
-        } else {
-          final current = ((entry['pickedQty'] as num?) ?? 0).toDouble();
-          controller.text = _formatQty(current == 0 ? confirmedRaw : current);
-        }
+        controller.text = displayQty;
       });
     }
 
-    return Card(
-      elevation: 0,
-      color: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide.none,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          // Top Section (Flex 8)
-          Expanded(
-            flex: 8,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Image Area with Unified Gesture
-                GestureDetector(
-                  onTap: onManualEdit,
-                  onDoubleTap: onAutoAction,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageProvider != null)
-                        Image(image: imageProvider, fit: BoxFit.cover)
-                      else
-                        Container(
-                          child: const Icon(
-                            Icons.fastfood,
-                            size: 40,
-                            color: Colors.grey,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Top Left: Confirmed Qty
-                Positioned(
-                  top: 2,
-                  left: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(confirmedRaw),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
+          // Background Image
+          GestureDetector(
+            onTap: null,
+            onDoubleTap: isLocked ? null : onAutoAction,
+            child: imageProvider != null
+                ? Image(image: imageProvider, fit: BoxFit.cover)
+                : Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
                       ),
                     ),
+                    child: Icon(
+                      Icons.fastfood_rounded,
+                      color: Colors.white.withValues(alpha: 0.75),
+                      size: 40,
+                    ),
                   ),
-                ),
+          ),
 
-                // Top Right: Price
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(entry['price']),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
+          // Bottom Gradient for contrast
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 75,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.25),
+                    Colors.black.withValues(alpha: 0.55),
+                  ],
+                  stops: const [0.0, 0.6, 1.0],
                 ),
-
-                // Product Name Overlay
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.35),
-                    ),
-                    child: Text(
-                      productName,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
 
-          // Bottom Section: Interaction Strip (Flex 2)
-          Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: onManualEdit,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      color:
-                          (entry['pickedQty'] != null && entry['pickedQty'] > 0)
-                          ? Colors.green
-                          : Colors.black87,
-                      child: entry['isTyping'] == true
-                          ? SizedBox(
-                              height: 18,
-                              child: TextField(
-                                controller: controller,
-                                autofocus: true,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                textAlignVertical: TextAlignVertical.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.0,
-                                ),
-                                cursorColor: Colors.white,
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                  isCollapsed: true,
-                                ),
-                                textInputAction: TextInputAction.done,
-                                onTapOutside: (event) {
-                                  final intVal =
-                                      double.tryParse(controller.text) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] =
-                                        intVal; // SAVE TO LOCAL
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                                onSubmitted: (val) {
-                                  final intVal = double.tryParse(val) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] =
-                                        intVal; // SAVE TO LOCAL
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                              ),
-                            )
-                          : Center(
-                              child: Text(
-                                _formatQty(
-                                  entry['val_local'] ??
-                                      ((entry['pickedQty'] == 0 ||
-                                              entry['pickedQty'] == null)
-                                          ? confirmedRaw
-                                          : entry['pickedQty']),
-                                ),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                  height: 1.0,
-                                ),
-                              ),
+          // Top Left: Confirmed Qty
+          Positioned(
+            top: 4,
+            left: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                'CONF: ${_formatQty(confirmedRaw)}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ),
+
+          // Top Right: Price
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                _formatQty(entry['price']),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ),
+
+          // Middle: Quantity box (kitchen style)
+          Positioned.fill(
+            child: Align(
+              alignment: const Alignment(0, -0.35),
+              child: GestureDetector(
+                onTap: isLocked ? null : onManualEdit,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: entry['isTyping'] == true
+                      ? SizedBox(
+                          width: 50,
+                          height: 24,
+                          child: TextField(
+                            controller: controller,
+                            autofocus: true,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            textAlignVertical: TextAlignVertical.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              height: 1.0,
                             ),
+                            cursorColor: Colors.white,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                              isCollapsed: true,
+                            ),
+                            textInputAction: TextInputAction.done,
+                            onTapOutside: (event) {
+                              final doubleVal =
+                                  double.tryParse(controller.text) ?? 0;
+                              setState(() {
+                                entry['val_local'] = doubleVal;
+                                entry['isTyping'] = false;
+                              });
+                              FocusManager.instance.primaryFocus?.unfocus();
+                            },
+                            onSubmitted: (val) {
+                              final doubleVal = double.tryParse(val) ?? 0;
+                              setState(() {
+                                entry['val_local'] = doubleVal;
+                                entry['isTyping'] = false;
+                              });
+                              FocusManager.instance.primaryFocus?.unfocus();
+                            },
+                          ),
+                        )
+                      : Text(
+                          displayQty,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                            height: 1,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom Section: Product Name + PICKED button
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Product Name Strip
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  color: Colors.black.withValues(alpha: 0.74),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        productName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                          height: 1,
+                          letterSpacing: 0.05,
+                        ),
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Action Button: PICKED (Single Tap!)
+                GestureDetector(
+                  onTap: onAutoAction,
+                  child: Container(
+                    width: double.infinity,
+                    color: (pickedRaw > 0)
+                        ? Colors.green.shade700
+                        : (confirmedRaw == 0
+                            ? Colors.grey.shade700
+                            : const Color(0xFFC62828)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'PICKED',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
                 ),
@@ -3530,23 +3611,6 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       imageProvider = NetworkImage(imageUrl);
     }
 
-    final key = 'consolidated_${entry['productId']}';
-    final initialVal = (sent > 0) ? _formatQty(sent) : _formatQty(req);
-
-    if (!_controllers.containsKey(key)) {
-      _controllers[key] = TextEditingController(text: initialVal);
-    }
-    final controller = _controllers[key]!;
-
-    final statuses = entry['statuses'] as Set;
-
-    final confirmedQty = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
-    final isLocked =
-        statuses.contains('sending') ||
-        statuses.contains('confirmed') ||
-        statuses.contains('picked') ||
-        confirmedQty > 0;
-
     // Resolve branch name for fixed qty logic
     String? currentBranchName;
     if (selectedBranchId != 'ALL') {
@@ -3559,7 +3623,28 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     final fixedQty = _getFixedChefQty(currentBranchName, entry['categoryName']);
     final suggestedVal = fixedQty > 0 ? fixedQty : req;
 
-    // Unified Interaction Logic
+    final key = 'consolidated_${entry['productId']}';
+    final initialVal = (sent > 0) ? _formatQty(sent) : _formatQty(suggestedVal);
+
+    if (!_controllers.containsKey(key)) {
+      _controllers[key] = TextEditingController(text: initialVal);
+    }
+    final controller = _controllers[key]!;
+
+    final statuses = (entry['statuses'] as Set?) ?? {};
+    final confirmedQty = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
+    final isLocked =
+        statuses.contains('sending') ||
+        statuses.contains('confirmed') ||
+        statuses.contains('picked') ||
+        confirmedQty > 0 ||
+        sent > 0;
+
+    final displayQty = (entry['val_local'] != null)
+        ? _formatQty(entry['val_local'])
+        : ((sent == 0) ? _formatQty(suggestedVal) : _formatQty(sent));
+
+    // Unified Interaction Logic (Single Tap to Complete & Remove)
     void onAutoAction() {
       if (selectedBranchId == 'ALL') {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3572,7 +3657,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         );
         return;
       }
-      if (isLocked) {
+      if (isLocked && sent == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Item is confirmed/picked. Cannot edit.'),
@@ -3581,23 +3666,33 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         );
         return;
       }
+      if (sent > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Item already marked READY.'),
+            duration: Duration(milliseconds: 1000),
+          ),
+        );
+        return;
+      }
 
-      final currentSent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-      double valToSave = (currentSent > 0) ? currentSent : suggestedVal;
-
+      double valToSave = (sent > 0) ? sent : suggestedVal;
       if (entry['isTyping'] == true) {
         valToSave = double.tryParse(controller.text) ?? valToSave;
       } else if (entry['val_local'] != null) {
         valToSave = entry['val_local'];
       }
 
-      // Compulsory Double Tap to Save
-      _saveStockOrder(entry, valToSave);
+      // Optimistic update and instant removal from list
       setState(() {
         entry['sendingQty'] = valToSave;
+        entry['statuses'] = ((entry['statuses'] as Set?) ?? {})..add('sending');
         entry['val_local'] = null;
         entry['isTyping'] = false;
+        _processStockOrders();
       });
+
+      _saveStockOrder(entry, valToSave);
     }
 
     void onManualEdit() {
@@ -3623,229 +3718,246 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
       setState(() {
         entry['isTyping'] = true;
-        if (entry['val_local'] != null) {
-          controller.text = _formatQty(entry['val_local']);
-        } else {
-          final current = ((entry['sendingQty'] as num?) ?? 0).toDouble();
-          controller.text = _formatQty(current == 0 ? req : current);
-        }
+        controller.text = displayQty;
       });
     }
 
-    return Card(
-      elevation: 0,
-      color: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide.none,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          // Top Section (Flex 8)
-          Expanded(
-            flex: 8,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Image Area with Unified Gesture
-                GestureDetector(
-                  onTap: onManualEdit,
-                  onDoubleTap: onAutoAction,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageProvider != null)
-                        Image(image: imageProvider, fit: BoxFit.cover)
-                      else
-                        Container(
-                          child: const Icon(
-                            Icons.fastfood,
-                            size: 40,
-                            color: Colors.grey,
-                          ),
-                        ),
-                    ],
+          // Background Image
+          GestureDetector(
+            onTap: null,
+            onDoubleTap: isLocked ? null : onAutoAction,
+            child: imageProvider != null
+                ? Image(image: imageProvider, fit: BoxFit.cover)
+                : Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.fastfood_rounded,
+                      color: Colors.white.withValues(alpha: 0.75),
+                      size: 40,
+                    ),
                   ),
-                ),
+          ),
 
-                // Top Left: Ordered Qty
-                Positioned(
-                  top: 2,
-                  left: 2,
-                  child: GestureDetector(
-                    onTap: () {
-                      if (selectedBranchId == 'ALL') {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Cannot update when ALL Branches are selected. Please select a specific branch.',
-                            ),
-                            duration: Duration(milliseconds: 1500),
-                          ),
-                        );
-                        return;
-                      }
-                      if (isLocked) return;
-                      double current = ((entry['sendingQty'] as num?) ?? 0)
-                          .toDouble();
-                      if (current > 0) {
-                        setState(() {
-                          entry['sendingQty'] = (current - 1).clamp(
-                            0,
-                            double.infinity,
-                          );
-                        });
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        _formatQty(req),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ),
-                  ),
+          // Bottom Gradient for contrast
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 75,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.25),
+                    Colors.black.withValues(alpha: 0.55),
+                  ],
+                  stops: const [0.0, 0.6, 1.0],
                 ),
-
-                // Top Right: Price
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(entry['price']),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Product Name Overlay
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.35),
-                    ),
-                    child: Text(
-                      productName,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
 
-          // Bottom Section: Interaction Strip (Flex 2)
-          Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: onManualEdit,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      color:
-                          (entry['sendingQty'] != null &&
-                              entry['sendingQty'] > 0)
-                          ? Colors.green
-                          : Colors.black87,
-                      child: entry['isTyping'] == true
-                          ? SizedBox(
-                              height: 18,
-                              child: TextField(
-                                controller: controller,
-                                autofocus: true,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                textAlignVertical: TextAlignVertical.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.0,
-                                ),
-                                cursorColor: Colors.white,
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                  isCollapsed: true,
-                                ),
-                                textInputAction: TextInputAction.done,
-                                onTapOutside: (event) {
-                                  final doubleVal =
-                                      double.tryParse(controller.text) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                                onSubmitted: (val) {
-                                  final doubleVal = double.tryParse(val) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                              ),
-                            )
-                          : Text(
-                              (entry['val_local'] != null)
-                                  ? _formatQty(entry['val_local'])
-                                  : ((entry['sendingQty'] == null ||
-                                            entry['sendingQty'] == 0)
-                                        ? _formatQty(suggestedVal)
-                                        : _formatQty(entry['sendingQty'])),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                                height: 1.0,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+          // Top Left: Ordered Qty
+          Positioned(
+            top: 4,
+            left: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                'REQ: ${_formatQty(req)}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ),
+
+          // Top Right: Price
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                _formatQty(entry['price']),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ),
+
+          // Middle: Quantity box (kitchen style)
+          Positioned.fill(
+            child: Align(
+              alignment: const Alignment(0, -0.35),
+              child: GestureDetector(
+                onTap: isLocked ? null : onManualEdit,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: entry['isTyping'] == true
+                      ? SizedBox(
+                          width: 50,
+                          height: 24,
+                          child: TextField(
+                            controller: controller,
+                            autofocus: true,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            textAlignVertical: TextAlignVertical.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              height: 1.0,
                             ),
+                            cursorColor: Colors.white,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                              isCollapsed: true,
+                            ),
+                            textInputAction: TextInputAction.done,
+                            onTapOutside: (event) {
+                              final doubleVal =
+                                  double.tryParse(controller.text) ?? 0;
+                              setState(() {
+                                entry['val_local'] = doubleVal;
+                                entry['isTyping'] = false;
+                              });
+                              FocusManager.instance.primaryFocus?.unfocus();
+                            },
+                            onSubmitted: (val) {
+                              final doubleVal = double.tryParse(val) ?? 0;
+                              setState(() {
+                                entry['val_local'] = doubleVal;
+                                entry['isTyping'] = false;
+                              });
+                              FocusManager.instance.primaryFocus?.unfocus();
+                            },
+                          ),
+                        )
+                      : Text(
+                          displayQty,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                            height: 1,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom Section: Product Name + READY button
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Product Name Strip
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  color: Colors.black.withValues(alpha: 0.74),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        productName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                          height: 1,
+                          letterSpacing: 0.05,
+                        ),
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Action Button: READY (Single Tap!)
+                GestureDetector(
+                  onTap: onAutoAction,
+                  child: Container(
+                    width: double.infinity,
+                    color: (sent > 0)
+                        ? Colors.green.shade700
+                        : const Color(0xFFC62828),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    alignment: Alignment.center,
+                    child: Text(
+                      (sent > 0) ? 'SENT' : 'READY',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
                 ),
@@ -3900,10 +4012,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       imageProvider = NetworkImage(imageUrl);
     }
 
-    final statuses = entry['statuses'] as Set;
-    // Lock if Confirmed or Picked
+    final statuses = (entry['statuses'] as Set?) ?? {};
     final isLocked =
-        statuses.contains('confirmed') || statuses.contains('picked');
+        statuses.contains('confirmed') ||
+        statuses.contains('picked') ||
+        confirmedRaw > 0;
 
     final key = 'supervisor_grid_${entry['productId']}';
     if (!_controllers.containsKey(key)) {
@@ -3913,7 +4026,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     }
     final controller = _controllers[key]!;
 
-    // Unified Interaction Logic
+    final displayQty = (entry['val_local'] != null)
+        ? _formatQty(entry['val_local'])
+        : _formatQty(confirmedDisplay);
+
+    // Unified Interaction Logic (Single Tap to Confirm & Remove)
     void onAutoAction() {
       if (selectedBranchId == 'ALL') {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3935,10 +4052,19 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         );
         return;
       }
-      if (isLocked) {
+      if (isLocked && confirmedRaw == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Item is already confirmed/picked. Cannot edit.'),
+            duration: Duration(milliseconds: 1000),
+          ),
+        );
+        return;
+      }
+      if (confirmedRaw > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Item already CONFIRMED.'),
             duration: Duration(milliseconds: 1000),
           ),
         );
@@ -3952,13 +4078,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         valToSave = entry['val_local'];
       }
 
-      // Compulsory Double Tap to Save
-      _saveManualConsolidatedConfirm(entry, valToSave);
+      // Optimistic update and instant removal from list
       setState(() {
         entry['confirmedQty'] = valToSave;
+        entry['statuses'] = ((entry['statuses'] as Set?) ?? {})..add('confirmed');
         entry['val_local'] = null;
         entry['isTyping'] = false;
+        _processStockOrders();
       });
+
+      _saveManualConsolidatedConfirm(entry, valToSave);
     }
 
     void onManualEdit() {
@@ -3993,199 +4122,248 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
       setState(() {
         entry['isTyping'] = true;
-        if (entry['val_local'] != null) {
-          controller.text = _formatQty(entry['val_local']);
-        } else {
-          controller.text = _formatQty(confirmedDisplay);
-        }
+        controller.text = displayQty;
       });
     }
 
-    return Card(
-      elevation: 0,
-      color: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide.none,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          // Top Section (Flex 8)
-          Expanded(
-            flex: 8,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Image Area with Unified Gesture
-                GestureDetector(
-                  onTap: onManualEdit,
-                  onDoubleTap: onAutoAction,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageProvider != null)
-                        Image(image: imageProvider, fit: BoxFit.cover)
-                      else
-                        Container(
-                          child: const Icon(
-                            Icons.fastfood,
-                            size: 40,
-                            color: Colors.grey,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Top Left: Sent Qty
-                Positioned(
-                  top: 2,
-                  left: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(sent),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
+          // Background Image
+          GestureDetector(
+            onTap: null,
+            onDoubleTap: isLocked ? null : onAutoAction,
+            child: imageProvider != null
+                ? Image(image: imageProvider, fit: BoxFit.cover)
+                : Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
                       ),
                     ),
+                    child: Icon(
+                      Icons.fastfood_rounded,
+                      color: Colors.white.withValues(alpha: 0.75),
+                      size: 40,
+                    ),
                   ),
-                ),
+          ),
 
-                // Top Right: Price
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _formatQty(entry['price']),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
+          // Bottom Gradient for contrast
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 75,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.25),
+                    Colors.black.withValues(alpha: 0.55),
+                  ],
+                  stops: const [0.0, 0.6, 1.0],
                 ),
-
-                // Product Name Overlay
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.35),
-                    ),
-                    child: Text(
-                      productName,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
 
-          // Bottom Section: Interaction Strip (Flex 2)
-          Expanded(
-            flex: 2,
-            child: Column(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: onManualEdit,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      color:
-                          (entry['confirmedQty'] != null &&
-                              entry['confirmedQty'] > 0)
-                          ? Colors.green
-                          : Colors.black87,
-                      child: entry['isTyping'] == true
-                          ? SizedBox(
-                              height: 18,
-                              child: TextField(
-                                controller: controller,
-                                autofocus: true,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                textAlignVertical: TextAlignVertical.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  height: 1.0,
-                                ),
-                                cursorColor: Colors.white,
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                  isCollapsed: true,
-                                ),
-                                textInputAction: TextInputAction.done,
-                                onTapOutside: (event) {
-                                  final doubleVal =
-                                      double.tryParse(controller.text) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                },
-                                onSubmitted: (val) {
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                  final doubleVal = double.tryParse(val) ?? 0;
-                                  setState(() {
-                                    entry['val_local'] = doubleVal;
-                                    entry['isTyping'] = false;
-                                  });
-                                },
-                              ),
-                            )
-                          : Text(
-                              _formatQty(
-                                entry['val_local'] ?? confirmedDisplay,
-                              ),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                                height: 1.0,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+          // Top Left: Sent Qty
+          Positioned(
+            top: 4,
+            left: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                'SENT: ${_formatQty(sent)}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ),
+
+          // Top Right: Price
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                _formatQty(entry['price']),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ),
+
+          // Middle: Quantity box (kitchen style)
+          Positioned.fill(
+            child: Align(
+              alignment: const Alignment(0, -0.35),
+              child: GestureDetector(
+                onTap: isLocked ? null : onManualEdit,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.35),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: entry['isTyping'] == true
+                      ? SizedBox(
+                          width: 50,
+                          height: 24,
+                          child: TextField(
+                            controller: controller,
+                            autofocus: true,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            textAlignVertical: TextAlignVertical.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              height: 1.0,
                             ),
+                            cursorColor: Colors.white,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                              isCollapsed: true,
+                            ),
+                            textInputAction: TextInputAction.done,
+                            onTapOutside: (event) {
+                              final doubleVal =
+                                  double.tryParse(controller.text) ?? 0;
+                              setState(() {
+                                entry['val_local'] = doubleVal;
+                                entry['isTyping'] = false;
+                              });
+                              FocusManager.instance.primaryFocus?.unfocus();
+                            },
+                            onSubmitted: (val) {
+                              final doubleVal = double.tryParse(val) ?? 0;
+                              setState(() {
+                                entry['val_local'] = doubleVal;
+                                entry['isTyping'] = false;
+                              });
+                              FocusManager.instance.primaryFocus?.unfocus();
+                            },
+                          ),
+                        )
+                      : Text(
+                          displayQty,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                            height: 1,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom Section: Product Name + CONFIRM button
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Product Name Strip
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  color: Colors.black.withValues(alpha: 0.74),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        productName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                          height: 1,
+                          letterSpacing: 0.05,
+                        ),
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Action Button: CONFIRM (Single Tap!)
+                GestureDetector(
+                  onTap: onAutoAction,
+                  child: Container(
+                    width: double.infinity,
+                    color: (confirmedRaw > 0)
+                        ? Colors.green.shade700
+                        : (sent == 0
+                            ? Colors.grey.shade700
+                            : const Color(0xFFC62828)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    alignment: Alignment.center,
+                    child: Text(
+                      (confirmedRaw > 0) ? 'CONFIRMED' : 'CONFIRM',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
                 ),
