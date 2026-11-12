@@ -6065,7 +6065,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               final activeKitchen = branchKitchens[selectedKitchenIndex];
               final activeKitchenId = (activeKitchen['id'] ?? activeKitchen['_id'])?.toString() ?? '';
               final activeKitchenName = activeKitchen['name']?.toString() ?? 'Kitchen';
-              final rawCategories = (activeKitchen['categories'] as List?) ?? [];
+              final rawCategories = List<dynamic>.from((activeKitchen['categories'] as List?) ?? []);
+
+              // Sort categories: assigned first (mine first, others next), unassigned after
+              rawCategories.sort((a, b) {
+                final aId = (a is Map ? (a['id'] ?? a['_id']) : a)?.toString() ?? '';
+                final bId = (b is Map ? (b['id'] ?? b['_id']) : b)?.toString() ?? '';
+
+                final aMine = selectedCatIds.contains(aId);
+                final bMine = selectedCatIds.contains(bId);
+
+                final aOthers = categoryToChefsMap[aId]?.isNotEmpty ?? false;
+                final bOthers = categoryToChefsMap[bId]?.isNotEmpty ?? false;
+
+                final aPriority = aMine ? 0 : (aOthers ? 1 : 2);
+                final bPriority = bMine ? 0 : (bOthers ? 1 : 2);
+
+                if (aPriority != bPriority) return aPriority.compareTo(bPriority);
+
+                final aName = (a is Map ? (a['name']?.toString() ?? '') : '').toLowerCase();
+                final bName = (b is Map ? (b['name']?.toString() ?? '') : '').toLowerCase();
+                return aName.compareTo(bName);
+              });
 
               return AlertDialog(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

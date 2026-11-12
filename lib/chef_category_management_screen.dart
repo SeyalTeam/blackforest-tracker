@@ -172,11 +172,6 @@ class _ChefCategoryManagementScreenState
       }
     }
 
-    // Sort categories alphabetically
-    resolvedCats.sort((a, b) =>
-        (a['name']?.toString() ?? '').toLowerCase().compareTo(
-            (b['name']?.toString() ?? '').toLowerCase()));
-
     // 3. Load Current Chef's Kitchen Category Selections
     final rawSaved = await _storage.read(key: 'userKitchenCategoryIds');
     final Set<String> savedSelected = rawSaved != null && rawSaved.isNotEmpty
@@ -199,6 +194,26 @@ class _ChefCategoryManagementScreenState
         }
       }
     }
+
+    // Sort categories: assigned first (mine first, others next), unassigned after
+    resolvedCats.sort((a, b) {
+      final aId = (a['id'] ?? a['_id'])?.toString() ?? '';
+      final bId = (b['id'] ?? b['_id'])?.toString() ?? '';
+
+      final aMine = savedSelected.contains(aId);
+      final bMine = savedSelected.contains(bId);
+
+      final aOthers = otherChefsMap[aId]?.isNotEmpty ?? false;
+      final bOthers = otherChefsMap[bId]?.isNotEmpty ?? false;
+
+      final aPriority = aMine ? 0 : (aOthers ? 1 : 2);
+      final bPriority = bMine ? 0 : (bOthers ? 1 : 2);
+
+      if (aPriority != bPriority) return aPriority.compareTo(bPriority);
+
+      return (a['name']?.toString() ?? '').toLowerCase().compareTo(
+          (b['name']?.toString() ?? '').toLowerCase());
+    });
 
     if (mounted) {
       setState(() {
@@ -224,10 +239,6 @@ class _ChefCategoryManagementScreenState
       }
     }
 
-    resolvedCats.sort((a, b) =>
-        (a['name']?.toString() ?? '').toLowerCase().compareTo(
-            (b['name']?.toString() ?? '').toLowerCase()));
-
     // 2. Load Current Chef's Stock Category Selections
     final rawSaved = await _storage.read(key: 'userStockCategoryIds');
     final Set<String> savedSelected = rawSaved != null && rawSaved.isNotEmpty
@@ -250,6 +261,26 @@ class _ChefCategoryManagementScreenState
         }
       }
     }
+
+    // Sort categories: assigned first (mine first, others next), unassigned after
+    resolvedCats.sort((a, b) {
+      final aId = (a['id'] ?? a['_id'])?.toString() ?? '';
+      final bId = (b['id'] ?? b['_id'])?.toString() ?? '';
+
+      final aMine = savedSelected.contains(aId);
+      final bMine = savedSelected.contains(bId);
+
+      final aOthers = otherChefsMap[aId]?.isNotEmpty ?? false;
+      final bOthers = otherChefsMap[bId]?.isNotEmpty ?? false;
+
+      final aPriority = aMine ? 0 : (aOthers ? 1 : 2);
+      final bPriority = bMine ? 0 : (bOthers ? 1 : 2);
+
+      if (aPriority != bPriority) return aPriority.compareTo(bPriority);
+
+      return (a['name']?.toString() ?? '').toLowerCase().compareTo(
+          (b['name']?.toString() ?? '').toLowerCase());
+    });
 
     if (mounted) {
       setState(() {
@@ -367,6 +398,36 @@ class _ChefCategoryManagementScreenState
       return name.contains(_searchQuery.toLowerCase());
     }).toList();
 
+    // Group categories: assigned first (yours first, others next), unassigned after
+    final assignedCategories = filteredCategories.where((cat) {
+      final catId = (cat['id'] ?? cat['_id'])?.toString() ?? '';
+      final isSelected = _selectedCategoryIds.contains(catId);
+      final otherChefs = _categoryToOtherChefsMap[catId] ?? [];
+      return isSelected || otherChefs.isNotEmpty;
+    }).toList();
+
+    final unassignedCategories = filteredCategories.where((cat) {
+      final catId = (cat['id'] ?? cat['_id'])?.toString() ?? '';
+      final isSelected = _selectedCategoryIds.contains(catId);
+      final otherChefs = _categoryToOtherChefsMap[catId] ?? [];
+      return !isSelected && otherChefs.isEmpty;
+    }).toList();
+
+    assignedCategories.sort((a, b) {
+      final aId = (a['id'] ?? a['_id'])?.toString() ?? '';
+      final bId = (b['id'] ?? b['_id'])?.toString() ?? '';
+      final aMine = _selectedCategoryIds.contains(aId);
+      final bMine = _selectedCategoryIds.contains(bId);
+      if (aMine != bMine) return aMine ? -1 : 1;
+      return (a['name']?.toString() ?? '').toLowerCase().compareTo(
+          (b['name']?.toString() ?? '').toLowerCase());
+    });
+
+    unassignedCategories.sort((a, b) {
+      return (a['name']?.toString() ?? '').toLowerCase().compareTo(
+          (b['name']?.toString() ?? '').toLowerCase());
+    });
+
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
       appBar: AppBar(
@@ -430,39 +491,123 @@ class _ChefCategoryManagementScreenState
                     Expanded(
                       child: filteredCategories.isEmpty
                           ? _buildEmptyState()
-                          : ListView.separated(
+                          : ListView(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 16,
                                 vertical: 12,
                               ),
-                              itemCount: filteredCategories.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (context, index) {
-                                final cat = filteredCategories[index];
-                                final catId =
-                                    (cat['id'] ?? cat['_id'])?.toString() ?? '';
-                                final catName =
-                                    cat['name']?.toString() ?? 'Category';
-                                final isSelected =
-                                    _selectedCategoryIds.contains(catId);
-                                final otherChefs =
-                                    _categoryToOtherChefsMap[catId] ?? [];
+                              children: [
+                                if (assignedCategories.isNotEmpty) ...[
+                                  _buildSectionHeader(
+                                    'Assigned Categories',
+                                    assignedCategories.length,
+                                    primaryColor,
+                                    Icons.check_circle_rounded,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  ...assignedCategories.map((cat) {
+                                    final catId =
+                                        (cat['id'] ?? cat['_id'])?.toString() ?? '';
+                                    final catName =
+                                        cat['name']?.toString() ?? 'Category';
+                                    final isSelected =
+                                        _selectedCategoryIds.contains(catId);
+                                    final otherChefs =
+                                        _categoryToOtherChefsMap[catId] ?? [];
 
-                                return _buildCategoryCard(
-                                  catId: catId,
-                                  catName: catName,
-                                  catData: cat,
-                                  isSelected: isSelected,
-                                  otherChefs: otherChefs,
-                                  primaryColor: primaryColor,
-                                );
-                              },
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 8.0),
+                                      child: _buildCategoryCard(
+                                        catId: catId,
+                                        catName: catName,
+                                        catData: cat,
+                                        isSelected: isSelected,
+                                        otherChefs: otherChefs,
+                                        primaryColor: primaryColor,
+                                      ),
+                                    );
+                                  }),
+                                  const SizedBox(height: 12),
+                                ],
+                                if (unassignedCategories.isNotEmpty) ...[
+                                  _buildSectionHeader(
+                                    'Unassigned Categories',
+                                    unassignedCategories.length,
+                                    Colors.grey.shade700,
+                                    Icons.remove_circle_outline_rounded,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  ...unassignedCategories.map((cat) {
+                                    final catId =
+                                        (cat['id'] ?? cat['_id'])?.toString() ?? '';
+                                    final catName =
+                                        cat['name']?.toString() ?? 'Category';
+                                    final isSelected =
+                                        _selectedCategoryIds.contains(catId);
+                                    final otherChefs =
+                                        _categoryToOtherChefsMap[catId] ?? [];
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 8.0),
+                                      child: _buildCategoryCard(
+                                        catId: catId,
+                                        catName: catName,
+                                        catData: cat,
+                                        isSelected: isSelected,
+                                        otherChefs: otherChefs,
+                                        primaryColor: primaryColor,
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ],
                             ),
                     ),
                     _buildBottomBar(primaryColor),
                   ],
                 ),
+    );
+  }
+
+  Widget _buildSectionHeader(
+    String title,
+    int count,
+    Color color,
+    IconData icon,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              count.toString(),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
