@@ -140,43 +140,80 @@ class _CommonScaffoldState extends State<CommonScaffold> {
         ],
       ),
       drawer: Drawer(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF8FAFC),
         child: SafeArea(
+          top: false,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. User Profile Area (Photo, Name, Role, ID)
+              // 1. User Profile Area (Premium Gradient Header)
               Container(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8F9FA),
-                  border: Border(
-                    bottom: BorderSide(color: Colors.grey.shade200),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  MediaQuery.of(context).padding.top + 20,
+                  20,
+                  22,
+                ),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF1E293B), // Slate 800
+                      Color(0xFF0F172A), // Slate 900
+                    ],
                   ),
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(24),
+                    bottomRight: Radius.circular(24),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x1F0F172A),
+                      blurRadius: 16,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        CircleAvatar(
-                          radius: 28,
-                          backgroundColor: Colors.amber.shade100,
-                          backgroundImage: _profilePhotoUrl != null &&
-                                  _profilePhotoUrl!.isNotEmpty
-                              ? NetworkImage(_profilePhotoUrl!)
-                              : null,
-                          child: _profilePhotoUrl == null ||
-                                  _profilePhotoUrl!.isEmpty
-                              ? Text(
-                                  _getInitials(_userName),
-                                  style: TextStyle(
-                                    color: Colors.amber.shade900,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 20,
-                                  ),
-                                )
-                              : null,
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.25),
+                              width: 2.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.25),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: CircleAvatar(
+                            radius: 28,
+                            backgroundColor: const Color(0xFF334155),
+                            backgroundImage: _profilePhotoUrl != null &&
+                                    _profilePhotoUrl!.isNotEmpty
+                                ? NetworkImage(_profilePhotoUrl!)
+                                : null,
+                            child: _profilePhotoUrl == null ||
+                                    _profilePhotoUrl!.isEmpty
+                                ? Text(
+                                    _getInitials(_userName),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 20,
+                                    ),
+                                  )
+                                : null,
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -186,35 +223,38 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                               Text(
                                 _userName.isNotEmpty ? _userName : 'Staff Member',
                                 style: const TextStyle(
-                                  color: Colors.black87,
+                                  color: Colors.white,
                                   fontSize: 17,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.2,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 6),
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
+                                  horizontal: 9,
+                                  vertical: 3.5,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.amber.shade50,
+                                  color: const Color(0xFFF59E0B)
+                                      .withValues(alpha: 0.18),
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                    color: Colors.amber.shade300,
+                                    color: const Color(0xFFF59E0B)
+                                        .withValues(alpha: 0.45),
                                   ),
                                 ),
                                 child: Text(
                                   _userRole.isNotEmpty
                                       ? _userRole.toUpperCase()
                                       : 'STAFF',
-                                  style: TextStyle(
-                                    color: Colors.amber.shade900,
+                                  style: const TextStyle(
+                                    color: Color(0xFFFBBF24),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.5,
+                                    letterSpacing: 0.6,
                                   ),
                                 ),
                               ),
@@ -224,30 +264,32 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                       ],
                     ),
                     if (_userId.isNotEmpty) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: Colors.white.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade300),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.12),
+                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.badge_outlined,
-                              size: 15,
-                              color: Colors.grey.shade700,
+                              size: 14,
+                              color: Colors.white70,
                             ),
                             const SizedBox(width: 6),
                             Text(
                               'ID: $_userId',
                               style: TextStyle(
-                                color: Colors.grey.shade800,
+                                color: Colors.white.withValues(alpha: 0.85),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: 0.5,
@@ -261,165 +303,226 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                 ),
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
-              // 2. Grid Menu Option (2 or 3 Grid Switch)
+              // 2. Preferences Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'PREFERENCES',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey.shade500,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // 3. Grid Toggle Switch Card
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: ValueListenableBuilder<int>(
                   valueListenable: AppGridSettings.columnCount,
                   builder: (context, colCount, _) {
+                    final is3Col = colCount == 3;
                     return Container(
-                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF8F9FA),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.grey.shade200),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Icon(
+                          // Toggle Switch Row
+                          ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 2,
+                            ),
+                            leading: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEEF2FF),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
                                 Icons.grid_view_rounded,
-                                color: Colors.amber.shade800,
-                                size: 20,
+                                color: Color(0xFF4F46E5),
+                                size: 22,
                               ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Grid Layout',
-                                style: TextStyle(
-                                  color: Colors.black87,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            ),
+                            title: const Text(
+                              'Grid Layout',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF1E293B),
                               ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.amber.shade50,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(
-                                    color: Colors.amber.shade300,
-                                  ),
-                                ),
-                                child: Text(
-                                  '$colCount Columns',
-                                  style: TextStyle(
-                                    color: Colors.amber.shade900,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 11,
-                                  ),
-                                ),
+                            ),
+                            subtitle: Text(
+                              is3Col
+                                  ? '3 Columns active'
+                                  : '2 Columns active (Default)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: is3Col
+                                    ? const Color(0xFF4F46E5)
+                                    : const Color(0xFF64748B),
+                                fontWeight: FontWeight.w500,
                               ),
-                            ],
+                            ),
+                            trailing: Switch.adaptive(
+                              value: is3Col,
+                              activeThumbColor: const Color(0xFF4F46E5),
+                              activeTrackColor: const Color(0xFFA5B4FC),
+                              onChanged: (bool val) {
+                                AppGridSettings.setColumnCount(val ? 3 : 2);
+                              },
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    AppGridSettings.setColumnCount(2);
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: colCount == 2
-                                          ? Colors.amber.shade500
-                                          : Colors.white,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: colCount == 2
-                                            ? Colors.amber.shade600
-                                            : Colors.grey.shade300,
+
+                          // Segmented Sliding Pill Bar
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        AppGridSettings.setColumnCount(2);
+                                      },
+                                      child: AnimatedContainer(
+                                        duration:
+                                            const Duration(milliseconds: 200),
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 8,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: !is3Col
+                                              ? Colors.white
+                                              : Colors.transparent,
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          boxShadow: !is3Col
+                                              ? [
+                                                  BoxShadow(
+                                                    color: Colors.black
+                                                        .withValues(alpha: 0.08),
+                                                    blurRadius: 4,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ]
+                                              : null,
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.view_column_rounded,
+                                              size: 16,
+                                              color: !is3Col
+                                                  ? const Color(0xFF1E293B)
+                                                  : const Color(0xFF64748B),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '2 Grid (Default)',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: !is3Col
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w500,
+                                                color: !is3Col
+                                                    ? const Color(0xFF1E293B)
+                                                    : const Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.view_column_rounded,
-                                          size: 17,
-                                          color: colCount == 2
-                                              ? Colors.black
-                                              : Colors.grey.shade700,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '2 Grid (Default)',
-                                          style: TextStyle(
-                                            color: colCount == 2
-                                                ? Colors.black
-                                                : Colors.black87,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    AppGridSettings.setColumnCount(3);
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: colCount == 3
-                                          ? Colors.amber.shade500
-                                          : Colors.white,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: colCount == 3
-                                            ? Colors.amber.shade600
-                                            : Colors.grey.shade300,
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        AppGridSettings.setColumnCount(3);
+                                      },
+                                      child: AnimatedContainer(
+                                        duration:
+                                            const Duration(milliseconds: 200),
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 8,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: is3Col
+                                              ? const Color(0xFF4F46E5)
+                                              : Colors.transparent,
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          boxShadow: is3Col
+                                              ? [
+                                                  BoxShadow(
+                                                    color:
+                                                        const Color(0xFF4F46E5)
+                                                            .withValues(
+                                                      alpha: 0.28,
+                                                    ),
+                                                    blurRadius: 4,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ]
+                                              : null,
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.grid_view_rounded,
+                                              size: 16,
+                                              color: is3Col
+                                                  ? Colors.white
+                                                  : const Color(0xFF64748B),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '3 Grid',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: is3Col
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w500,
+                                                color: is3Col
+                                                    ? Colors.white
+                                                    : const Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.grid_on_rounded,
-                                          size: 17,
-                                          color: colCount == 3
-                                              ? Colors.black
-                                              : Colors.grey.shade700,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '3 Grid',
-                                          style: TextStyle(
-                                            color: colCount == 3
-                                                ? Colors.black
-                                                : Colors.black87,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
@@ -430,48 +533,69 @@ class _CommonScaffoldState extends State<CommonScaffold> {
 
               const Spacer(),
 
-              Divider(color: Colors.grey.shade200, height: 1),
-
-              // 3. Logout Option
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 8,
+              // 4. Logout Option (Card Style)
+              Container(
+                margin: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
                 ),
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFFEE2E2)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.withValues(alpha: 0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 2,
                   ),
-                  child: const Icon(
-                    Icons.logout_rounded,
-                    color: Colors.redAccent,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.logout_rounded,
+                      color: Color(0xFFDC2626),
+                      size: 20,
+                    ),
+                  ),
+                  title: const Text(
+                    'Logout',
+                    style: TextStyle(
+                      color: Color(0xFFDC2626),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Color(0xFFF87171),
                     size: 20,
                   ),
-                ),
-                title: const Text(
-                  'Logout',
-                  style: TextStyle(
-                    color: Colors.redAccent,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                onTap: () async {
-                  AttendanceManager.instance.stopForegroundWatcher();
-                  const storage = FlutterSecureStorage();
-                  await storage.deleteAll();
+                  onTap: () async {
+                    AttendanceManager.instance.stopForegroundWatcher();
+                    const storage = FlutterSecureStorage();
+                    await storage.deleteAll();
 
-                  if (context.mounted) {
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(
-                        builder: (context) => const LoginPage(),
-                      ),
-                      (route) => false,
-                    );
-                  }
-                },
+                    if (context.mounted) {
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(
+                          builder: (context) => const LoginPage(),
+                        ),
+                        (route) => false,
+                      );
+                    }
+                  },
+                ),
               ),
               const SizedBox(height: 8),
             ],
