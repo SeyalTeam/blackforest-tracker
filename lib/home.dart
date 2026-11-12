@@ -37,6 +37,7 @@ import 'attendance_manager.dart';
 import 'tracker_contact_book_page.dart';
 import 'tracker_realtime_service.dart';
 import 'chef_category_management_screen.dart';
+import 'app_grid_settings.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -326,6 +327,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppGridSettings.init();
     AttendanceManager.instance.startForegroundWatcher();
     _categoryUpdateSubscription = TrackerRealtimeService.instance.onCategoryUpdated.listen(_handleRealtimeCategoryUpdate);
     _initData();
@@ -519,6 +521,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _profilePhotoUrl = resolved;
               });
             }
+            await _storage.write(key: 'userProfilePhoto', value: resolved);
           }
         }
 
@@ -7405,20 +7408,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
             ),
           ),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.85,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 22,
-            ),
-            itemCount: gridItems.length,
-            itemBuilder: (context, index) {
-              return _buildKitchenOrderCard(
-                gridItems[index],
-                fallbackStartedAt: startedAtFallback,
+          ValueListenableBuilder<int>(
+            valueListenable: AppGridSettings.columnCount,
+            builder: (context, colCount, _) {
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: colCount,
+                  childAspectRatio: colCount == 3 ? 0.72 : 0.85,
+                  crossAxisSpacing: colCount == 3 ? 8 : 16,
+                  mainAxisSpacing: colCount == 3 ? 12 : 22,
+                ),
+                itemCount: gridItems.length,
+                itemBuilder: (context, index) {
+                  return _buildKitchenOrderCard(
+                    gridItems[index],
+                    fallbackStartedAt: startedAtFallback,
+                  );
+                },
               );
             },
           ),
@@ -9410,13 +9418,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         color: const Color(0xFFC62828),
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         alignment: Alignment.center,
-                        child: Text(
-                          actionButtonLabel,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
-                            letterSpacing: 2.5,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Text(
+                              actionButtonLabel,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: AppGridSettings.columnCount.value == 3 ? 16 : 20,
+                                letterSpacing: AppGridSettings.columnCount.value == 3 ? 1.0 : 2.5,
+                              ),
+                            ),
                           ),
                         ),
                       ),

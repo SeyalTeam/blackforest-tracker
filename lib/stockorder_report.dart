@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'api_service.dart';
 import 'tracker_contact_book_page.dart';
+import 'app_grid_settings.dart';
 
 class StockOrderReportPage extends StatefulWidget {
   final String? initialBranchId;
@@ -135,11 +136,19 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       _isReportView = widget.initialIsReportView!;
     }
 
+    AppGridSettings.init();
+    AppGridSettings.columnCount.addListener(_onGridSettingChanged);
+
     _bootstrap();
+  }
+
+  void _onGridSettingChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    AppGridSettings.columnCount.removeListener(_onGridSettingChanged);
     for (var controller in _controllers.values) {
       controller.dispose();
     }
@@ -1886,6 +1895,10 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       final items = List<Map<String, dynamic>>.from(currentGroup); // copy
       currentGroup.clear();
 
+      final colCount = AppGridSettings.columnCount.value;
+      final aspectRatio = colCount == 2 ? 0.85 : 0.70;
+      final spacing = colCount == 2 ? 12.0 : 6.0;
+
       if (isUnderCategory) {
         // Use BoxAdapter + GridView to safely apply decoration without semantics crash
         Widget decoratedGrid = SliverToBoxAdapter(
@@ -1894,11 +1907,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 0.70,
-                crossAxisSpacing: 6,
-                mainAxisSpacing: 6,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: colCount,
+                childAspectRatio: aspectRatio,
+                crossAxisSpacing: spacing,
+                mainAxisSpacing: spacing,
               ),
               itemCount: items.length,
               itemBuilder: (context, index) {
@@ -1920,11 +1933,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
         Widget grid = SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              childAspectRatio: 0.70,
-              crossAxisSpacing: 6,
-              mainAxisSpacing: 6,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: colCount,
+              childAspectRatio: aspectRatio,
+              crossAxisSpacing: spacing,
+              mainAxisSpacing: spacing,
             ),
             delegate: SliverChildBuilderDelegate((context, index) {
               final item = items[index];
@@ -3162,48 +3175,76 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
     );
   }
 
+  String? _resolveItemImageUrl(Map<String, dynamic> entry) {
+    final direct = _cleanImageUrl(entry['imageUrl']) ??
+        _cleanImageUrl(entry['image']) ??
+        _cleanImageUrl(entry['productImage']) ??
+        _cleanImageUrl(entry['thumbnail']);
+    if (direct != null) return direct;
+
+    final product = entry['product'];
+    if (product is Map) {
+      if (product['images'] != null &&
+          product['images'] is List &&
+          (product['images'] as List).isNotEmpty) {
+        for (var imgItem in product['images']) {
+          if (imgItem is Map) {
+            final u = _cleanImageUrl(imgItem['image']) ??
+                _cleanImageUrl(imgItem['url']) ??
+                _cleanImageUrl(imgItem['thumbnailURL']) ??
+                _cleanImageUrl(imgItem['thumbnailUrl']);
+            if (u != null) return u;
+          } else if (imgItem is String) {
+            final u = _cleanImageUrl(imgItem);
+            if (u != null) return u;
+          }
+        }
+      }
+
+      final pUrl = _cleanImageUrl(product['image']) ??
+          _cleanImageUrl(product['thumbnail']) ??
+          _cleanImageUrl(product['thumbnailURL']) ??
+          _cleanImageUrl(product['thumbnailUrl']) ??
+          _cleanImageUrl(product['featuredImage']);
+      if (pUrl != null) return pUrl;
+    }
+    return null;
+  }
+
+  String? _cleanImageUrl(dynamic val) {
+    if (val == null) return null;
+    String? raw;
+    if (val is Map) {
+      final u = val['url'] ?? val['thumbnailURL'] ?? val['thumbnailUrl'];
+      if (u is String && u.trim().isNotEmpty) raw = u.trim();
+    } else if (val is String) {
+      final s = val.trim();
+      if (s.isNotEmpty && s.toLowerCase() != 'null') raw = s;
+    }
+    if (raw == null || raw.isEmpty) return null;
+
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      return raw;
+    }
+    if (raw.startsWith('/')) {
+      return 'https://blackforest-api.vseyal.com$raw';
+    }
+    if (raw.startsWith('media/') || raw.startsWith('uploads/')) {
+      return 'https://blackforest-api.vseyal.com/$raw';
+    }
+    return 'https://blackforest-api.vseyal.com/$raw';
+  }
+
   Widget _buildDriverGridItem(Map<String, dynamic> entry) {
     if (entry['type'] != 'item') return const SizedBox.shrink();
 
-    final product = entry['product'];
     final productName = entry['productName'] as String;
     final confirmedRaw = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
     final pickedRaw = ((entry['pickedQty'] as num?) ?? 0).toDouble();
     final pickedDisplay = (pickedRaw > 0) ? pickedRaw : confirmedRaw;
 
     // Image Handling
-    ImageProvider? imageProvider;
-    String? imageUrl;
-
-    if (product is Map) {
-      if (product['images'] != null &&
-          (product['images'] is List) &&
-          (product['images'] as List).isNotEmpty) {
-        final firstImg = product['images'][0];
-        if (firstImg is Map && firstImg['image'] != null) {
-          final imgObj = firstImg['image'];
-          if (imgObj is Map && imgObj['url'] != null) {
-            imageUrl = imgObj['url'];
-          }
-        }
-      }
-      if (imageUrl == null && product['image'] != null) {
-        final img = product['image'];
-        if (img is Map && img['url'] != null) {
-          imageUrl = img['url'];
-        } else if (img is String && img.startsWith('http')) {
-          imageUrl = img;
-        }
-      }
-    }
-
-    if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
-    }
-
-    if (imageUrl != null) {
-      imageProvider = NetworkImage(imageUrl);
-    }
+    final imageUrl = _resolveItemImageUrl(entry);
 
     final statuses = (entry['statuses'] as Set?) ?? {};
     final isLocked =
@@ -3336,47 +3377,46 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Image
-          GestureDetector(
-            onTap: null,
-            onDoubleTap: isLocked ? null : onAutoAction,
-            child: imageProvider != null
-                ? Image(image: imageProvider, fit: BoxFit.cover)
-                : Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+          // Background Image (Identical to KOT)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: null,
+              onDoubleTap: isLocked ? null : onAutoAction,
+              child: imageUrl != null && imageUrl.isNotEmpty
+                  ? Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.fastfood_rounded,
+                            color: Colors.white.withValues(alpha: 0.75),
+                            size: 44,
+                          ),
+                        );
+                      },
+                    )
+                  : Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.fastfood_rounded,
+                        color: Colors.white.withValues(alpha: 0.75),
+                        size: 44,
                       ),
                     ),
-                    child: Icon(
-                      Icons.fastfood_rounded,
-                      color: Colors.white.withValues(alpha: 0.75),
-                      size: 40,
-                    ),
-                  ),
-          ),
-
-          // Bottom Gradient for contrast
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 75,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.25),
-                    Colors.black.withValues(alpha: 0.55),
-                  ],
-                  stops: const [0.0, 0.6, 1.0],
-                ),
-              ),
             ),
           ),
 
@@ -3549,13 +3589,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                             : const Color(0xFFC62828)),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     alignment: Alignment.center,
-                    child: const Text(
-                      'PICKED',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                        letterSpacing: 0.8,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'PICKED',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: AppGridSettings.columnCount.value == 3 ? 13 : 16,
+                          letterSpacing: 1.0,
+                        ),
                       ),
                     ),
                   ),
@@ -3571,45 +3614,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   Widget _buildChefGridItem(Map<String, dynamic> entry) {
     if (entry['type'] != 'item') return const SizedBox.shrink();
 
-    final product = entry['product'];
     final productName = entry['productName'] as String;
     final req = ((entry['requiredQty'] as num?) ?? 0).toDouble();
     final sent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
 
     // Image Handling
-    ImageProvider? imageProvider;
-    String? imageUrl;
-
-    if (product is Map) {
-      if (product['images'] != null &&
-          (product['images'] is List) &&
-          (product['images'] as List).isNotEmpty) {
-        final firstImg = product['images'][0];
-        if (firstImg is Map && firstImg['image'] != null) {
-          final imgObj = firstImg['image'];
-          if (imgObj is Map && imgObj['url'] != null) {
-            imageUrl = imgObj['url'];
-          }
-        }
-      }
-
-      if (imageUrl == null && product['image'] != null) {
-        final img = product['image'];
-        if (img is Map && img['url'] != null) {
-          imageUrl = img['url'];
-        } else if (img is String && img.startsWith('http')) {
-          imageUrl = img;
-        }
-      }
-    }
-
-    if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
-    }
-
-    if (imageUrl != null) {
-      imageProvider = NetworkImage(imageUrl);
-    }
+    final imageUrl = _resolveItemImageUrl(entry);
 
     // Resolve branch name for fixed qty logic
     String? currentBranchName;
@@ -3739,47 +3749,46 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Image
-          GestureDetector(
-            onTap: null,
-            onDoubleTap: isLocked ? null : onAutoAction,
-            child: imageProvider != null
-                ? Image(image: imageProvider, fit: BoxFit.cover)
-                : Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+          // Background Image (Identical to KOT)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: null,
+              onDoubleTap: isLocked ? null : onAutoAction,
+              child: imageUrl != null && imageUrl.isNotEmpty
+                  ? Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.fastfood_rounded,
+                            color: Colors.white.withValues(alpha: 0.75),
+                            size: 44,
+                          ),
+                        );
+                      },
+                    )
+                  : Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.fastfood_rounded,
+                        color: Colors.white.withValues(alpha: 0.75),
+                        size: 44,
                       ),
                     ),
-                    child: Icon(
-                      Icons.fastfood_rounded,
-                      color: Colors.white.withValues(alpha: 0.75),
-                      size: 40,
-                    ),
-                  ),
-          ),
-
-          // Bottom Gradient for contrast
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 75,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.25),
-                    Colors.black.withValues(alpha: 0.55),
-                  ],
-                  stops: const [0.0, 0.6, 1.0],
-                ),
-              ),
             ),
           ),
 
@@ -3950,13 +3959,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                         : const Color(0xFFC62828),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     alignment: Alignment.center,
-                    child: Text(
-                      (sent > 0) ? 'SENT' : 'READY',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                        letterSpacing: 0.8,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        (sent > 0) ? 'SENT' : 'READY',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: AppGridSettings.columnCount.value == 3 ? 13 : 16,
+                          letterSpacing: 1.0,
+                        ),
                       ),
                     ),
                   ),
@@ -3972,45 +3984,13 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
   Widget _buildSupervisorGridItem(Map<String, dynamic> entry) {
     if (entry['type'] != 'item') return const SizedBox.shrink();
 
-    final product = entry['product'];
     final productName = entry['productName'] as String;
     final sent = ((entry['sendingQty'] as num?) ?? 0).toDouble();
     final confirmedRaw = ((entry['confirmedQty'] as num?) ?? 0).toDouble();
     final confirmedDisplay = (confirmedRaw > 0) ? confirmedRaw : sent;
 
     // Image Handling
-    ImageProvider? imageProvider;
-    String? imageUrl;
-
-    if (product is Map) {
-      if (product['images'] != null &&
-          (product['images'] is List) &&
-          (product['images'] as List).isNotEmpty) {
-        final firstImg = product['images'][0];
-        if (firstImg is Map && firstImg['image'] != null) {
-          final imgObj = firstImg['image'];
-          if (imgObj is Map && imgObj['url'] != null) {
-            imageUrl = imgObj['url'];
-          }
-        }
-      }
-      if (imageUrl == null && product['image'] != null) {
-        final img = product['image'];
-        if (img is Map && img['url'] != null) {
-          imageUrl = img['url'];
-        } else if (img is String && img.startsWith('http')) {
-          imageUrl = img;
-        }
-      }
-    }
-
-    if (imageUrl != null && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
-    }
-
-    if (imageUrl != null) {
-      imageProvider = NetworkImage(imageUrl);
-    }
+    final imageUrl = _resolveItemImageUrl(entry);
 
     final statuses = (entry['statuses'] as Set?) ?? {};
     final isLocked =
@@ -4143,47 +4123,46 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Image
-          GestureDetector(
-            onTap: null,
-            onDoubleTap: isLocked ? null : onAutoAction,
-            child: imageProvider != null
-                ? Image(image: imageProvider, fit: BoxFit.cover)
-                : Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+          // Background Image (Identical to KOT)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: null,
+              onDoubleTap: isLocked ? null : onAutoAction,
+              child: imageUrl != null && imageUrl.isNotEmpty
+                  ? Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.fastfood_rounded,
+                            color: Colors.white.withValues(alpha: 0.75),
+                            size: 44,
+                          ),
+                        );
+                      },
+                    )
+                  : Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFFE8E1D6), Color(0xFFB39A7D)],
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.fastfood_rounded,
+                        color: Colors.white.withValues(alpha: 0.75),
+                        size: 44,
                       ),
                     ),
-                    child: Icon(
-                      Icons.fastfood_rounded,
-                      color: Colors.white.withValues(alpha: 0.75),
-                      size: 40,
-                    ),
-                  ),
-          ),
-
-          // Bottom Gradient for contrast
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 75,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.25),
-                    Colors.black.withValues(alpha: 0.55),
-                  ],
-                  stops: const [0.0, 0.6, 1.0],
-                ),
-              ),
             ),
           ),
 
@@ -4356,13 +4335,16 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                             : const Color(0xFFC62828)),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     alignment: Alignment.center,
-                    child: Text(
-                      (confirmedRaw > 0) ? 'CONFIRMED' : 'CONFIRM',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                        letterSpacing: 0.8,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        (confirmedRaw > 0) ? 'CONFIRMED' : 'CONFIRM',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                          letterSpacing: 0.8,
+                        ),
                       ),
                     ),
                   ),
