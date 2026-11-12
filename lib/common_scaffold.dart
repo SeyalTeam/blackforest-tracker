@@ -140,7 +140,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
         ],
       ),
       drawer: Drawer(
-        backgroundColor: const Color(0xFF141414),
+        backgroundColor: Colors.white,
         child: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -148,10 +148,10 @@ class _CommonScaffoldState extends State<CommonScaffold> {
               // 1. User Profile Area (Photo, Name, Role, ID)
               Container(
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1F1F1F),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8F9FA),
                   border: Border(
-                    bottom: BorderSide(color: Colors.white10),
+                    bottom: BorderSide(color: Colors.grey.shade200),
                   ),
                 ),
                 child: Column(
@@ -161,7 +161,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                       children: [
                         CircleAvatar(
                           radius: 28,
-                          backgroundColor: Colors.white12,
+                          backgroundColor: Colors.amber.shade100,
                           backgroundImage: _profilePhotoUrl != null &&
                                   _profilePhotoUrl!.isNotEmpty
                               ? NetworkImage(_profilePhotoUrl!)
@@ -170,8 +170,8 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                   _profilePhotoUrl!.isEmpty
                               ? Text(
                                   _getInitials(_userName),
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  style: TextStyle(
+                                    color: Colors.amber.shade900,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 20,
                                   ),
@@ -186,7 +186,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                               Text(
                                 _userName.isNotEmpty ? _userName : 'Staff Member',
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: Colors.black87,
                                   fontSize: 17,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -200,18 +200,18 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                   vertical: 3,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.amber.withValues(alpha: 0.2),
+                                  color: Colors.amber.shade50,
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                    color: Colors.amber.withValues(alpha: 0.4),
+                                    color: Colors.amber.shade300,
                                   ),
                                 ),
                                 child: Text(
                                   _userRole.isNotEmpty
                                       ? _userRole.toUpperCase()
                                       : 'STAFF',
-                                  style: const TextStyle(
-                                    color: Colors.amber,
+                                  style: TextStyle(
+                                    color: Colors.amber.shade900,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 0.5,
@@ -231,23 +231,23 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black38,
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white10),
+                          border: Border.all(color: Colors.grey.shade300),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.badge_outlined,
                               size: 15,
-                              color: Colors.white60,
+                              color: Colors.grey.shade700,
                             ),
                             const SizedBox(width: 6),
                             Text(
                               'ID: $_userId',
-                              style: const TextStyle(
-                                color: Colors.white70,
+                              style: TextStyle(
+                                color: Colors.grey.shade800,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: 0.5,
@@ -272,25 +272,25 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                     return Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1F1F1F),
+                        color: const Color(0xFFF8F9FA),
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white12),
+                        border: Border.all(color: Colors.grey.shade200),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.grid_view_rounded,
-                                color: Colors.amber,
+                                color: Colors.amber.shade800,
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
                               const Text(
                                 'Grid Layout',
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: Colors.black87,
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -302,28 +302,22 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.amber.withValues(alpha: 0.2),
+                                  color: Colors.amber.shade50,
                                   borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: Colors.amber.shade300,
+                                  ),
                                 ),
                                 child: Text(
                                   '$colCount Columns',
-                                  style: const TextStyle(
-                                    color: Colors.amber,
+                                  style: TextStyle(
+                                    color: Colors.amber.shade900,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 11,
                                   ),
                                 ),
                               ),
                             ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Switch between 2 or 3 grid columns for both KOT and Stock Orders.',
-                            style: TextStyle(
-                              color: Colors.grey[400],
-                              fontSize: 12,
-                              height: 1.3,
-                            ),
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -339,9 +333,14 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                     ),
                                     decoration: BoxDecoration(
                                       color: colCount == 2
-                                          ? Colors.amber
-                                          : const Color(0xFF2B2B2B),
+                                          ? Colors.amber.shade500
+                                          : Colors.white,
                                       borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: colCount == 2
+                                            ? Colors.amber.shade600
+                                            : Colors.grey.shade300,
+                                      ),
                                     ),
                                     alignment: Alignment.center,
                                     child: Row(
@@ -353,7 +352,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                           size: 17,
                                           color: colCount == 2
                                               ? Colors.black
-                                              : Colors.white70,
+                                              : Colors.grey.shade700,
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
@@ -361,7 +360,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                           style: TextStyle(
                                             color: colCount == 2
                                                 ? Colors.black
-                                                : Colors.white70,
+                                                : Colors.black87,
                                             fontWeight: FontWeight.bold,
                                             fontSize: 12,
                                           ),
@@ -383,9 +382,14 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                     ),
                                     decoration: BoxDecoration(
                                       color: colCount == 3
-                                          ? Colors.amber
-                                          : const Color(0xFF2B2B2B),
+                                          ? Colors.amber.shade500
+                                          : Colors.white,
                                       borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: colCount == 3
+                                            ? Colors.amber.shade600
+                                            : Colors.grey.shade300,
+                                      ),
                                     ),
                                     alignment: Alignment.center,
                                     child: Row(
@@ -397,7 +401,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                           size: 17,
                                           color: colCount == 3
                                               ? Colors.black
-                                              : Colors.white70,
+                                              : Colors.grey.shade700,
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
@@ -405,7 +409,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                                           style: TextStyle(
                                             color: colCount == 3
                                                 ? Colors.black
-                                                : Colors.white70,
+                                                : Colors.black87,
                                             fontWeight: FontWeight.bold,
                                             fontSize: 12,
                                           ),
@@ -426,7 +430,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
 
               const Spacer(),
 
-              const Divider(color: Colors.white12, height: 1),
+              Divider(color: Colors.grey.shade200, height: 1),
 
               // 3. Logout Option
               ListTile(
@@ -437,7 +441,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
+                    color: Colors.red.shade50,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(

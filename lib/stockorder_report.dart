@@ -3427,7 +3427,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
+                color: Colors.black.withValues(alpha: 0.30),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: Text(
@@ -3448,7 +3448,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
+                color: Colors.black.withValues(alpha: 0.30),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: Text(
@@ -3472,17 +3472,17 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.65),
+                    color: Colors.black.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.35),
+                      color: Colors.white.withValues(alpha: 0.45),
                       width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -3551,11 +3551,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Product Name Strip
+                // Product Name Strip (Low opacity so food image shines through)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                  color: Colors.black.withValues(alpha: 0.74),
+                  color: Colors.black.withValues(alpha: 0.35),
                   child: SizedBox(
                     width: double.infinity,
                     child: FittedBox(
@@ -3569,6 +3569,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                           fontSize: 12,
                           height: 1,
                           letterSpacing: 0.05,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              blurRadius: 4,
+                            ),
+                          ],
                         ),
                         maxLines: 1,
                         softWrap: false,
@@ -3799,7 +3805,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
+                color: Colors.black.withValues(alpha: 0.30),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: Text(
@@ -3820,7 +3826,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
+                color: Colors.black.withValues(alpha: 0.30),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: Text(
@@ -3844,17 +3850,17 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.65),
+                    color: Colors.black.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.35),
+                      color: Colors.white.withValues(alpha: 0.45),
                       width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -3923,11 +3929,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Product Name Strip
+                // Product Name Strip (Low opacity so food image shines through)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                  color: Colors.black.withValues(alpha: 0.74),
+                  color: Colors.black.withValues(alpha: 0.35),
                   child: SizedBox(
                     width: double.infinity,
                     child: FittedBox(
@@ -3941,6 +3947,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                           fontSize: 12,
                           height: 1,
                           letterSpacing: 0.05,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              blurRadius: 4,
+                            ),
+                          ],
                         ),
                         maxLines: 1,
                         softWrap: false,
@@ -4173,7 +4185,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
+                color: Colors.black.withValues(alpha: 0.30),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: Text(
@@ -4194,7 +4206,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
+                color: Colors.black.withValues(alpha: 0.30),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: Text(
@@ -4218,17 +4230,17 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.65),
+                    color: Colors.black.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.35),
+                      color: Colors.white.withValues(alpha: 0.45),
                       width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -4297,11 +4309,11 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Product Name Strip
+                // Product Name Strip (Low opacity so food image shines through)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                  color: Colors.black.withValues(alpha: 0.74),
+                  color: Colors.black.withValues(alpha: 0.35),
                   child: SizedBox(
                     width: double.infinity,
                     child: FittedBox(
@@ -4315,6 +4327,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
                           fontSize: 12,
                           height: 1,
                           letterSpacing: 0.05,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              blurRadius: 4,
+                            ),
+                          ],
                         ),
                         maxLines: 1,
                         softWrap: false,
