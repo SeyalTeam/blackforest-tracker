@@ -702,7 +702,7 @@ Future<List<dynamic>> fetchEmployees() async {
     try {
       final token = await _getToken();
 
-      String url = '$_baseUrl/reviews?limit=100&depth=1&sort=-createdAt';
+      String url = '$_baseUrl/reviews?limit=100&depth=2&sort=-createdAt';
 
       if (branchId != null && branchId.isNotEmpty && branchId != 'ALL') {
         url += '&where[branch][equals]=$branchId';

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'common_scaffold.dart';
 import 'api_service.dart';
@@ -7,6 +9,7 @@ import 'stock_footer.dart';
 import 'smooth_navigation.dart';
 import 'home.dart';
 import 'chat_page.dart';
+import 'tracker_realtime_service.dart';
 
 class ReviewListScreen extends StatefulWidget {
   final bool showKitchenFooter;
@@ -19,6 +22,8 @@ class ReviewListScreen extends StatefulWidget {
   final String footerMode; // 'KITCHEN' or 'STOCK'
   final String? branchId;
   final List<String>? companyIds;
+  final List<String>? categoryIds;
+  final String? userRole;
 
   const ReviewListScreen({
     super.key,
@@ -32,6 +37,8 @@ class ReviewListScreen extends StatefulWidget {
     this.footerMode = 'KITCHEN',
     this.branchId,
     this.companyIds,
+    this.categoryIds,
+    this.userRole,
   });
 
   @override
@@ -39,23 +46,119 @@ class ReviewListScreen extends StatefulWidget {
 }
 
 class _ReviewListScreenState extends State<ReviewListScreen> {
+  final _storage = const FlutterSecureStorage();
   bool _isLoading = true;
   List<Map<String, dynamic>> _reviews = []; // Flattened list of review items
+  List<String> _assignedCategoryIds = [];
+  Map<String, String> _categoryNamesMap = {};
+  String _userRole = '';
+  bool _isChefUser = false;
+  String? _selectedCategoryFilter;
+  StreamSubscription? _categoryUpdateSubscription;
 
   @override
   void initState() {
     super.initState();
+    _categoryUpdateSubscription = TrackerRealtimeService.instance.onCategoryUpdated.listen(_handleRealtimeCategoryUpdate);
     _initData();
   }
 
+  @override
+  void dispose() {
+    _categoryUpdateSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _handleRealtimeCategoryUpdate(Map<String, dynamic> data) async {
+    await _loadUserPermissions();
+    if (mounted) {
+      _fetchReviews();
+    }
+  }
+
   Future<void> _initData() async {
+    await _loadUserPermissions();
     await _fetchReviews();
+  }
+
+  Future<void> _loadUserPermissions() async {
+    String? role = widget.userRole;
+    List<String>? catIds = widget.categoryIds;
+
+    if (role == null || role.isEmpty) {
+      role = await _storage.read(key: 'userRole');
+    }
+    _userRole = (role ?? '').toLowerCase();
+    _isChefUser = _userRole == 'chef' || _userRole == 'kitchen';
+
+    if (catIds == null || catIds.isEmpty) {
+      final values = await Future.wait([
+        _storage.read(key: 'userKitchenCategoryIds'),
+        _storage.read(key: 'userStockCategoryIds'),
+      ]);
+      final kCats = values[0]?.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
+      final sCats = values[1]?.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? [];
+      _assignedCategoryIds = <String>{...kCats, ...sCats}.toList();
+    } else {
+      _assignedCategoryIds = catIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    }
+
+    try {
+      final allCats = await ApiService.instance.fetchCategories();
+      final map = <String, String>{};
+      for (var c in allCats) {
+        final id = (c is Map ? (c['id'] ?? c['_id']) : c)?.toString().trim() ?? '';
+        final name = (c is Map ? (c['name'] ?? c['title']) : null)?.toString().trim() ?? '';
+        if (id.isNotEmpty && name.isNotEmpty) {
+          map[id] = name;
+        }
+      }
+      _categoryNamesMap = map;
+    } catch (e) {
+      debugPrint('Error loading category names in review screen: $e');
+    }
+  }
+
+  String _extractCategoryId(Map<String, dynamic> item) {
+    final prod = item['product'];
+    if (prod is Map) {
+      final cat = prod['category'];
+      if (cat is Map) {
+        return (cat['id'] ?? cat['_id'] ?? cat['value'])?.toString().trim() ?? '';
+      } else if (cat != null) {
+        return cat.toString().trim();
+      }
+    } else if (prod != null && prod is String) {
+      final cat = item['category'];
+      if (cat is Map) {
+        return (cat['id'] ?? cat['_id'] ?? cat['value'])?.toString().trim() ?? '';
+      } else if (cat != null) {
+        return cat.toString().trim();
+      }
+    }
+    return '';
+  }
+
+  String _extractCategoryName(Map<String, dynamic> item) {
+    final prod = item['product'];
+    if (prod is Map) {
+      final cat = prod['category'];
+      if (cat is Map) {
+        final name = (cat['name'] ?? cat['title'])?.toString().trim() ?? '';
+        if (name.isNotEmpty) return name;
+      }
+    }
+    final cId = _extractCategoryId(item);
+    if (cId.isNotEmpty && _categoryNamesMap.containsKey(cId)) {
+      return _categoryNamesMap[cId]!;
+    }
+    return '';
   }
 
   Future<void> _fetchReviews() async {
     try {
       if (mounted) setState(() => _isLoading = true);
-      // Fetch all (recent 100) reviews without date filter
+      // Fetch all (recent 100) reviews with depth=2 to populate products & categories
       final docs = await ApiService.instance.fetchReviews(
         branchId: widget.branchId,
         companyIds: widget.companyIds,
@@ -77,6 +180,21 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
           flatItem['parentReviewId'] = reviewId;
           flatItem['customerName'] = customerName;
           flatItem['createdAt'] = da; // Using review creation time for sorting
+
+          final cId = _extractCategoryId(flatItem);
+          final cName = _extractCategoryName(flatItem);
+          flatItem['categoryId'] = cId;
+          flatItem['categoryName'] = cName;
+
+          // CHEF CATEGORY ISOLATION:
+          // If the user is a chef with assigned categories, show ONLY reviews for
+          // their assigned categories so they can update and reply to their reviews only!
+          if (_isChefUser && _assignedCategoryIds.isNotEmpty) {
+            if (cId.isEmpty || !_assignedCategoryIds.contains(cId)) {
+              continue;
+            }
+          }
+
           flattened.add(flatItem);
         }
       }
@@ -235,6 +353,7 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
                 ],
               ),
             ),
+            _buildCategoryFilterBar(),
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -338,9 +457,125 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
     }
   }
 
+  Widget _buildCategoryFilterBar() {
+    final Map<String, String> filterCats = {};
+    if (_isChefUser) {
+      for (var cId in _assignedCategoryIds) {
+        filterCats[cId] = _categoryNamesMap[cId] ?? 'Category';
+      }
+    }
+    for (var r in _reviews) {
+      final cId = r['categoryId']?.toString() ?? '';
+      final cName = r['categoryName']?.toString() ?? '';
+      if (cId.isNotEmpty && !filterCats.containsKey(cId)) {
+        filterCats[cId] = cName.isNotEmpty ? cName : (_categoryNamesMap[cId] ?? 'Category');
+      }
+    }
+
+    if (filterCats.isEmpty) return const SizedBox.shrink();
+
+    // If only 1 category, show an informative banner
+    if (filterCats.length == 1) {
+      final singleName = filterCats.values.first;
+      return Container(
+        width: double.infinity,
+        color: const Color(0xFF161616),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Icon(Icons.restaurant_menu, size: 16, color: Colors.amber[400]),
+            const SizedBox(width: 8),
+            Text(
+              'Your Category: ',
+              style: TextStyle(color: Colors.grey[400], fontSize: 13),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+              ),
+              child: Text(
+                singleName.toUpperCase(),
+                style: TextStyle(
+                  color: Colors.amber[300],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // If multiple categories, show interactive filter chips!
+    return Container(
+      height: 48,
+      color: const Color(0xFF161616),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        children: [
+          FilterChip(
+            label: Text(
+              _isChefUser
+                  ? 'All My Categories (${_reviews.length})'
+                  : 'All Categories (${_reviews.length})',
+              style: TextStyle(
+                color: _selectedCategoryFilter == null ? Colors.black : Colors.white70,
+                fontWeight: _selectedCategoryFilter == null ? FontWeight.bold : FontWeight.w500,
+                fontSize: 12,
+              ),
+            ),
+            selected: _selectedCategoryFilter == null,
+            selectedColor: Colors.amber,
+            backgroundColor: const Color(0xFF252525),
+            showCheckmark: false,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            onSelected: (_) => setState(() => _selectedCategoryFilter = null),
+          ),
+          const SizedBox(width: 8),
+          ...filterCats.entries.map((entry) {
+            final isSelected = _selectedCategoryFilter == entry.key;
+            final count = _reviews.where((r) => r['categoryId'] == entry.key).length;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                label: Text(
+                  '${entry.value} ($count)',
+                  style: TextStyle(
+                    color: isSelected ? Colors.black : Colors.white70,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    fontSize: 12,
+                  ),
+                ),
+                selected: isSelected,
+                selectedColor: Colors.amber,
+                backgroundColor: const Color(0xFF252525),
+                showCheckmark: false,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                onSelected: (_) => setState(() {
+                  _selectedCategoryFilter = isSelected ? null : entry.key;
+                }),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   Widget _buildReviewList({required String status}) {
-    // Filter reviews based on status
+    // Filter reviews based on status and selected category
     final filtered = _reviews.where((item) {
+      if (_selectedCategoryFilter != null &&
+          item['categoryId'] != _selectedCategoryFilter) {
+        return false;
+      }
       final itemStatus = item['status'] ?? 'waiting';
       final hasReply = (item['chefReply'] as String?)?.isNotEmpty ?? false;
 
@@ -357,6 +592,35 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
     }).toList();
 
     if (filtered.isEmpty) {
+      if (_isChefUser && _assignedCategoryIds.isEmpty) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.category_outlined, size: 56, color: Colors.amber.withValues(alpha: 0.8)),
+                const SizedBox(height: 16),
+                const Text(
+                  'No Categories Assigned',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'You do not have any assigned categories yet. Please select your categories in Category Management to view and reply to customer reviews.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final filterLabel = _selectedCategoryFilter != null
+          ? (_categoryNamesMap[_selectedCategoryFilter] ?? 'this category')
+          : (_isChefUser ? 'your assigned categories' : 'this branch');
+
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -364,8 +628,8 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
             Icon(Icons.inbox, size: 48, color: Colors.grey[700]),
             const SizedBox(height: 16),
             Text(
-              'No $status reviews',
-              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+              'No $status reviews for $filterLabel',
+              style: TextStyle(color: Colors.grey[600], fontSize: 15),
             ),
           ],
         ),
@@ -388,6 +652,7 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
     final productName =
         (item['product'] is Map ? item['product']['name'] : 'Product') ??
         'Unknown Product';
+    final categoryName = item['categoryName']?.toString() ?? '';
     final customerName = item['customerName'] ?? 'Guest'; // Default to Guest
     final dateRaw = item['createdAt'];
     final date = dateRaw is DateTime
@@ -497,6 +762,7 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Icon(
                       Icons.restaurant_menu,
@@ -515,6 +781,31 @@ class _ReviewListScreenState extends State<ReviewListScreen> {
                         ),
                       ),
                     ),
+                    if (categoryName.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: Colors.amber.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Text(
+                          categoryName.toUpperCase(),
+                          style: TextStyle(
+                            color: Colors.amber[300],
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 12),

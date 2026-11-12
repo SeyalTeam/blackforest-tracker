@@ -303,12 +303,52 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
     try {
       final reviews = await ApiService.instance.fetchReviews();
       int count = 0;
+      final role = (await _storage.read(key: 'userRole'))?.toLowerCase() ?? '';
+      final isChef = role == 'chef' || role == 'kitchen';
+      final Set<String> chefCatIds = {};
+      if (isChef) {
+        final kCats = (await _storage.read(key: 'userKitchenCategoryIds'))
+                ?.split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty) ??
+            [];
+        final sCats = (await _storage.read(key: 'userStockCategoryIds'))
+                ?.split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty) ??
+            [];
+        chefCatIds.addAll(kCats);
+        chefCatIds.addAll(sCats);
+      }
+
       for (var review in reviews) {
         final items = (review['items'] as List?) ?? [];
         for (var item in items) {
           final itemStatus = item['status'] ?? 'waiting';
           final hasReply = (item['chefReply'] as String?)?.isNotEmpty ?? false;
           if (itemStatus == 'waiting' && !hasReply) {
+            if (isChef && chefCatIds.isNotEmpty) {
+              String? cId;
+              final prod = item['product'];
+              if (prod is Map) {
+                final cat = prod['category'];
+                if (cat is Map) {
+                  cId = (cat['id'] ?? cat['_id'] ?? cat['value'])?.toString().trim();
+                } else if (cat != null) {
+                  cId = cat.toString().trim();
+                }
+              } else if (prod != null) {
+                final cat = item['category'];
+                if (cat is Map) {
+                  cId = (cat['id'] ?? cat['_id'])?.toString().trim();
+                } else if (cat != null) {
+                  cId = cat.toString().trim();
+                }
+              }
+              if (cId == null || !chefCatIds.contains(cId)) {
+                continue;
+              }
+            }
             count++;
           }
         }
@@ -705,7 +745,9 @@ class _StockTicketListScreenState extends State<StockTicketListScreen> {
               footerMode: 'STOCK',
             ),
           ),
-        );
+        ).then((_) {
+          _fetchReviewsCount();
+        });
         break;
       case StockFooterTab.chat:
         Navigator.push(

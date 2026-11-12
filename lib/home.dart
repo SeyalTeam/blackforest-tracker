@@ -728,6 +728,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_isStockEnabled) {
       _fetchCounts(forceRefresh: true);
     }
+    _fetchReviewsCount();
   }
 
   void _startSyncTimer() {
@@ -2119,12 +2120,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         branchId: _userBranchId,
       );
       int count = 0;
+      final isChef = _userRole == 'chef' || _userRole == 'kitchen';
+      final chefCatIds = isChef
+          ? {..._userKitchenCategoryIds, ..._userStockCategoryIds}
+          : <String>{};
+
       for (var review in reviews) {
         final items = (review['items'] as List?) ?? [];
         for (var item in items) {
           final itemStatus = item['status'] ?? 'waiting';
           final hasReply = (item['chefReply'] as String?)?.isNotEmpty ?? false;
           if (itemStatus == 'waiting' && !hasReply) {
+            if (isChef && chefCatIds.isNotEmpty) {
+              String? cId;
+              final prod = item['product'];
+              if (prod is Map) {
+                final cat = prod['category'];
+                if (cat is Map) {
+                  cId = (cat['id'] ?? cat['_id'] ?? cat['value'])?.toString().trim();
+                } else if (cat != null) {
+                  cId = cat.toString().trim();
+                }
+              } else if (prod != null) {
+                final cat = item['category'];
+                if (cat is Map) {
+                  cId = (cat['id'] ?? cat['_id'])?.toString().trim();
+                } else if (cat != null) {
+                  cId = cat.toString().trim();
+                }
+              }
+              if (cId == null || !chefCatIds.contains(cId)) {
+                continue;
+              }
+            }
             count++;
           }
         }
@@ -4717,9 +4745,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               footerMode: 'STOCK',
               branchId: _userBranchId,
               companyIds: _managerCompanyIds,
+              userRole: _userRole,
+              categoryIds: _isChef ? {..._userKitchenCategoryIds, ..._userStockCategoryIds}.toList() : null,
             ),
           ),
         ).then((_) {
+          _fetchReviewsCount();
           if (mounted && _isChef) {
             setState(() {
               _stockTabSelected = HomeScreen.activeStockTab;
@@ -4789,9 +4820,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               footerMode: 'KITCHEN',
               branchId: _userBranchId,
               companyIds: _managerCompanyIds,
+              userRole: _userRole,
+              categoryIds: _isChef ? {..._userKitchenCategoryIds, ..._userStockCategoryIds}.toList() : null,
             ),
           ),
-        );
+        ).then((_) {
+          _fetchReviewsCount();
+        });
         break;
       case KitchenFooterTab.chat:
         Navigator.push(
