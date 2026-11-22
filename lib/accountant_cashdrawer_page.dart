@@ -68,19 +68,30 @@ class _AccountantCashDrawerPageState extends State<AccountantCashDrawerPage> {
       final token = await storage.read(key: 'token');
       final baseUrl = ApiService.baseUrl;
 
-      final url = '$baseUrl/branches/toggle-cashdrawer-access?branchId=accountant';
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-app-secret': 'bf_tracker_4b5c6d7e8f9a0b1c',
+        'x-app-key': 'bf_tracker_4b5c6d7e8f9a0b1c',
+        if (token != null) 'Authorization': 'Bearer $token',
+      };
+
+      var response = await http.get(
+        Uri.parse('$baseUrl/branches/toggle-cashdrawer-access?branchId=accountant'),
+        headers: headers,
       );
+
+      if (response.statusCode == 404 || response.statusCode != 200) {
+        response = await http.get(
+          Uri.parse('$baseUrl/globals/payment-settings'),
+          headers: headers,
+        );
+      }
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
-          _isAuthorized = data['isCashDrawerEnabled'] == true;
+          _isAuthorized = data['isCashDrawerEnabled'] == true ||
+              data['isAccountantCashDrawerEnabled'] == true;
         });
       } else {
         setState(() {
