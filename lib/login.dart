@@ -9,6 +9,8 @@ import 'api_service.dart';
 import 'home.dart';
 import 'geofence_util.dart';
 import 'tracker_realtime_service.dart';
+import 'profile_page.dart';
+import 'attendance_manager.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -442,6 +444,20 @@ class _LoginPageState extends State<LoginPage> {
             await prefs.setString('branchName', bName);
           }
 
+          // Auto-save branch printerIp if present, matching branch app logic
+          String? branchPrinterIp;
+          if (fullUser['branch'] is Map && fullUser['branch']['printerIp'] != null) {
+            branchPrinterIp = fullUser['branch']['printerIp'].toString().trim();
+          } else if (fullUser['employee'] is Map &&
+              fullUser['employee']['branch'] is Map &&
+              fullUser['employee']['branch']['printerIp'] != null) {
+            branchPrinterIp = fullUser['employee']['branch']['printerIp'].toString().trim();
+          }
+          if (branchPrinterIp != null && branchPrinterIp.isNotEmpty) {
+            await prefs.setString('printerIp', branchPrinterIp);
+            await prefs.setString('printer_ip', branchPrinterIp);
+          }
+
           if (fullUser['employee'] != null) {
             final emp = fullUser['employee'];
             final empDocId = (emp is Map ? (emp['id'] ?? emp['_id']) : emp)?.toString() ?? '';
@@ -570,9 +586,23 @@ class _LoginPageState extends State<LoginPage> {
 
           if (!mounted) return;
           TrackerRealtimeService.instance.connect();
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const HomeScreen()),
-          );
+
+          final bool isMandatoryRole = AttendanceManager.isAttendanceMandatoryRole(userRole);
+          final bool isPunchedIn = await AttendanceManager.instance.checkAttendanceStatus(prefs: prefs);
+
+          if (!mounted) return;
+
+          if (isMandatoryRole && !isPunchedIn) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (context) => const ProfilePage(isLockedForAttendance: true),
+              ),
+            );
+          } else {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => const HomeScreen()),
+            );
+          }
         } else {
           // Login Failed - Improved error handling
           debugPrint('DEBUG: Login failed status ${res.statusCode}: ${res.body}');

@@ -25,9 +25,12 @@ import 'daily_tasks_page.dart';
 import 'duty_start_page.dart';
 import 'duty_end_page.dart';
 import 'rank_card_page.dart';
+import 'home.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final bool isLockedForAttendance;
+
+  const ProfilePage({super.key, this.isLockedForAttendance = false});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -1195,11 +1198,29 @@ class _ProfilePageState extends State<ProfilePage> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Successfully punched in!')),
           );
+          await AttendanceManager.setPunchedInState(true, punchInTime: now.toIso8601String());
           await _fetchEmployeeProfile();
           await _fetchAttendance();
           await _fetchDailyTasks();
           _lastPunchOutType = null;
           await _storage.delete(key: 'lastPunchOutType');
+          if (widget.isLockedForAttendance && mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Attendance recorded! Unlocking workspace...'),
+                backgroundColor: Color(0xFF16A34A),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            Future.delayed(const Duration(milliseconds: 700), () {
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                );
+              }
+            });
+          }
         }
       } else {
         final localMidnight = DateTime(now.year, now.month, now.day);
@@ -1226,11 +1247,29 @@ class _ProfilePageState extends State<ProfilePage> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Successfully punched in!')),
           );
+          await AttendanceManager.setPunchedInState(true, punchInTime: now.toIso8601String());
           await _fetchEmployeeProfile();
           await _fetchAttendance();
           await _fetchDailyTasks();
           _lastPunchOutType = null;
           await _storage.delete(key: 'lastPunchOutType');
+          if (widget.isLockedForAttendance && mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Attendance recorded! Unlocking workspace...'),
+                backgroundColor: Color(0xFF16A34A),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            Future.delayed(const Duration(milliseconds: 700), () {
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                );
+              }
+            });
+          }
         }
       }
     } catch (e) {
@@ -1623,6 +1662,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _lastPunchOutType = 'auto';
         _autoPunchInFired = false;
         _stopGeofenceWatcher();
+        await AttendanceManager.setPunchedInState(false);
         await _fetchEmployeeProfile();
         await _fetchAttendance();
 
@@ -1743,6 +1783,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Successfully punched out!')),
         );
+        await AttendanceManager.setPunchedInState(false);
         await _fetchEmployeeProfile();
         await _fetchAttendance();
         _autoPunchInFired = false;
@@ -1823,88 +1864,144 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 17,
+    return PopScope(
+      canPop: !widget.isLockedForAttendance || _hasActiveSession,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please punch in attendance to enter the workspace.'),
+            backgroundColor: Colors.black87,
+            behavior: SnackBarBehavior.floating,
           ),
-        ),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF5B36AC),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        toolbarHeight: 46,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-            tooltip: 'Refresh',
-            onPressed: () async {
-              await _fetchEmployeeProfile();
-              await _fetchAttendance();
-              await _fetchDailyTasks();
-              await _fetchReportCard();
-              _autoPunchInFired = false;
-              await _checkGeofence();
-            },
-          ),
-        ],
-      ),
-      body: SizedBox(
-        width: double.infinity,
-        height: double.infinity,
-        child: AnimatedCrossFade(
-          duration: const Duration(milliseconds: 250),
-          crossFadeState: _profileLoading
-              ? CrossFadeState.showFirst
-              : CrossFadeState.showSecond,
-          firstChild: const Center(
-            child: CircularProgressIndicator(color: Color(0xFF5B36AC)),
-          ),
-          secondChild: RefreshIndicator(
-            onRefresh: () async {
-              await _fetchEmployeeProfile();
-              await _fetchAttendance();
-              await _fetchDailyTasks();
-              await _fetchReportCard();
-              _autoPunchInFired = false;
-              await _checkGeofence();
-            },
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                children: [
-                  // 1. Purple Header with Profile Photo, Greeting, Name, Role/Branch
-                  _buildPurpleTopHeader(),
-
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
-                    child: Column(
-                      children: [
-                        // 1. Live Performance Score Card with Gauge & Mini Stats
-                        _buildLivePerformanceCard(),
-                        const SizedBox(height: 14),
-
-                        // 2. 3x2 Square Grid
-                        _buildSquareGrid(),
-                        const SizedBox(height: 14),
-
-                        // 3. Punch Out, Auto/Manual Status, Selfie Alert, Logout
-                        _buildPunchAndLogoutSection(),
-
-                        // 6. Routine Tasks (if any)
-                        _buildRoutineTasksSection(),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+        );
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        appBar: AppBar(
+          automaticallyImplyLeading: !widget.isLockedForAttendance,
+          title: const Text(
+            'Profile',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 17,
             ),
           ),
+          centerTitle: true,
+          backgroundColor: const Color(0xFF5B36AC),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          toolbarHeight: 46,
+          actions: [
+            if (widget.isLockedForAttendance && _hasActiveSession)
+              TextButton.icon(
+                icon: const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                label: const Text(
+                  'Workspace',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  );
+                },
+              ),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              tooltip: 'Refresh',
+              onPressed: () async {
+                await _fetchEmployeeProfile();
+                await _fetchAttendance();
+                await _fetchDailyTasks();
+                await _fetchReportCard();
+                _autoPunchInFired = false;
+                await _checkGeofence();
+              },
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (widget.isLockedForAttendance && !_hasActiveSession)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                color: const Color(0xFFFEF3C7),
+                child: const Row(
+                  children: [
+                    Icon(Icons.lock_clock_rounded, color: Color(0xFFD97706), size: 20),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Attendance required: Please punch in to access Home, Review, and Chat.',
+                        style: TextStyle(
+                          color: Color(0xFF92400E),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: SizedBox(
+                width: double.infinity,
+                height: double.infinity,
+                child: AnimatedCrossFade(
+                  duration: const Duration(milliseconds: 250),
+                  crossFadeState: _profileLoading
+                      ? CrossFadeState.showFirst
+                      : CrossFadeState.showSecond,
+                  firstChild: const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF5B36AC)),
+                  ),
+                  secondChild: RefreshIndicator(
+                    onRefresh: () async {
+                      await _fetchEmployeeProfile();
+                      await _fetchAttendance();
+                      await _fetchDailyTasks();
+                      await _fetchReportCard();
+                      _autoPunchInFired = false;
+                      await _checkGeofence();
+                    },
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: Column(
+                        children: [
+                          // 1. Purple Header with Profile Photo, Greeting, Name, Role/Branch
+                          _buildPurpleTopHeader(),
+
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
+                            child: Column(
+                              children: [
+                                // 1. Live Performance Score Card with Gauge & Mini Stats
+                                _buildLivePerformanceCard(),
+                                const SizedBox(height: 14),
+
+                                // 2. 3x2 Square Grid
+                                _buildSquareGrid(),
+                                const SizedBox(height: 14),
+
+                                // 3. Punch Out, Auto/Manual Status, Selfie Alert, Logout
+                                _buildPunchAndLogoutSection(),
+
+                                // 6. Routine Tasks (if any)
+                                _buildRoutineTasksSection(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

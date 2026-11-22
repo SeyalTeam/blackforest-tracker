@@ -9,6 +9,8 @@ import 'background_service.dart';
 import 'tracker_live_call_service.dart';
 import 'tracker_realtime_service.dart';
 import 'tracker_contact_book_page.dart';
+import 'profile_page.dart';
+import 'attendance_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +30,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription? _notificationSubscription;
   bool? _isLoggedIn;
+  bool _needsAttendanceLock = false;
 
   @override
   void initState() {
@@ -114,6 +117,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   Future<void> _checkLoginStatus() async {
     bool loggedIn = false;
+    bool needsAttendanceLock = false;
     try {
       // 1. Instant check from SharedPreferences (avoids Android Keystore blocking/hanging on startup)
       final prefs = await SharedPreferences.getInstance();
@@ -129,6 +133,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         );
         loggedIn = secVal == 'true';
       }
+
+      if (loggedIn) {
+        final role = prefs.getString('userRole') ?? '';
+        if (AttendanceManager.isAttendanceMandatoryRole(role)) {
+          final isPunched = AttendanceManager.isPunchedInFromPrefs(prefs);
+          if (!isPunched) {
+            needsAttendanceLock = true;
+          }
+        }
+      }
     } catch (e) {
       debugPrint('main: _checkLoginStatus error: $e');
       loggedIn = false;
@@ -137,6 +151,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (mounted) {
       setState(() {
         _isLoggedIn = loggedIn;
+        _needsAttendanceLock = needsAttendanceLock;
       });
       if (loggedIn) {
         TrackerRealtimeService.instance.connect();
@@ -159,7 +174,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       title: 'Tracker App',
       theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
-      home: _isLoggedIn! ? const HomeScreen() : const LoginPage(),
+      home: _isLoggedIn != true
+          ? const LoginPage()
+          : (_needsAttendanceLock
+              ? const ProfilePage(isLockedForAttendance: true)
+              : const HomeScreen()),
     );
   }
 }

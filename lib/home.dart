@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:http_parser/http_parser.dart';
@@ -338,16 +339,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     AppGridSettings.init();
     AttendanceManager.instance.startForegroundWatcher();
+    AttendanceManager.isPunchedInNotifier.addListener(_onAttendanceStateChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAttendanceGate();
+    });
     _categoryUpdateSubscription = TrackerRealtimeService.instance.onCategoryUpdated.listen(_handleRealtimeCategoryUpdate);
     _initData();
     _startSyncTimer();
     _startKitchenClockTimer();
   }
 
+  Future<void> _checkAttendanceGate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final role = prefs.getString('userRole') ?? _userRole;
+    if (AttendanceManager.isAttendanceMandatoryRole(role)) {
+      final isPunched = await AttendanceManager.instance.checkAttendanceStatus(prefs: prefs);
+      if (!isPunched && mounted) {
+        _redirectToProfileGate();
+      }
+    }
+  }
+
+  void _onAttendanceStateChanged() {
+    if (!mounted) return;
+    if (AttendanceManager.isAttendanceMandatoryRole(_userRole) && !AttendanceManager.isPunchedIn) {
+      _redirectToProfileGate();
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _redirectToProfileGate() {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please punch in attendance first to access Home, Review, and Chat.'),
+        backgroundColor: Colors.black87,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const ProfilePage(isLockedForAttendance: true)),
+      (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     AttendanceManager.instance.stopForegroundWatcher();
+    AttendanceManager.isPunchedInNotifier.removeListener(_onAttendanceStateChanged);
     _categoryUpdateSubscription?.cancel();
     _syncTimer?.cancel();
     _kitchenClockTimer?.cancel();
@@ -4977,6 +5018,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _handleStockFooterSelection(StockFooterTab tab) {
+    if (AttendanceManager.isAttendanceMandatoryRole(_userRole) && !AttendanceManager.isPunchedIn) {
+      _redirectToProfileGate();
+      return;
+    }
     switch (tab) {
       case StockFooterTab.home:
         if (_isChef) {
@@ -5065,6 +5110,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _handleKitchenFooterSelection(KitchenFooterTab tab) {
+    if (AttendanceManager.isAttendanceMandatoryRole(_userRole) && !AttendanceManager.isPunchedIn) {
+      _redirectToProfileGate();
+      return;
+    }
     switch (tab) {
       case KitchenFooterTab.home:
         setState(() {

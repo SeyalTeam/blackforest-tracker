@@ -5,6 +5,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'geofence_util.dart';
 
@@ -13,6 +14,188 @@ class AttendanceManager {
   AttendanceManager._internal();
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
+
+  static final ValueNotifier<bool> isPunchedInNotifier = ValueNotifier<bool>(false);
+  static bool get isPunchedIn => isPunchedInNotifier.value;
+  static bool _hasActiveSessionCached = false;
+
+  /// Checks if the given role requires attendance before granting access to app features.
+  /// Roles included: Chef, Driver, Supervisor, Accountant, Manager, Store Keeper.
+  /// Excluded: Watcher.
+  static bool isAttendanceMandatoryRole(String? role) {
+    if (role == null) return false;
+    final r = role.trim().toLowerCase().replaceAll(' ', '').replaceAll('_', '');
+    if (r == 'watcher') return false;
+    return r == 'chef' ||
+        r == 'driver' ||
+        r == 'supervisor' ||
+        r == 'accountant' ||
+        r == 'account' ||
+        r == 'manager' ||
+        r == 'storekeeper' ||
+        r == 'kitchen';
+  }
+
+  /// Sets the global attendance punched-in state, notifies listeners, and persists.
+  static Future<void> setPunchedInState(
+    bool punchedIn, {
+    String? punchInTime,
+  }) async {
+    isPunchedInNotifier.value = punchedIn;
+    _hasActiveSessionCached = punchedIn;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_punched_in', punchedIn);
+      const storage = FlutterSecureStorage();
+      if (punchedIn) {
+        if (punchInTime != null && punchInTime.isNotEmpty) {
+          await prefs.setString('activePunchIn', punchInTime);
+          await storage.write(key: 'activePunchIn', value: punchInTime);
+        }
+      } else {
+        await prefs.remove('activePunchIn');
+        await storage.delete(key: 'activePunchIn');
+        await storage.delete(key: 'pastWorkSeconds');
+      }
+    } catch (e) {
+      debugPrint('AttendanceManager setPunchedInState error: $e');
+    }
+
+    if (!instance._updateController.isClosed) {
+      instance._updateController.add({
+        'type': punchedIn ? 'punch_in' : 'punch_out',
+        'isPunchedIn': punchedIn,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+    }
+  }
+
+  /// Synchronous check from SharedPreferences whether user is punched in for today.
+  static bool isPunchedInFromPrefs(SharedPreferences prefs) {
+    final flag = prefs.getBool('is_punched_in');
+    final punchInStr = prefs.getString('activePunchIn');
+    if (punchInStr != null && punchInStr.isNotEmpty) {
+      final punchInTime = DateTime.tryParse(punchInStr)?.toLocal();
+      if (punchInTime != null) {
+        final now = DateTime.now();
+        final localMidnight = DateTime(now.year, now.month, now.day);
+        if (punchInTime.isAfter(localMidnight)) {
+          return flag ?? true;
+        }
+      }
+    }
+    return flag ?? false;
+  }
+
+  /// Checks whether user is currently punched in for today.
+  /// First checks local cache for instant result, then verifies with server if possible.
+  Future<bool> checkAttendanceStatus({
+    SharedPreferences? prefs,
+    bool forceRefresh = false,
+  }) async {
+    final p = prefs ?? await SharedPreferences.getInstance();
+    const storage = FlutterSecureStorage();
+
+    // 1. Check local cache first
+    String? cachedPunchIn = p.getString('activePunchIn');
+    if (cachedPunchIn == null || cachedPunchIn.isEmpty) {
+      cachedPunchIn = await storage.read(key: 'activePunchIn');
+      if (cachedPunchIn != null && cachedPunchIn.isNotEmpty) {
+        await p.setString('activePunchIn', cachedPunchIn);
+      }
+    }
+
+    bool localActive = false;
+    if (cachedPunchIn != null && cachedPunchIn.isNotEmpty) {
+      final activeStart = DateTime.tryParse(cachedPunchIn)?.toLocal();
+      if (activeStart != null) {
+        final now = DateTime.now();
+        final localMidnight = DateTime(now.year, now.month, now.day);
+        if (activeStart.isAfter(localMidnight)) {
+          localActive = p.getBool('is_punched_in') ?? true;
+        }
+      }
+    }
+
+    isPunchedInNotifier.value = localActive;
+    _hasActiveSessionCached = localActive;
+
+    // 2. Query server if token & userId exist
+    final token = p.getString('token') ?? (await storage.read(key: 'token'));
+    final userId = p.getString('userId') ??
+        p.getString('user_id') ??
+        (await storage.read(key: 'userId'));
+
+    if (token == null || token.isEmpty || userId == null || userId.isEmpty) {
+      await setPunchedInState(false);
+      return false;
+    }
+
+    try {
+      final now = DateTime.now();
+      final localMidnight = DateTime(now.year, now.month, now.day);
+      final queryDate = localMidnight
+          .subtract(const Duration(days: 1))
+          .toUtc()
+          .toIso8601String();
+      final queryDateStr = DateFormat('yyyy-MM-dd').format(localMidnight);
+
+      final url =
+          '${ApiService.baseUrl}/attendance?where[user][equals]=$userId&where[date][greater_than_equal]=$queryDate&sort=-date&limit=5';
+
+      final response = await http
+          .get(
+            Uri.parse(url),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 6));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final docs =
+            (data is Map<String, dynamic> ? data['docs'] : null) as List?;
+        if (docs != null) {
+          bool serverActive = false;
+          String? serverPunchInTime;
+
+          for (final dynamic doc in docs) {
+            if (doc is! Map<String, dynamic>) continue;
+            final docDateStr = doc['dateString']?.toString() ?? '';
+            final docDateRaw = doc['date']?.toString() ?? '';
+            final isToday = docDateStr == queryDateStr ||
+                docDateRaw.startsWith(queryDateStr);
+            if (!isToday) continue;
+
+            final acts = (doc['activities'] as List?) ?? [];
+            for (int i = acts.length - 1; i >= 0; i--) {
+              final a = acts[i];
+              if (a is Map<String, dynamic> &&
+                  a['type'] == 'session' &&
+                  a['status'] == 'active') {
+                serverActive = true;
+                serverPunchInTime = a['punchIn']?.toString();
+                break;
+              }
+            }
+            if (serverActive) break;
+          }
+
+          await setPunchedInState(
+            serverActive,
+            punchInTime: serverPunchInTime,
+          );
+          return serverActive;
+        }
+      }
+    } catch (e) {
+      debugPrint('AttendanceManager checkAttendanceStatus error: $e');
+    }
+    return localActive;
+  }
 
   final StreamController<Map<String, dynamic>> _updateController =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -223,6 +406,12 @@ class AttendanceManager {
         'AttendanceManager tick: [bg=$isBackground] isInside=$isInside, isOutside=$isOutside, hasActive=${activeSession != null}, hasPhoto=$activePhotoFound, lastPunchOut=$latestPunchOutType',
       );
 
+      if (activeSession != null) {
+        unawaited(setPunchedInState(true, punchInTime: activeSession['punchIn']?.toString()));
+      } else {
+        unawaited(setPunchedInState(false));
+      }
+
       // ── 5. AUTO PUNCH OUT EVALUATION ──────────────────────────────────────
       if (activeSession != null) {
         _consecutiveInsideTicks = 0;
@@ -274,6 +463,7 @@ class AttendanceManager {
               _consecutiveOutsideTicks = 0;
               _consecutiveInsideTicks = 0;
               await _storage.write(key: 'lastPunchOutType', value: 'auto');
+              unawaited(setPunchedInState(false));
 
               await _showLocalNotification(
                 id: 991,
@@ -352,6 +542,7 @@ class AttendanceManager {
                 debugPrint('AttendanceManager: Auto punch-in SUCCESS (patched)!');
                 _lastActionTime = now;
                 await _storage.delete(key: 'lastPunchOutType');
+                unawaited(setPunchedInState(true, punchInTime: now.toIso8601String()));
 
                 await _showLocalNotification(
                   id: 992,
@@ -392,6 +583,7 @@ class AttendanceManager {
                 debugPrint('AttendanceManager: Auto punch-in SUCCESS (posted new doc)!');
                 _lastActionTime = now;
                 await _storage.delete(key: 'lastPunchOutType');
+                unawaited(setPunchedInState(true, punchInTime: now.toIso8601String()));
 
                 await _showLocalNotification(
                   id: 992,
