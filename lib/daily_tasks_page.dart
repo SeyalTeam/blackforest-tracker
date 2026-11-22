@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
+import 'chef_cleaning_audit_dialog.dart';
 
 class DailyTasksPage extends StatefulWidget {
   final String? attendanceId;
@@ -201,7 +202,17 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
 
     if (targetStatus == 'yes') {
       if (requiresPhoto) {
-        _showPhotoProofSheet(task);
+        final freq = (task['frequency']?.toString() ?? '').toLowerCase().trim();
+        final isMultiple = task['allowMultiplePhotos'] == true;
+        if (freq == 'random' || isMultiple) {
+          ChefCleaningAuditDialog.show(
+            context,
+            task: task,
+            onCompleted: _fetchTasks,
+          );
+        } else {
+          _showPhotoProofSheet(task);
+        }
       } else {
         await _updateTaskStatus(taskId, 'yes');
       }
@@ -1074,7 +1085,47 @@ class _DailyTasksPageState extends State<DailyTasksPage> {
                                     ),
                                   ),
                                 ],
-                                const SizedBox(height: 10),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: [
+                                    if ((task['frequency']?.toString() ?? '').toLowerCase() == 'random')
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFDF2F8),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFFF472B6)),
+                                        ),
+                                        child: Text(
+                                          '🎲 ரேண்டம் (${task['randomIntervalValue'] ?? 2}${task['randomIntervalUnit'] == 'minutes' ? 'm' : 'h'})',
+                                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFDB2777)),
+                                        ),
+                                      ),
+                                    if (task['requiresPhoto'] == true)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFFF7ED),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFFFDBA74)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.camera_alt, size: 12, color: Color(0xFFEA580C)),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              task['allowMultiplePhotos'] == true ? '📸 பல புகைப்படங்கள்' : '📸 புகைப்படம்',
+                                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFEA580C)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
 
                                 // Action Buttons (Yes & No strictly in one line, no breaking)
                                 SingleChildScrollView(

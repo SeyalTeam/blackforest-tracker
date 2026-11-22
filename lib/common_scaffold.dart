@@ -77,7 +77,7 @@ class _CommonScaffoldState extends State<CommonScaffold> {
             }
           }
           if (photo.isNotEmpty && !photo.startsWith('http')) {
-            photo = 'https://blackforest-api.vseyal.com$photo';
+            photo = 'https://blackforest.vseyal.com$photo';
           }
           if (photo.isNotEmpty) {
             await _storage.write(key: 'userProfilePhoto', value: photo);

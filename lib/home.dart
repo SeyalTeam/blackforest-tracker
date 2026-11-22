@@ -37,7 +37,9 @@ import 'attendance_manager.dart';
 import 'tracker_contact_book_page.dart';
 import 'tracker_realtime_service.dart';
 import 'chef_category_management_screen.dart';
+import 'chef_cleaning_audit_dialog.dart';
 import 'app_grid_settings.dart';
+import 'accountant_cashdrawer_page.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -68,6 +70,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _userRole = '';
   bool _isKitchenEnabled = false;
   bool _isStockEnabled = false;
+  bool _isAuditDialogShowing = false;
+  DateTime? _lastAuditCheckTime;
   String _activeModule = 'STOCK'; // Default to STOCK
   bool _isFirstLoad = true;
   String _userBranchId = '';
@@ -168,6 +172,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool get _isWatcher {
     final normalized = _userRole.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase();
     return normalized == 'watcher';
+  }
+
+  bool get _isAccountant {
+    final normalized = _userRole.trim().replaceAll(' ', '').replaceAll('_', '').toLowerCase();
+    return normalized == 'account' || normalized == 'accountant';
   }
 
   Widget _buildStoreKeeperListItem(
@@ -515,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (rawPhotoUrl != null && rawPhotoUrl.isNotEmpty) {
             final resolved = rawPhotoUrl.startsWith('http')
                 ? rawPhotoUrl
-                : 'https://blackforest-api.vseyal.com$rawPhotoUrl';
+                : 'https://blackforest.vseyal.com$rawPhotoUrl';
             if (mounted) {
               setState(() {
                 _profilePhotoUrl = resolved;
@@ -746,6 +755,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _fetchCounts(forceRefresh: false);
       _fetchReviewsCount();
       if (_isStoreKeeper) _fetchPendingProductionRequestsCount();
+      if (_isChef) _checkChefRandomTasks();
     });
 
     // 2. Sync notifications, kitchen orders, and unread chat (every 10 seconds)
@@ -769,6 +779,126 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }
     });
+  }
+
+  Future<void> _checkChefRandomTasks() async {
+    if (!_isChef || _isAuditDialogShowing || !mounted) return;
+
+    final now = DateTime.now();
+    if (_lastAuditCheckTime != null && now.difference(_lastAuditCheckTime!).inSeconds < 25) {
+      return;
+    }
+    _lastAuditCheckTime = now;
+
+    try {
+      final res = await ApiService.instance.fetchMyDailyTasks(activeModule: _activeModule);
+      if (res['success'] != true || res['tasks'] is! List) return;
+
+      final tasks = List<Map<String, dynamic>>.from(
+        (res['tasks'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+      );
+
+      final currentModule = (_activeModule ?? '').toUpperCase().trim();
+
+      // 1. Check for manual / sudden inspection triggered from Dashboard Checking Menu
+      try {
+        final pendingRes = await ApiService.instance.fetchPendingAudit(
+          userId: _userId.isNotEmpty ? _userId : null,
+          branchId: _userBranchId.isNotEmpty ? _userBranchId : null,
+          role: 'chef',
+        );
+
+        if (pendingRes['hasPendingAudit'] == true && pendingRes['audit'] is Map) {
+          final auditMap = Map<String, dynamic>.from(pendingRes['audit'] as Map);
+          final targetChefType = (auditMap['chefType']?.toString() ?? 'both').toLowerCase().trim();
+
+          // Strict role & active module scoping:
+          bool shouldShow = true;
+          if (targetChefType == 'kitchen' && currentModule != 'KITCHEN') shouldShow = false;
+          if (targetChefType == 'stock' && currentModule != 'STOCK') shouldShow = false;
+
+          if (shouldShow && mounted && !_isAuditDialogShowing) {
+            _isAuditDialogShowing = true;
+            await ChefCleaningAuditDialog.show(
+              context,
+              task: {
+                'id': auditMap['id'] ?? 'sudden_inspection',
+                'title': auditMap['taskTitle'] ?? 'Mandatory Kitchen Cleaning Audit',
+                'requiresPhoto': true,
+              },
+              chefType: currentModule == 'KITCHEN' ? 'kitchen' : (currentModule == 'STOCK' ? 'stock' : 'both'),
+              branchId: _userBranchId,
+              onCompleted: () {
+                _isAuditDialogShowing = false;
+                _fetchCounts(forceRefresh: true);
+              },
+            );
+            _isAuditDialogShowing = false;
+            return;
+          }
+        }
+      } catch (pendingErr) {
+        debugPrint('Error checking sudden inspection audit: $pendingErr');
+      }
+
+      for (final t in tasks) {
+        final freq = (t['frequency']?.toString() ?? '').toLowerCase().trim();
+        final requiresPhoto = t['requiresPhoto'] == true;
+        final isCompleted = t['completed'] == true;
+        final targetChefType = (t['chefType']?.toString() ?? 'both').toLowerCase().trim();
+
+        // Strict role & active module scoping:
+        // If the task is designated for kitchen cleaning, do NOT show it when the chef is actively managing stock.
+        if (targetChefType == 'kitchen' && currentModule != 'KITCHEN') {
+          continue;
+        }
+        if (targetChefType == 'stock' && currentModule != 'STOCK') {
+          continue;
+        }
+
+        if (freq == 'random' && requiresPhoto) {
+          bool isDue = false;
+
+          final intervalVal = int.tryParse(t['randomIntervalValue']?.toString() ?? '') ?? 2;
+          final intervalUnit = (t['randomIntervalUnit']?.toString() ?? 'hours').toLowerCase();
+          final totalMinutes = intervalUnit == 'minutes' ? intervalVal : intervalVal * 60;
+
+          final completedAtStr = t['completedAt']?.toString();
+          if (completedAtStr == null || completedAtStr.isEmpty || !isCompleted) {
+            isDue = true;
+          } else {
+            final completedAt = DateTime.tryParse(completedAtStr);
+            if (completedAt != null) {
+              final elapsedMinutes = now.difference(completedAt).inMinutes;
+              final jitterFactor = 0.85 + (0.15 * ((t['id'].toString().hashCode.abs() % 100) / 100.0));
+              final triggerThresholdMinutes = (totalMinutes * jitterFactor).round();
+
+              if (elapsedMinutes >= triggerThresholdMinutes) {
+                isDue = true;
+              }
+            }
+          }
+
+          if (isDue && mounted && !_isAuditDialogShowing) {
+            _isAuditDialogShowing = true;
+            await ChefCleaningAuditDialog.show(
+              context,
+              task: t,
+              chefType: currentModule == 'KITCHEN' ? 'kitchen' : (currentModule == 'STOCK' ? 'stock' : 'both'),
+              branchId: _userBranchId,
+              onCompleted: () {
+                _isAuditDialogShowing = false;
+                _fetchCounts(forceRefresh: true);
+              },
+            );
+            _isAuditDialogShowing = false;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking chef random cleaning tasks: $e');
+    }
   }
 
   void _startKitchenClockTimer() {
@@ -2549,6 +2679,148 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildAccountantHome() {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('Accountant', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call_rounded, color: Colors.greenAccent),
+            tooltip: 'Live Contacts & Call History',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TrackerContactBookPage(),
+                ),
+              );
+            },
+          ),
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfilePage()),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+              child: CircleAvatar(
+                radius: 17,
+                backgroundColor: Colors.white24,
+                backgroundImage: _profilePhotoUrl != null && _profilePhotoUrl!.isNotEmpty
+                    ? NetworkImage(_profilePhotoUrl!)
+                    : null,
+                child: _profilePhotoUrl == null || _profilePhotoUrl!.isEmpty
+                    ? const Icon(Icons.person, size: 20, color: Colors.white)
+                    : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const AccountantCashDrawerPage(),
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxWidth: 340),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.teal.shade100, width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.teal.withOpacity(0.08),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE6FFFA),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.account_balance_wallet_rounded,
+                          size: 52,
+                          color: Color(0xFF0F766E),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Cash Drawer',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tap to access and open the cash register',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 22),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F766E),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Open Drawer',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 16),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_userRole.isEmpty) {
@@ -2561,6 +2833,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     if (_isWatcher) {
       return WatcherHome(profilePhotoUrl: _profilePhotoUrl ?? '');
+    }
+    if (_isAccountant) {
+      return _buildAccountantHome();
     }
     if (_isStoreKeeper) {
       return Scaffold(
@@ -5321,7 +5596,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (extracted.startsWith('http')) {
               return extracted;
             }
-            return 'https://blackforest-api.vseyal.com$extracted';
+            return 'https://blackforest.vseyal.com$extracted';
           }
         }
       }
@@ -7485,7 +7760,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -7516,7 +7791,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -7536,7 +7811,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (imageUrl != null &&
         imageUrl.isNotEmpty &&
         !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
 
     return (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
@@ -10682,7 +10957,7 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
       imageUrl = img;
     }
     if (imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('http')) {
-      imageUrl = 'https://blackforest-api.vseyal.com$imageUrl';
+      imageUrl = 'https://blackforest.vseyal.com$imageUrl';
     }
     return imageUrl;
   }
@@ -10705,7 +10980,7 @@ class _ChefRawMaterialScreenState extends State<ChefRawMaterialScreen> {
             if (extracted.startsWith('http')) {
               return extracted;
             }
-            return 'https://blackforest-api.vseyal.com$extracted';
+            return 'https://blackforest.vseyal.com$extracted';
           }
         }
       }

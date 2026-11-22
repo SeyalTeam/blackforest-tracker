@@ -65,9 +65,9 @@ class TrackerRealtimeService {
     _wsConnecting = true;
     try {
       final candidateHosts = <String>[
-        'blackforest-api.vseyal.com',
-        'admin.theblackforestcakes.com',
         'blackforest.vseyal.com',
+        'app.theblackforestcakes.com',
+        'admin.theblackforestcakes.com',
       ];
 
       io.WebSocket? connectedSocket;

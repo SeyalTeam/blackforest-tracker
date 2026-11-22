@@ -15,7 +15,7 @@ class ApiService {
   ApiService._internal();
   static ApiService get instance => _instance;
 
-  static const String _baseUrl = 'https://blackforest-api.vseyal.com/api';
+  static const String _baseUrl = 'https://blackforest.vseyal.com/api';
   static String get baseUrl => _baseUrl;
   static const storage = FlutterSecureStorage();
 
@@ -2169,14 +2169,23 @@ Future<List<dynamic>> fetchEmployees() async {
     }
   }
 
-  Future<Map<String, dynamic>> fetchMyDailyTasks({String? dateString}) async {
+  Future<Map<String, dynamic>> fetchMyDailyTasks({String? dateString, String? activeModule}) async {
     final token = await _getToken();
     final today = dateString ?? DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final isKit = (await storage.read(key: 'userIsKitchen')) == 'true';
+    final isStk = (await storage.read(key: 'userIsStock')) == 'true';
+    final mod = activeModule?.toUpperCase();
+    final chefTypeParam = mod == 'KITCHEN'
+        ? 'kitchen'
+        : (mod == 'STOCK'
+            ? 'stock'
+            : (isKit && isStk ? 'both' : (isKit ? 'kitchen' : (isStk ? 'stock' : ''))));
+    final queryParams = 'dateString=$today&isKitchen=$isKit&isStock=$isStk${chefTypeParam.isNotEmpty ? '&chefType=$chefTypeParam' : ''}';
 
     final endpoints = [
-      '$_baseUrl/daily-tasks/my-tasks?dateString=$today',
-      '$_baseUrl/my-daily-tasks?dateString=$today',
-      '$_baseUrl/tasks/my-daily-tasks?dateString=$today',
+      '$_baseUrl/daily-tasks/my-tasks?$queryParams',
+      '$_baseUrl/my-daily-tasks?$queryParams',
+      '$_baseUrl/tasks/my-daily-tasks?$queryParams',
     ];
 
     for (final url in endpoints) {
@@ -2318,6 +2327,10 @@ Future<List<dynamic>> fetchEmployees() async {
             'yesText': t['yesText'],
             'priority': t['priority'] ?? 'medium',
             'frequency': t['frequency'] ?? (t['isDaily'] == false ? 'weekly' : 'daily'),
+            'randomIntervalValue': t['randomIntervalValue'] ?? 2,
+            'randomIntervalUnit': t['randomIntervalUnit'] ?? 'hours',
+            'chefType': t['chefType'] ?? 'both',
+            'allowMultiplePhotos': t['allowMultiplePhotos'] != false,
             'isDaily': (t['frequency'] ?? (t['isDaily'] == false ? 'weekly' : 'daily')) == 'daily',
             'assignedRole': t['assignedRole'] ?? (t['column'] is Map ? t['column']['title'] : null),
             'requiresPhoto': t['requiresPhoto'] == true,
@@ -2377,6 +2390,116 @@ Future<List<dynamic>> fetchEmployees() async {
       'url': mediaUrl,
       'doc': doc,
     };
+  }
+
+  /// Check if there is an active sudden inspection pending for this staff
+  Future<Map<String, dynamic>> fetchPendingAudit({
+    String? employeeId,
+    String? userId,
+    String? branchId,
+    String? role,
+    String? chefType,
+  }) async {
+    final token = await _getToken();
+    final queryParams = <String, String>{};
+    if (employeeId != null && employeeId.isNotEmpty) queryParams['employeeId'] = employeeId;
+    if (userId != null && userId.isNotEmpty) queryParams['userId'] = userId;
+    if (branchId != null && branchId.isNotEmpty) queryParams['branchId'] = branchId;
+    if (role != null && role.isNotEmpty) queryParams['role'] = role;
+    if (chefType != null && chefType.isNotEmpty) queryParams['chefType'] = chefType;
+
+    final uri = Uri.parse('$_baseUrl/checking/pending-audit').replace(
+      queryParameters: queryParams.isNotEmpty ? queryParams : null,
+    );
+
+    try {
+      final res = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map<String, dynamic>) return data;
+      }
+    } catch (e) {
+      debugPrint('Error checking pending audit: $e');
+    }
+    return {'success': false, 'hasPendingAudit': false};
+  }
+
+  /// Submit cleaning or inspection photo audit with multiple captured photos
+  Future<Map<String, dynamic>> submitTaskPhotoAudit({
+    required String taskId,
+    required List<File> imageFiles,
+    String? notes,
+    String? chefType,
+    String? branchId,
+    Function(int current, int total)? onProgress,
+  }) async {
+    final token = await _getToken();
+    final List<Map<String, dynamic>> uploadedPhotos = [];
+
+    for (int i = 0; i < imageFiles.length; i++) {
+      onProgress?.call(i + 1, imageFiles.length);
+      try {
+        final uploadRes = await uploadTaskProofImage(imageFiles[i]);
+        final photoId = uploadRes['id']?.toString();
+        final photoUrl = uploadRes['url']?.toString();
+        if (photoId != null || photoUrl != null) {
+          uploadedPhotos.add({
+            if (photoId != null && photoId.isNotEmpty) 'photo': photoId,
+            'photoUrl': photoUrl ?? '',
+            'capturedAt': DateTime.now().toIso8601String(),
+          });
+        }
+      } catch (e) {
+        debugPrint('Failed uploading proof image $i: $e');
+      }
+    }
+
+    if (uploadedPhotos.isEmpty && imageFiles.isNotEmpty) {
+      throw Exception('Failed to upload proof photos to server');
+    }
+
+    final endpoints = [
+      '$_baseUrl/daily-tasks/submit-audit',
+      '$_baseUrl/tasks/submit-audit',
+      '$_baseUrl/task-photo-audits',
+    ];
+
+    for (final url in endpoints) {
+      try {
+        final res = await http.post(
+          Uri.parse(url),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'taskId': taskId,
+            'photos': uploadedPhotos,
+            'notes': notes ?? '',
+            'chefType': chefType ?? 'kitchen',
+            if (branchId != null) 'branchId': branchId,
+            'status': 'submitted',
+            'submittedAt': DateTime.now().toIso8601String(),
+          }),
+        );
+
+        if (res.statusCode == 200 || res.statusCode == 201) {
+          final data = jsonDecode(res.body);
+          return data is Map<String, dynamic> ? data : {'success': true};
+        }
+      } catch (e) {
+        debugPrint('Error posting audit to $url: $e');
+      }
+    }
+
+    return {'success': false, 'message': 'Failed to submit task photo audit'};
   }
 
   Future<Map<String, dynamic>> toggleDailyTask({

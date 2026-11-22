@@ -330,8 +330,8 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
 
-        // Watcher does not require branch geofence circle to login
-        final isExemptFromGeofence = userRole == 'watcher';
+        // Watcher and Account roles do not require branch geofence circle to login
+        final isExemptFromGeofence = userRole == 'watcher' || userRole == 'account' || userRole == 'accountant';
 
         if (!isExemptFromGeofence) {
           if (!mounted) return;

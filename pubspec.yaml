@@ -85,6 +85,8 @@ flutter:
   assets:
     - assets/sounds/alert.wav
     - assets/sounds/table.mp3
+    - assets/sounds/cleaning_alarm.wav
+    - assets/sounds/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

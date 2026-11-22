@@ -1019,7 +1019,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       }
 
       // 3. Send PATCH Request
-      final url = 'https://blackforest-api.vseyal.com/api/stock-orders/$orderId';
+      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
       final res = await http.patch(
         Uri.parse(url),
         headers: {
@@ -1128,7 +1128,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
       if (!found) return;
 
-      final url = 'https://blackforest-api.vseyal.com/api/stock-orders/$orderId';
+      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
       final res = await http.patch(
         Uri.parse(url),
         headers: {
@@ -1422,7 +1422,7 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
 
       if (!found) return;
 
-      final url = 'https://blackforest-api.vseyal.com/api/stock-orders/$orderId';
+      final url = 'https://blackforest.vseyal.com/api/stock-orders/$orderId';
       await http.patch(
         Uri.parse(url),
         headers: {
@@ -3227,12 +3227,12 @@ class _StockOrderReportPageState extends State<StockOrderReportPage> {
       return raw;
     }
     if (raw.startsWith('/')) {
-      return 'https://blackforest-api.vseyal.com$raw';
+      return 'https://blackforest.vseyal.com$raw';
     }
     if (raw.startsWith('media/') || raw.startsWith('uploads/')) {
-      return 'https://blackforest-api.vseyal.com/$raw';
+      return 'https://blackforest.vseyal.com/$raw';
     }
-    return 'https://blackforest-api.vseyal.com/$raw';
+    return 'https://blackforest.vseyal.com/$raw';
   }
 
   Widget _buildDriverGridItem(Map<String, dynamic> entry) {
