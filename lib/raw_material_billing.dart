@@ -501,6 +501,24 @@ class _RawMaterialBillingPageState extends State<RawMaterialBillingPage> {
       return;
     }
 
+    // Individual product image is mandatory for every selected raw material
+    for (var entry in _selectedRawMaterialQuantities.entries) {
+      final id = entry.key;
+      final data = entry.value;
+      final File? itemPhotoFile = data['photoFile'] as File?;
+      if (itemPhotoFile == null || !itemPhotoFile.existsSync()) {
+        final prod = _products.firstWhere((p) => p['id'] == id, orElse: () => {'name': 'Raw Material'});
+        final prodName = prod['name'] ?? 'Selected Item';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Individual product photo is mandatory for "$prodName". Please take a photo.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
@@ -1197,11 +1215,15 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
             onPressed: () {
               final result = <String, Map<String, dynamic>>{};
               bool hasInvalid = false;
+              String? missingPhotoName;
 
               _quantities.forEach((id, qty) {
                 final amt = _amounts[id] ?? 0.0;
                 if (qty <= 0.0) {
                   hasInvalid = true;
+                } else if (_productPhotoFiles[id] == null || !_productPhotoFiles[id]!.existsSync()) {
+                  final prod = widget.products.firstWhere((p) => p['id'] == id, orElse: () => {'name': 'Raw Material'});
+                  missingPhotoName ??= prod['name']?.toString() ?? 'Product';
                 } else {
                   result[id] = {
                     'quantity': qty,
@@ -1215,6 +1237,16 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Please enter a quantity greater than 0 for all selected items.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              if (missingPhotoName != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Photo is mandatory for "$missingPhotoName". Please capture a photo.'),
                     backgroundColor: Colors.red,
                   ),
                 );
@@ -1391,18 +1423,18 @@ class _RawMaterialSelectionPageState extends State<RawMaterialSelectionPage> {
                                             height: 40,
                                             padding: const EdgeInsets.symmetric(horizontal: 8),
                                             decoration: BoxDecoration(
-                                              border: Border.all(color: Colors.teal.shade400),
+                                              border: Border.all(color: Colors.red.shade400),
                                               borderRadius: BorderRadius.circular(8),
-                                              color: Colors.teal.shade50,
+                                              color: Colors.red.shade50,
                                             ),
                                             child: const Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
-                                                Icon(Icons.camera_alt, size: 18, color: Colors.teal),
+                                                Icon(Icons.camera_alt, size: 18, color: Colors.red),
                                                 SizedBox(width: 4),
                                                 Text(
-                                                  'Photo',
-                                                  style: TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold),
+                                                  'Photo *',
+                                                  style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.bold),
                                                 ),
                                               ],
                                             ),
